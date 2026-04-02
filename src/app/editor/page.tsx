@@ -49,7 +49,12 @@ function EditorContent() {
     const alreadyHasThisFlow =
       store.originalPrompt === q && (store.nodes.length > 0 || store.agenticConfig !== null);
 
-    if (alreadyHasThisFlow) return;
+    if (alreadyHasThisFlow) {
+      if (roleParam === "tech" && store.project.status !== "tech_reviewing" && store.project.status !== "confirmed") {
+        store.setProjectStatus("tech_reviewing");
+      }
+      return;
+    }
 
     store.resetAll();
 
@@ -69,6 +74,20 @@ function EditorContent() {
       s.setInitQuery(q);
     }, 0);
   }, [q, roleParam]);
+
+  // When tech role and flow/config is ready, auto-set to tech_reviewing
+  const techStatusRef = useRef(false);
+  useEffect(() => {
+    if (techStatusRef.current) return;
+    if (roleParam !== "tech") return;
+    const store = useFlowAgentStore.getState();
+    const hasContent = store.nodes.length > 0 || store.agenticConfig !== null;
+    const isReadyPhase = store.chatPhase === "ready" || store.chatPhase === "agentic_ready";
+    if (hasContent && isReadyPhase && store.project.status !== "tech_reviewing" && store.project.status !== "confirmed") {
+      techStatusRef.current = true;
+      store.setProjectStatus("tech_reviewing");
+    }
+  });
 
   const annotationsLoadedRef = useRef(false);
   useEffect(() => {
