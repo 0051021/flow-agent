@@ -1,6 +1,6 @@
 # FlowAgent 平台架构与逻辑文档
 
-> 最后更新：2026-04-02
+> 最后更新：2026-04-02（v2）
 
 ## 一、产品定位
 
@@ -15,7 +15,21 @@ FlowAgent 平台包含两个核心产品：
 
 业务方通过 FlowAgent 了解哪些场景可以做，技术方通过业务方留在上面的内容进行技术确认。
 
-### 1.2 管控后台（SaaS）
+### 1.2 角色体系
+
+平台区分两种角色，通过不同入口 URL 进入：
+
+| 角色 | 入口 | 职责 | 可操作 |
+|------|------|------|--------|
+| **业务方** | `/`（首页） | 描述需求、编辑方案、提交评审 | 编辑流程图/配置、提交至管控后台、提交技术评审 |
+| **技术方** | `/tech` | 评审方案可行性、添加批注 | 查看方案、添加批注/回复、评审通过/打回修改 |
+
+角色切换方式：
+- 首页 header 有「技术方入口」链接
+- `/tech` 页 header 有「业务方入口」链接
+- 编辑器 TopBar 角色标签旁有切换链接，点击跳转到对方落地页
+
+### 1.3 管控后台（SaaS）
 
 关注已部署 Agent 的运行状态，提供：
 
@@ -24,22 +38,26 @@ FlowAgent 平台包含两个核心产品：
 - 任务监控（实时任务列表、状态筛选、执行详情）
 - 人工介入（确认通过/驳回/异常处理）
 
-### 1.3 两者关系
+### 1.4 整体关系
 
 ```
-业务方描述需求
-    │
-    ▼
-FlowAgent 翻译为结构化任务定义
-    │
-    ├── Workflow → 流程图（逐节点确认 → 就绪）
-    └── Agentic → Agent 配置（目标/技能/约束/评估器 → 就绪）
-    │
-    ▼
-"部署为 Agent" → 交付到管控后台
-    │
-    ▼
-管控后台监控运行状态 + 人工介入
+业务方 (/)                          技术方 (/tech)
+    │                                    │
+    ▼                                    ▼
+描述需求 → AI翻译                    评审列表（Mock数据直接加载）
+    │                                    │
+    ├── Workflow → 流程图               │
+    └── Agentic → Agent配置            │
+    │                                    │
+    ▼                                    ▼
+编辑器 (/editor)  ←── 角色切换 ──→  编辑器 (/editor?role=tech)
+    │                                    │
+    ▼                                    ▼
+"提交至管控后台"                     "评审通过" / "打回修改"
+（生成配置JSON摘要）                  （添加批注）
+    │                                    │
+    ▼                                    ▼
+管控后台 (/console) 监控运行状态 + 人工介入
 ```
 
 ---
@@ -63,8 +81,9 @@ FlowAgent 翻译为结构化任务定义
 
 | 路由 | 文件 | 职责 |
 |------|------|------|
-| `/` | `src/app/page.tsx` | 首页落地页：输入框 + 示例场景卡片（Workflow + Agentic），跳转到 `/editor?q=...` |
-| `/editor` | `src/app/editor/page.tsx` | 主工作台：左侧对话面板 + 右侧根据 `taskType` 渲染 FlowCanvas 或 AgenticConfigPanel |
+| `/` | `src/app/page.tsx` | 业务方首页：输入框 + 示例场景卡片，header 含技术方入口和管控后台链接 |
+| `/tech` | `src/app/tech/page.tsx` | 技术方落地页：评审列表（4 个 Mock 场景）+ 统计卡片，链接到 `/editor?reviewId=xxx&role=tech` |
+| `/editor` | `src/app/editor/page.tsx` | 主工作台：支持 `?q=`（AI 生成）和 `?reviewId=`（Mock 直接加载）两种模式 |
 | `POST /api/generate-flow` | `src/app/api/generate-flow/route.ts` | LLM API：支持 classify / draft / draft_agentic / refine_node / refine / refine_agentic 六种 action |
 
 ### 管控后台（SaaS）
@@ -82,7 +101,21 @@ FlowAgent 翻译为结构化任务定义
 
 ## 四、核心数据流
 
-### 4.1 FlowAgent 主流程
+### 4.1 编辑器加载模式
+
+编辑器支持两种加载路径：
+
+**路径 A：AI 生成（`?q=描述内容`）**
+- 业务方从首页输入描述后跳转
+- 触发 AI 分类 → 生成流程图/Agentic 配置
+
+**路径 B：Mock 直接加载（`?reviewId=review-1&role=tech`）**
+- 技术方从 `/tech` 评审列表点击
+- 从 `mock-reviews.ts` 直接加载完整的流程图/Agentic 配置 + 聊天记录
+- 不触发任何 AI API 调用
+- 自动设置 `isReviewMode = true`，聊天框发消息只返回提示，不调 AI
+
+### 4.2 FlowAgent AI 生成流程（路径 A）
 
 ```
 用户在首页输入业务描述
@@ -139,7 +172,7 @@ triggerClassify(prompt)                    ← 新增：AI 分类
                        └── 无 → "agentic_ready"
 ```
 
-### 4.2 Agentic 确认流程
+### 4.3 Agentic 确认流程
 
 ```
 confirming_agentic
@@ -159,20 +192,23 @@ AgenticConfirmCard 展示当前 confirmItem
           └── → agentic_ready
 ```
 
-### 4.3 部署衔接
+### 4.4 提交至管控后台
 
 ```
 FlowAgent (agentic_ready)
     │
     ▼
-AgenticConfigPanel → "部署为 Agent" 按钮
+AgenticConfigPanel → "提交至管控后台" 按钮（仅业务方可见）
     │
-    ├── 模拟部署（1.5s loading）
-    ├── 显示"已部署"状态
+    ├── 模拟提交（1.5s loading）
+    ├── 生成结构化配置 JSON 摘要（可复制）
+    ├── 项目状态变为 "tech_reviewing"
     └── "前往管控后台查看" → 跳转 /console/agents
+
+注：技术方视角下不显示提交按钮，改为评审引导文案
 ```
 
-### 4.4 管控后台数据流
+### 4.5 管控后台数据流
 
 ```
 /console（仪表盘）
@@ -263,12 +299,14 @@ AgenticConfigPanel → "部署为 Agent" 按钮
 
 ### 5.3 持久化恢复策略
 
-页面刷新时，如果 `chatPhase` 处于请求中间态（`drafting` / `refining_node` / `refining` / `classifying` / `drafting_agentic` / `refining_agentic`），`onRehydrateStorage` 会自动恢复：
+页面刷新时，如果 `chatPhase` 处于不稳定态（`drafting` / `refining_node` / `refining` / `classifying` / `drafting_agentic` / `refining_agentic` / `confirming_agentic`），`onRehydrateStorage` 会自动恢复：
 
 - 已有 `agenticConfig` → `agentic_ready`
 - 有未完成的待确认节点 → `questioning`
 - 已有流程图节点 → `ready`
 - 否则 → `idle`
+
+同时清空 `agenticConfirmItems` 和 `agenticConfirmIdx`，防止 `confirming_agentic` 阶段刷新后确认数据丢失导致 UI 卡死。
 
 ---
 
@@ -380,7 +418,7 @@ AgenticConfigPanel → "部署为 Agent" 按钮
 ```
 EditorPage (Suspense)
 └── EditorContent
-    ├── TopBar                          # 顶栏：导航、项目状态、角色切换、评审操作
+    ├── TopBar                          # 顶栏：导航、项目状态、角色标签+切换链接、面板互斥切换、评审操作
     │
     ├── ChatPanel                       # 左侧对话面板（340px）
     │   ├── 消息列表 (renderMessage)
@@ -403,11 +441,15 @@ EditorPage (Suspense)
     │           ├── SkillsTab           # 技能配置（技能市场 + 自定义 + 删除）
     │           ├── ConstraintsTab      # 约束条件（新增 + 删除）
     │           ├── EvaluatorsTab       # 评估体系（完整 CRUD + 指标编辑）
-    │           └── DeployFooter        # 部署入口 → 管控后台
+    │           └── SubmitFooter         # 提交至管控后台（业务方）/ 评审提示（技术方）
     │
-    ├── AnnotationPanel                 # 右侧批注面板（可选）
-    ├── KnowledgePanel                  # 右侧知识中心面板（可选）
-    └── NodeEditDialog                  # 全屏模态节点编辑器
+    ├── AnnotationPanel                 # 批注面板（与知识面板互斥）
+    │   ├── Workflow 模式：按 selectedNodeId 过滤批注
+    │   └── Agentic 模式：全局批注（nodeId = "__global__"）
+    ├── KnowledgePanel                  # 知识面板（与批注面板互斥）
+    │   ├── 业务方：仅显示"业务文档" tab
+    │   └── 技术方：显示"业务文档" + "技术参考"双 tab
+    └── NodeEditDialog                  # 全屏模态节点编辑器（仅 Workflow）
 ```
 
 ### 7.2 管控后台
@@ -721,9 +763,11 @@ draft → business_editing → tech_reviewing → confirmed
                           tech_reviewing（重新提交）
 ```
 
-- **业务方**可以：编辑流程图、提交技术评审、重新提交
-- **技术方**可以：评审通过、打回修改、添加批注
-- 角色切换通过 TopBar 的角色按钮实现，切换后视图模式同步变化
+- **业务方**可以：编辑流程图/配置、提交至管控后台（生成配置 JSON）、提交技术评审
+- **技术方**可以：评审通过、打回修改、添加批注/回复、标记批注已解决
+- 角色通过 URL 参数（`?role=tech`）确定，TopBar 显示当前角色标签 + 切换链接
+- 面板互斥：知识面板和批注面板同时只能打开一个
+- Mock 评审模式（`?reviewId=`）下聊天框不触发 AI，仅返回提示
 
 ### 9.4 FlowCanvas 双向同步
 
@@ -791,7 +835,31 @@ draft → business_editing → tech_reviewing → confirmed
 
 **MOCK_TASK_EVENTS**：为 T-2849（报关）和 T-2848（合同审核）提供了完整的执行时间线事件
 
-**CONSOLE_STATS**：`{ activeAgents: 4, monthlyTasks: 517, successRate: 96.2, pendingItems: 3 }`
+**CONSOLE_STATS**：`{ activeAgents: 4, monthlyTasks: 517, successRate: 96.2, pendingItems: 4 }`（首页管控后台卡片引用此数据源）
+
+### 技术方评审 Mock（`src/lib/mock-reviews.ts`）
+
+4 个完整的评审场景，技术方从 `/tech` 点击后直接加载，不触发 AI：
+
+| ID | 场景 | 类型 | 状态 | 内容 |
+|----|------|------|------|------|
+| review-1 | 小红书账号运营 | Agentic | pending | 完整 AgenticTaskConfig（6 技能、4 约束、3 评估器） |
+| review-2 | 进出口报关流程 | Workflow | pending | 6 节点流程图 + 5 条边 |
+| review-3 | 财务报销审批 | Workflow | reviewed | 5 节点流程图 + 4 条边（含条件分支） |
+| review-4 | 竞品分析报告 | Agentic | confirmed | 完整 AgenticTaskConfig（4 技能、3 约束、1 评估器） |
+
+每个场景包含：完整的流程图/配置数据 + 模拟聊天记录 + 项目名称。
+
+### 批注 Mock（`src/lib/mock-data.ts`）
+
+3 条技术方批注（MOCK_ANNOTATIONS），在 `tech_reviewing` 状态时自动加载：
+- Workflow 模式：按 nodeId 绑定到对应节点
+- Agentic 模式：nodeId 自动转为 `__global__`，以全局批注形式展示
+
+### 知识面板 Mock
+
+- **业务文档**（MOCK_KNOWLEDGE_FILES）：6 个业务相关文件
+- **技术参考**（MOCK_TECH_FILES）：4 个技术文档（系统架构、API 清单、Skill 能力清单、技术约束）
 
 ---
 
@@ -801,14 +869,16 @@ draft → business_editing → tech_reviewing → confirmed
 src/
 ├── app/
 │   ├── layout.tsx                    # 根布局
-│   ├── page.tsx                      # 首页（Workflow + Agentic 示例）
+│   ├── page.tsx                      # 业务方首页（含技术方入口 + 管控后台链接）
 │   ├── globals.css                   # 全局样式
+│   ├── tech/
+│   │   └── page.tsx                  # 技术方落地页（评审列表 + 统计卡片）
 │   ├── editor/
-│   │   └── page.tsx                  # 编辑器页（根据 taskType 条件渲染）
+│   │   └── page.tsx                  # 编辑器（支持 ?q= AI生成 和 ?reviewId= Mock加载）
 │   ├── api/
 │   │   └── generate-flow/
 │   │       └── route.ts              # LLM API（6 种 action）
-│   └── console/                      # 管控后台（新增）
+│   └── console/
 │       ├── layout.tsx                # 管控后台布局（侧边栏 + 主区域）
 │       ├── page.tsx                  # 仪表盘
 │       ├── agents/
@@ -819,20 +889,20 @@ src/
 │               └── page.tsx          # 任务详情（时间线 + 人工介入）
 ├── components/
 │   ├── layout/
-│   │   └── TopBar.tsx                # 顶栏
+│   │   └── TopBar.tsx                # 顶栏（角色标签+切换、面板互斥切换、评审操作）
 │   ├── flow/
 │   │   ├── FlowCanvas.tsx            # 画布
 │   │   ├── FlowCardNode.tsx          # 自定义节点
 │   │   ├── CanvasToolbar.tsx          # 画布工具条
 │   │   └── NodeEditDialog.tsx         # 节点编辑弹窗
 │   ├── panels/
-│   │   ├── ChatPanel.tsx             # 对话面板（分类 + Workflow/Agentic 双流程）
+│   │   ├── ChatPanel.tsx             # 对话面板（分类 + 双流程 + 评审模式拦截）
 │   │   ├── QuestionCard.tsx          # Workflow 节点确认卡片
-│   │   ├── AgenticConfirmCard.tsx    # Agentic 模块确认卡片（新增）
-│   │   ├── AgenticConfigPanel.tsx    # Agentic 配置面板（新增，4 Tab + 部署）
+│   │   ├── AgenticConfirmCard.tsx    # Agentic 模块确认卡片
+│   │   ├── AgenticConfigPanel.tsx    # Agentic 配置面板（4 Tab + 提交/配置JSON预览）
 │   │   ├── NodeDetailPanel.tsx       # 节点详情面板
-│   │   ├── AnnotationPanel.tsx       # 批注面板
-│   │   └── KnowledgePanel.tsx        # 知识中心面板
+│   │   ├── AnnotationPanel.tsx       # 批注面板（支持全局批注模式）
+│   │   └── KnowledgePanel.tsx        # 知识面板（业务方/技术方双 tab）
 │   └── ui/                           # Radix + Tailwind 基础组件
 │       ├── button.tsx
 │       ├── input.tsx
@@ -842,10 +912,11 @@ src/
 │       ├── scroll-area.tsx
 │       └── badge.tsx
 └── lib/
-    ├── store.ts                      # Zustand 全局状态（含 Agentic 状态 + v2 迁移）
+    ├── store.ts                      # Zustand 全局状态（含 isReviewMode + v2 迁移 + rehydrate 修复）
     ├── types.ts                      # TypeScript 类型定义（Workflow + Agentic + Console）
     ├── flow-parser.ts                # LLM 响应解析 + 画布序列化
-    ├── mock-data.ts                  # Workflow Mock 数据
-    ├── mock-console.ts               # 管控后台 Mock 数据 + 技能市场数据（新增）
+    ├── mock-data.ts                  # Workflow Mock + 批注 Mock + 知识文件 Mock
+    ├── mock-reviews.ts               # 技术方评审 Mock（4 个完整场景）
+    ├── mock-console.ts               # 管控后台 Mock + 技能市场数据
     └── utils.ts                      # 工具函数（cn）
 ```
