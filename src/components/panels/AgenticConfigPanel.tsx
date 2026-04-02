@@ -11,8 +11,8 @@ import {
   Target, Puzzle, ShieldCheck, BarChart3,
   ChevronRight, Clock, DollarSign, CheckCircle2,
   AlertTriangle, Zap, Users, Settings, Layers,
-  Pencil, X, Check, Trash2, Plus, Rocket,
-  Store, Search,
+  Pencil, X, Check, Trash2, Plus, Send,
+  Store, Search, FileJson, ExternalLink, Copy,
 } from "lucide-react";
 import type {
   AgenticConstraintType, AgenticExecutionStrategy,
@@ -52,11 +52,26 @@ const STRATEGY_LABELS: Record<AgenticExecutionStrategy, { label: string; desc: s
   adaptive: { label: "自适应", desc: "AI 根据情况动态决定执行顺序" },
 };
 
+function buildConfigSummary(config: NonNullable<ReturnType<typeof useFlowAgentStore.getState>["agenticConfig"]>, projectName: string) {
+  return {
+    agent_name: projectName,
+    goal: config.goal,
+    execution_strategy: config.executionStrategy,
+    max_iterations: config.maxIterations,
+    skills: config.skills.map((s) => ({ name: s.name, inputs: s.inputs.map((i) => i.name), outputs: s.outputs.map((o) => o.name) })),
+    constraints: config.constraints.map((c) => ({ type: c.type, rule: c.value })),
+    evaluators: config.evaluators.map((e) => ({ name: e.name, metrics: e.metrics.map((m) => `${m.name} ${m.threshold}`) })),
+    human_checkpoints: config.humanCheckpoints,
+  };
+}
+
 export default function AgenticConfigPanel() {
   const { agenticConfig, chatPhase, project, taskType, originalPrompt, currentRole } = useFlowAgentStore();
   const [activeTab, setActiveTab] = useState<TabId>("goal");
-  const [deploying, setDeploying] = useState(false);
-  const [deployed, setDeployed] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [showJson, setShowJson] = useState(false);
+  const [copied, setCopied] = useState(false);
   const router = useRouter();
 
   const isReady = chatPhase === "agentic_ready";
@@ -71,14 +86,22 @@ export default function AgenticConfigPanel() {
   }
 
   const strategyInfo = STRATEGY_LABELS[agenticConfig.executionStrategy] || STRATEGY_LABELS.adaptive;
+  const configJson = buildConfigSummary(agenticConfig, project.name || "未命名 Agent");
 
-  const handleDeploy = () => {
-    setDeploying(true);
+  const handleSubmit = () => {
+    setSubmitting(true);
     setTimeout(() => {
-      setDeploying(false);
-      setDeployed(true);
-      useFlowAgentStore.getState().setProjectStatus("confirmed");
-    }, 2000);
+      setSubmitting(false);
+      setSubmitted(true);
+      setShowJson(true);
+      useFlowAgentStore.getState().setProjectStatus("tech_reviewing");
+    }, 1500);
+  };
+
+  const handleCopyJson = () => {
+    navigator.clipboard.writeText(JSON.stringify(configJson, null, 2));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const handleGoToConsole = () => {
@@ -133,44 +156,65 @@ export default function AgenticConfigPanel() {
         {activeTab === "evaluators" && <EvaluatorsTab editable={isReady} />}
       </div>
 
+      {/* Submitted: config JSON preview */}
+      {submitted && showJson && (
+        <div className="border-t border-zinc-100 bg-zinc-50">
+          <div className="px-5 pt-3 pb-1 flex items-center justify-between">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-green-700">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              已提交，等待技术方评审
+            </div>
+            <button onClick={() => setShowJson(false)} className="text-zinc-400 hover:text-zinc-600">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <div className="px-5 pb-2">
+            <p className="text-[11px] text-zinc-400 mb-2">以下是 AI 翻译生成的结构化配置，技术方将基于此进行评审</p>
+          </div>
+          <div className="mx-5 mb-2 rounded-lg bg-zinc-900 text-green-400 text-[11px] font-mono leading-relaxed max-h-52 overflow-y-auto p-3 relative">
+            <button
+              onClick={handleCopyJson}
+              className="absolute top-2 right-2 p-1 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-300 transition-colors"
+              title="复制 JSON"
+            >
+              {copied ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
+            </button>
+            <pre className="whitespace-pre-wrap">{JSON.stringify(configJson, null, 2)}</pre>
+          </div>
+          <div className="px-5 pb-3">
+            <Button variant="outline" className="w-full text-xs h-8" onClick={handleGoToConsole}>
+              <ExternalLink className="w-3 h-3 mr-1.5" />
+              前往管控后台查看
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Footer actions */}
-      {isReady && (
+      {isReady && !submitted && (
         <div className="px-5 py-3 border-t border-zinc-100 bg-zinc-50">
-          {deployed ? (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-sm text-green-700">
-                <CheckCircle2 className="w-4 h-4" />
-                <span className="font-medium">已部署为「{project.name || "Agent"}」</span>
-              </div>
-              <p className="text-[11px] text-zinc-400">配置已提交至管控后台，可在后台查看运行状态和任务监控</p>
-              <Button variant="outline" className="w-full text-sm h-9" onClick={handleGoToConsole}>
-                前往管控后台查看
-              </Button>
-            </div>
-          ) : isTech ? (
-            <div className="space-y-2">
-              <p className="text-[11px] text-zinc-500">技术评审：确认技能可行性、约束合理性后，点击「评审通过」提交</p>
-            </div>
+          {isTech ? (
+            <p className="text-[11px] text-zinc-500">技术评审：确认技能可行性、约束合理性后，点击顶部「评审通过」提交</p>
           ) : (
             <div className="space-y-2">
               <Button
                 className="w-full bg-violet-600 hover:bg-violet-700 text-sm h-9"
-                onClick={handleDeploy}
-                disabled={deploying}
+                onClick={handleSubmit}
+                disabled={submitting}
               >
-                {deploying ? (
+                {submitting ? (
                   <>
                     <div className="w-3.5 h-3.5 mr-1.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    正在部署...
+                    正在提交...
                   </>
                 ) : (
                   <>
-                    <Rocket className="w-3.5 h-3.5 mr-1.5" />
-                    部署为 Agent
+                    <Send className="w-3.5 h-3.5 mr-1.5" />
+                    提交至管控后台
                   </>
                 )}
               </Button>
-              <p className="text-[11px] text-zinc-400 text-center">将配置提交至管控后台，启动 Agent 自动执行任务</p>
+              <p className="text-[11px] text-zinc-400 text-center">提交后将生成结构化配置，等待技术方评审确认</p>
             </div>
           )}
         </div>
