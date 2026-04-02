@@ -1,11 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useFlowAgentStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   BookOpen, MessageSquare,
-  CheckCircle2, Send, Workflow,
+  CheckCircle2, Send, Workflow, ChevronLeft,
   Briefcase, Code2, ArrowLeftRight, AlertTriangle,
 } from "lucide-react";
 import type { ProjectStatus, UserRole } from "@/lib/types";
@@ -87,10 +88,16 @@ export default function TopBar() {
   return (
     <header className={`h-14 border-b ${headerBorder} ${headerBg} flex items-center justify-between px-4 shrink-0 transition-colors duration-300`}>
       <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2">
+        <Link
+          href="/"
+          className={`flex items-center gap-1.5 px-2 py-1 -ml-2 rounded-lg transition-colors ${
+            isTech ? "hover:bg-slate-800" : "hover:bg-zinc-100"
+          }`}
+        >
+          <ChevronLeft className={`w-4 h-4 ${isTech ? "text-slate-400" : "text-zinc-400"}`} />
           <Workflow className={`w-5 h-5 ${titleColor}`} />
           <span className={`font-semibold text-sm ${titleColor}`}>FlowAgent</span>
-        </div>
+        </Link>
         {project.name && (
           <>
             <span className={isTech ? "text-slate-600" : "text-zinc-300"}>/</span>

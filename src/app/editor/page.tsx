@@ -1,11 +1,5 @@
 "use client";
 
-declare global {
-  interface Window {
-    __flowAgentInitQuery?: string;
-  }
-}
-
 import { useEffect, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
@@ -27,26 +21,19 @@ function EditorContent() {
     project, showAnnotationPanel, showKnowledgePanel,
     selectedNodeId, editingNodeId,
   } = useFlowAgentStore();
-  const lastQueryRef = useRef<string | null>(null);
-  const hydratedRef = useRef(false);
+  const initDoneRef = useRef(false);
 
   useEffect(() => {
-    // First call: mark hydrated and proceed
-    hydratedRef.current = true;
+    if (!q || initDoneRef.current) return;
+    initDoneRef.current = true;
 
-    if (!q) return;
-
-    // If store already has this query with a flow, skip (restored from localStorage)
     const store = useFlowAgentStore.getState();
-    const firstMsg = store.chatMessages[0];
-    if (firstMsg && firstMsg.content === q && store.nodes.length > 0) {
-      lastQueryRef.current = q;
-      return;
-    }
 
-    if (lastQueryRef.current === q) return;
+    const alreadyHasThisFlow =
+      store.originalPrompt === q && store.nodes.length > 0;
 
-    lastQueryRef.current = q;
+    if (alreadyHasThisFlow) return;
+
     store.resetAll();
 
     setTimeout(() => {
@@ -57,7 +44,7 @@ function EditorContent() {
         content: q,
         timestamp: new Date().toISOString(),
       });
-      window.__flowAgentInitQuery = q;
+      s.setInitQuery(q);
     }, 0);
   }, [q]);
 

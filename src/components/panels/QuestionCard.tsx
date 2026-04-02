@@ -10,25 +10,7 @@ import {
   SkipForward,
   Sparkles,
 } from "lucide-react";
-
-// ============================================================
-// Types
-// ============================================================
-
-export interface NodeQuestion {
-  id: string;
-  question: string;
-  context: string;
-  defaultSuggestion: string;
-  options?: string[];
-}
-
-export interface NodeConfidence {
-  nodeId: string;
-  confidence: "high" | "medium" | "low";
-  reason: string;
-  questions: NodeQuestion[];
-}
+import type { NodeConfidence } from "@/lib/store";
 
 // ============================================================
 // NodeQuestionCard — 一张卡片展示一个节点的所有问题
@@ -40,6 +22,7 @@ interface NodeQuestionCardProps {
   nodeIndex: number;
   totalNodes: number;
   onConfirm: (answers: { question: string; answer: string }[]) => void;
+  onSkipNode: () => void;
   onSkipAll: () => void;
   disabled?: boolean;
 }
@@ -50,6 +33,7 @@ export default function NodeQuestionCard({
   nodeIndex,
   totalNodes,
   onConfirm,
+  onSkipNode,
   onSkipAll,
   disabled,
 }: NodeQuestionCardProps) {
@@ -114,16 +98,26 @@ export default function NodeQuestionCard({
               {confidenceLabel}
             </span>
           </div>
-          {nodeIndex < totalNodes - 1 && (
+          <div className="flex items-center gap-2">
             <button
               className="flex items-center gap-1 text-[10px] text-zinc-400 hover:text-zinc-600 transition-colors"
-              onClick={onSkipAll}
+              onClick={onSkipNode}
               disabled={disabled}
             >
-              <SkipForward className="w-2.5 h-2.5" />
-              跳过剩余节点
+              <ChevronRight className="w-2.5 h-2.5" />
+              跳过此节点
             </button>
-          )}
+            {nodeIndex < totalNodes - 1 && (
+              <button
+                className="flex items-center gap-1 text-[10px] text-zinc-400 hover:text-zinc-600 transition-colors"
+                onClick={onSkipAll}
+                disabled={disabled}
+              >
+                <SkipForward className="w-2.5 h-2.5" />
+                跳过全部
+              </button>
+            )}
+          </div>
         </div>
         <p className="text-xs font-semibold text-zinc-800">{nodeLabel}</p>
         <p className="text-[10px] text-zinc-400 mt-0.5">{nodeConf.reason}</p>

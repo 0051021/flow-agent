@@ -30,67 +30,79 @@ export default function FlowCanvas() {
   const {
     nodes: storeNodes,
     edges: storeEdges,
-    onNodesChangeSync,
-    onEdgesChangeSync,
+    setNodes: setStoreNodes,
+    setEdges: setStoreEdges,
     setSelectedNodeId,
     setEditingNodeId,
   } = useFlowAgentStore();
+
   const [nodes, setNodes] = useNodesState<FlowNode>(storeNodes as FlowNode[]);
   const [edges, setEdges] = useEdgesState(storeEdges);
-  const prevStoreNodesRef = useRef(storeNodes);
-  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const nodeTypes = useMemo(() => ({ flowCard: FlowCardNode }), []);
 
+  const prevStoreNodesRef = useRef(storeNodes);
+  const prevStoreEdgesRef = useRef(storeEdges);
+
   useEffect(() => {
-    if (storeNodes !== prevStoreNodesRef.current) {
+    if (storeNodes !== prevStoreNodesRef.current || storeEdges !== prevStoreEdgesRef.current) {
       setNodes(storeNodes as FlowNode[]);
       setEdges(storeEdges);
       prevStoreNodesRef.current = storeNodes;
+      prevStoreEdgesRef.current = storeEdges;
     }
   }, [storeNodes, storeEdges, setNodes, setEdges]);
 
-  const debouncedSyncNodes = useCallback(
-    (updated: FlowNode[]) => {
+  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
       if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
-      syncTimerRef.current = setTimeout(() => {
-        onNodesChangeSync(updated as Node<FlowNodeData>[]);
-      }, 100);
-    },
-    [onNodesChangeSync]
-  );
+    };
+  }, []);
 
   const handleNodesChange = useCallback(
     (changes: NodeChange<FlowNode>[]) => {
       setNodes((prev) => {
         const updated = applyNodeChanges(changes, prev);
-        const hasStructuralChange = changes.some(
+
+        const hasStructural = changes.some(
           (c) => c.type === "remove" || c.type === "add" || c.type === "replace"
         );
-        const hasDrag = changes.some((c) => c.type === "position" && c.dragging === false);
-        if (hasStructuralChange || hasDrag) {
-          debouncedSyncNodes(updated);
+        const hasDragEnd = changes.some(
+          (c) => c.type === "position" && c.dragging === false
+        );
+
+        if (hasStructural || hasDragEnd) {
+          if (syncTimerRef.current) {
+            clearTimeout(syncTimerRef.current);
+            syncTimerRef.current = null;
+          }
+          prevStoreNodesRef.current = updated as Node<FlowNodeData>[];
+          setStoreNodes(updated as Node<FlowNodeData>[]);
         }
+
         return updated;
       });
     },
-    [setNodes, debouncedSyncNodes]
+    [setNodes, setStoreNodes]
   );
 
   const handleEdgesChange = useCallback(
     (changes: EdgeChange[]) => {
       setEdges((prev) => {
         const updated = applyEdgeChanges(changes, prev);
-        const hasStructuralChange = changes.some(
+        const hasStructural = changes.some(
           (c) => c.type === "remove" || c.type === "add" || c.type === "replace"
         );
-        if (hasStructuralChange) {
-          setTimeout(() => onEdgesChangeSync(updated), 0);
+        if (hasStructural) {
+          prevStoreEdgesRef.current = updated;
+          setStoreEdges(updated);
         }
         return updated;
       });
     },
-    [setEdges, onEdgesChangeSync]
+    [setEdges, setStoreEdges]
   );
 
   const onConnect = useCallback(
@@ -100,11 +112,12 @@ export default function FlowCanvas() {
           { ...params, animated: true, style: { stroke: "#94a3b8" }, label: "" },
           eds
         );
-        setTimeout(() => onEdgesChangeSync(newEdges), 0);
+        prevStoreEdgesRef.current = newEdges;
+        setStoreEdges(newEdges);
         return newEdges;
       });
     },
-    [setEdges, onEdgesChangeSync]
+    [setEdges, setStoreEdges]
   );
 
   const onNodeDoubleClick = useCallback(
@@ -114,12 +127,6 @@ export default function FlowCanvas() {
     },
     [setSelectedNodeId, setEditingNodeId]
   );
-
-  useEffect(() => {
-    return () => {
-      if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
-    };
-  }, []);
 
   return (
     <div className="w-full h-full relative">

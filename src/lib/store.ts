@@ -13,6 +13,29 @@ import type {
 import type { Node, Edge } from "@xyflow/react";
 import { MOCK_KNOWLEDGE_FILES } from "./mock-data";
 
+export type ChatPhase =
+  | "idle"
+  | "drafting"
+  | "questioning"
+  | "refining_node"
+  | "ready"
+  | "refining";
+
+export interface NodeQuestion {
+  id: string;
+  question: string;
+  context: string;
+  defaultSuggestion: string;
+  options?: string[];
+}
+
+export interface NodeConfidence {
+  nodeId: string;
+  confidence: "high" | "medium" | "low";
+  reason: string;
+  questions: NodeQuestion[];
+}
+
 interface FlowAgentState {
   project: Project;
   currentRole: UserRole;
@@ -26,6 +49,13 @@ interface FlowAgentState {
   showAnnotationPanel: boolean;
   showKnowledgePanel: boolean;
   chatMessages: ChatMessage[];
+
+  chatPhase: ChatPhase;
+  originalPrompt: string;
+  pendingNodes: NodeConfidence[];
+  currentNodeIdx: number;
+  nodeLabelMap: Record<string, string>;
+  initQuery: string | null;
 
   setCurrentRole: (role: UserRole) => void;
   setViewMode: (mode: ViewMode) => void;
@@ -49,6 +79,12 @@ interface FlowAgentState {
   addNode: (node: Node<FlowNodeData>) => void;
   deleteNode: (nodeId: string) => void;
   updateNodeData: (nodeId: string, data: Partial<FlowNodeData>) => void;
+  setChatPhase: (phase: ChatPhase) => void;
+  setOriginalPrompt: (prompt: string) => void;
+  setPendingNodes: (nodes: NodeConfidence[]) => void;
+  setCurrentNodeIdx: (idx: number) => void;
+  setNodeLabelMap: (map: Record<string, string>) => void;
+  setInitQuery: (query: string | null) => void;
   resetAll: () => void;
 }
 
@@ -79,6 +115,12 @@ const initialState = {
   showAnnotationPanel: false,
   showKnowledgePanel: false,
   chatMessages: [] as ChatMessage[],
+  chatPhase: "idle" as ChatPhase,
+  originalPrompt: "",
+  pendingNodes: [] as NodeConfidence[],
+  currentNodeIdx: 0,
+  nodeLabelMap: {} as Record<string, string>,
+  initQuery: null as string | null,
 };
 
 export const useFlowAgentStore = create<FlowAgentState>()(
@@ -144,6 +186,12 @@ export const useFlowAgentStore = create<FlowAgentState>()(
               : n
           ),
         })),
+      setChatPhase: (phase) => set({ chatPhase: phase }),
+      setOriginalPrompt: (prompt) => set({ originalPrompt: prompt }),
+      setPendingNodes: (nodes) => set({ pendingNodes: nodes }),
+      setCurrentNodeIdx: (idx) => set({ currentNodeIdx: idx }),
+      setNodeLabelMap: (map) => set({ nodeLabelMap: map }),
+      setInitQuery: (query) => set({ initQuery: query }),
       resetAll: () =>
         set({
           ...initialState,
@@ -152,6 +200,11 @@ export const useFlowAgentStore = create<FlowAgentState>()(
     }),
     {
       name: "flow-agent-store",
+      version: 1,
+      migrate: (persisted: unknown, version: number) => {
+        if (version === 0 || !persisted) return { ...initialState, ...(persisted as Record<string, unknown>) };
+        return persisted as FlowAgentState;
+      },
       partialize: (state) => ({
         project: state.project,
         currentRole: state.currentRole,
@@ -160,7 +213,22 @@ export const useFlowAgentStore = create<FlowAgentState>()(
         edges: state.edges,
         annotations: state.annotations,
         chatMessages: state.chatMessages,
+        chatPhase: state.chatPhase,
+        originalPrompt: state.originalPrompt,
+        pendingNodes: state.pendingNodes,
+        currentNodeIdx: state.currentNodeIdx,
+        nodeLabelMap: state.nodeLabelMap,
       }),
+      onRehydrateStorage: () => (state) => {
+        if (!state) return;
+        const { chatPhase, pendingNodes, currentNodeIdx, nodes } = state;
+        if (chatPhase === "drafting" || chatPhase === "refining_node" || chatPhase === "refining") {
+          const recovered = pendingNodes.length > 0 && currentNodeIdx < pendingNodes.length
+            ? "questioning" as ChatPhase
+            : (nodes.length > 0 ? "ready" as ChatPhase : "idle" as ChatPhase);
+          useFlowAgentStore.setState({ chatPhase: recovered });
+        }
+      },
     }
   )
 );

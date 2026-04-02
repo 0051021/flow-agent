@@ -133,11 +133,26 @@ function computeDAGLayout(
     layerGroups.get(layer)!.push(id);
   }
 
-  // Assign positions: each layer is a row, nodes in a layer are spread horizontally
+  // Sort nodes within each layer by barycenter of their parents to reduce crossings
   const sortedLayers = [...layerGroups.keys()].sort((a, b) => a - b);
 
   for (const layer of sortedLayers) {
     const nodesInLayer = layerGroups.get(layer)!;
+
+    if (layer > 0) {
+      nodesInLayer.sort((a, b) => {
+        const parentsA = parents.get(a) || [];
+        const parentsB = parents.get(b) || [];
+        const avgA = parentsA.length > 0
+          ? parentsA.reduce((sum, p) => sum + (positions.get(p)?.x || 0), 0) / parentsA.length
+          : 0;
+        const avgB = parentsB.length > 0
+          ? parentsB.reduce((sum, p) => sum + (positions.get(p)?.x || 0), 0) / parentsB.length
+          : 0;
+        return avgA - avgB;
+      });
+    }
+
     const totalWidth = nodesInLayer.length * NODE_WIDTH + (nodesInLayer.length - 1) * X_GAP;
     const startX = -totalWidth / 2 + NODE_WIDTH / 2;
 
@@ -157,9 +172,10 @@ export function parseLLMResponse(data: LLMFlowData): {
   nodes: Node<FlowNodeData>[];
   edges: Edge[];
 } {
+  const nodeIds = new Set(data.nodes.map((n) => n.id));
+  const nodeIdArray = [...nodeIds];
+  const positions = computeDAGLayout(nodeIdArray, data.edges);
   const totalSteps = data.nodes.length;
-  const nodeIds = data.nodes.map((n) => n.id);
-  const positions = computeDAGLayout(nodeIds, data.edges);
 
   const nodes: Node<FlowNodeData>[] = data.nodes.map((n, index) => ({
     id: n.id,
@@ -173,7 +189,7 @@ export function parseLLMResponse(data: LLMFlowData): {
       totalSteps,
       executionMode: n.executionMode,
       estimatedTime: n.estimatedTime,
-      inputs: n.inputs.map((inp) => ({
+      inputs: (n.inputs || []).map((inp) => ({
         id: uuidv4(),
         name: inp.name,
         icon: inp.icon,
@@ -182,7 +198,7 @@ export function parseLLMResponse(data: LLMFlowData): {
         source: inp.source,
         sourceDetail: inp.sourceDetail,
       })),
-      outputs: n.outputs.map((out) => ({
+      outputs: (n.outputs || []).map((out) => ({
         id: uuidv4(),
         name: out.name,
         icon: out.icon,
@@ -205,16 +221,22 @@ export function parseLLMResponse(data: LLMFlowData): {
     },
   }));
 
-  const edges: Edge[] = data.edges.map((e, index) => {
+  const validEdges = data.edges.filter(
+    (e) => nodeIds.has(e.source) && nodeIds.has(e.target)
+  );
+
+  const edges: Edge[] = validEdges.map((e) => {
     const s = EDGE_STYLE_MAP[e.style] || EDGE_STYLE_MAP.normal;
     return {
-      id: `e-${index}`,
+      id: `e-${uuidv4()}`,
       source: e.source,
       target: e.target,
       label: e.label,
+      type: "smoothstep",
       animated: e.style !== "loop",
       style: {
         stroke: s.stroke,
+        strokeWidth: 2,
         ...(s.dash ? { strokeDasharray: "6,3" } : {}),
       },
     };
@@ -280,26 +302,29 @@ export function serializeFlowForLLM(
 
   for (const n of nodes) {
     const d = n.data as unknown as FlowNodeData;
+    if (!d) continue;
     const tc = d.techConfig ?? { executionType: "deterministic" };
     const mode = { ai_auto: "AI自动", human_confirm: "需人工确认", human_manual: "人工操作" }[d.executionMode] || "未知";
     const type = tc.executionType === "deterministic" ? "确定性执行" : "智能规划";
 
-    lines.push(`### ${n.id}: ${d.label}`);
-    lines.push(`- 描述: ${d.description}`);
+    lines.push(`### ${n.id}: ${d.label || "未命名"}`);
+    lines.push(`- 描述: ${d.description || ""}`);
     lines.push(`- 执行方式: ${mode} | ${type}`);
-    lines.push(`- 预计耗时: ${d.estimatedTime}`);
+    lines.push(`- 预计耗时: ${d.estimatedTime || "待定"}`);
 
-    if (d.inputs.length > 0) {
+    const inputs = d.inputs || [];
+    if (inputs.length > 0) {
       lines.push(`- 输入:`);
-      for (const inp of d.inputs) {
+      for (const inp of inputs) {
         const src = inp.source === "user" ? "用户提供" : inp.sourceDetail || "上一步";
         lines.push(`  - ${inp.name} (${src}${inp.required ? ", 必填" : ""})`);
       }
     }
 
-    if (d.outputs.length > 0) {
+    const outputs = d.outputs || [];
+    if (outputs.length > 0) {
       lines.push(`- 输出:`);
-      for (const out of d.outputs) {
+      for (const out of outputs) {
         lines.push(`  - ${out.name}: ${out.description}`);
       }
     }

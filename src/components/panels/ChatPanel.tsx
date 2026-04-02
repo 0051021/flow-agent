@@ -1,39 +1,26 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useFlowAgentStore, type ChatMessage } from "@/lib/store";
+import { useFlowAgentStore, type ChatMessage, type ChatPhase } from "@/lib/store";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Bot, Send, User, Sparkles, Loader2 } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
 import { parseLLMResponse, serializeFlowForLLM } from "@/lib/flow-parser";
-import NodeQuestionCard, {
-  CompletionCard,
-  type NodeConfidence,
-} from "./QuestionCard";
-
-type Phase =
-  | "idle"
-  | "drafting"
-  | "questioning"     // showing node question card
-  | "refining_node"   // calling refine_node API
-  | "ready"
-  | "refining";       // free chat refine
+import NodeQuestionCard, { CompletionCard } from "./QuestionCard";
+import type { NodeConfidence } from "@/lib/store";
 
 export default function ChatPanel() {
-  const { chatMessages, addChatMessage, loadGeneratedFlow, nodes, edges } =
-    useFlowAgentStore();
+  const {
+    chatMessages, addChatMessage, loadGeneratedFlow, nodes, edges,
+    chatPhase: phase, setChatPhase: setPhase,
+    originalPrompt, setOriginalPrompt,
+    pendingNodes, setPendingNodes,
+    currentNodeIdx, setCurrentNodeIdx,
+    nodeLabelMap, setNodeLabelMap,
+  } = useFlowAgentStore();
   const [input, setInput] = useState("");
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [originalPrompt, setOriginalPrompt] = useState("");
-
-  // Node-based questioning state
-  const [pendingNodes, setPendingNodes] = useState<NodeConfidence[]>([]);
-  const [currentNodeIdx, setCurrentNodeIdx] = useState(0);
   const [showCompletion, setShowCompletion] = useState(false);
-
-  // Map nodeId → label from the flow data
-  const [nodeLabelMap, setNodeLabelMap] = useState<Record<string, string>>({});
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const initTriggered = useRef(false);
@@ -50,12 +37,12 @@ export default function ChatPanel() {
     }
   }, [chatMessages.length, isLoading, currentNodeConf, showCompletion]);
 
+
   useEffect(() => {
-    const w = window as Window & { __flowAgentInitQuery?: string };
-    const initQuery = w.__flowAgentInitQuery;
+    const { initQuery } = useFlowAgentStore.getState();
     if (initQuery && !initTriggered.current && phase === "idle") {
       initTriggered.current = true;
-      delete w.__flowAgentInitQuery;
+      useFlowAgentStore.getState().setInitQuery(null);
       triggerDraft(initQuery);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -105,13 +92,15 @@ export default function ChatPanel() {
         const autoSkipped = allNodeConf.length - needConfirm.length;
 
         if (needConfirm.length > 0) {
-          setPendingNodes(needConfirm);
-          setCurrentNodeIdx(0);
-          setPhase("questioning");
-
           const skippedMsg = autoSkipped > 0
             ? `（其中 ${autoSkipped} 个节点已自动确认）`
             : "";
+
+          useFlowAgentStore.setState({
+            pendingNodes: needConfirm,
+            currentNodeIdx: 0,
+            chatPhase: "questioning",
+          });
 
           addChatMessage({
             id: uuidv4(),
@@ -147,18 +136,25 @@ export default function ChatPanel() {
       });
       setPhase("idle");
     }
-  }, [addChatMessage, loadGeneratedFlow]);
+  }, [addChatMessage, loadGeneratedFlow, setPhase, setPendingNodes, setCurrentNodeIdx, setNodeLabelMap, setOriginalPrompt]);
 
   // ============================================================
   // Phase 2: Node-by-node confirmation → refine_node
   // ============================================================
 
+  const finishQuestioning = useCallback(() => {
+    setShowCompletion(true);
+    setPhase("ready");
+  }, [setPhase]);
+
   const handleNodeConfirm = useCallback(
     async (answers: { question: string; answer: string }[]) => {
-      const nc = pendingNodes[currentNodeIdx];
+      const { pendingNodes: pn, currentNodeIdx: idx, nodeLabelMap: lm, originalPrompt: op } =
+        useFlowAgentStore.getState();
+      const nc = pn[idx];
       if (!nc) return;
 
-      const nodeLabel = nodeLabelMap[nc.nodeId] || nc.nodeId;
+      const nodeLabel = lm[nc.nodeId] || nc.nodeId;
 
       addChatMessage({
         id: uuidv4(),
@@ -179,7 +175,7 @@ export default function ChatPanel() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             action: "refine_node",
-            prompt: originalPrompt,
+            prompt: op,
             currentFlow: canvasJson,
             nodeId: nc.nodeId,
             nodeLabel,
@@ -198,7 +194,7 @@ export default function ChatPanel() {
             }));
           }
 
-          const newLabelMap: Record<string, string> = { ...nodeLabelMap };
+          const newLabelMap: Record<string, string> = { ...lm };
           for (const n of result.data.nodes || []) {
             newLabelMap[n.id] = n.label;
           }
@@ -221,20 +217,45 @@ export default function ChatPanel() {
         });
       }
 
-      // Always advance — the node's answers are recorded, flow still usable
-      const nextIdx = currentNodeIdx + 1;
-      if (nextIdx < pendingNodes.length) {
-        setCurrentNodeIdx(nextIdx);
-        setPhase("questioning");
+      const { currentNodeIdx: curIdx, pendingNodes: curPending } = useFlowAgentStore.getState();
+      const nextIdx = curIdx + 1;
+      if (nextIdx < curPending.length) {
+        useFlowAgentStore.setState({
+          currentNodeIdx: nextIdx,
+          chatPhase: "questioning",
+        });
       } else {
         finishQuestioning();
       }
     },
-    [pendingNodes, currentNodeIdx, nodeLabelMap, originalPrompt, addChatMessage, loadGeneratedFlow]
+    [addChatMessage, loadGeneratedFlow, setPhase, setNodeLabelMap, finishQuestioning]
   );
 
+  const handleSkipNode = useCallback(() => {
+    const { pendingNodes: pn, currentNodeIdx: idx, nodeLabelMap: lm } = useFlowAgentStore.getState();
+    const nc = pn[idx];
+    const nodeLabel = nc ? (lm[nc.nodeId] || nc.nodeId) : "";
+    addChatMessage({
+      id: uuidv4(),
+      role: "user",
+      content: `跳过「${nodeLabel}」的确认，使用默认方案`,
+      timestamp: new Date().toISOString(),
+    });
+
+    const nextIdx = idx + 1;
+    if (nextIdx < pn.length) {
+      useFlowAgentStore.setState({
+        currentNodeIdx: nextIdx,
+        chatPhase: "questioning",
+      });
+    } else {
+      finishQuestioning();
+    }
+  }, [addChatMessage, finishQuestioning]);
+
   const handleSkipAll = useCallback(() => {
-    const remaining = pendingNodes.length - currentNodeIdx;
+    const { pendingNodes: pn, currentNodeIdx: idx } = useFlowAgentStore.getState();
+    const remaining = pn.length - idx;
     addChatMessage({
       id: uuidv4(),
       role: "user",
@@ -242,12 +263,7 @@ export default function ChatPanel() {
       timestamp: new Date().toISOString(),
     });
     finishQuestioning();
-  }, [addChatMessage, pendingNodes.length, currentNodeIdx]);
-
-  const finishQuestioning = () => {
-    setShowCompletion(true);
-    setPhase("ready");
-  };
+  }, [addChatMessage, finishQuestioning]);
 
   const handleCompletionDone = () => {
     setShowCompletion(false);
@@ -295,7 +311,7 @@ export default function ChatPanel() {
         if (result.success && result.data) {
           const { projectName, nodes: parsedNodes, edges: parsedEdges } =
             parseLLMResponse(result.data);
-          const nodeList = result.data.nodes
+          const nodeList = (result.data.nodes || [])
             .map((n: { label: string }, i: number) => `${i + 1}. **${n.label}**`)
             .join("\n");
 
@@ -312,6 +328,12 @@ export default function ChatPanel() {
               project: { ...s.project, name: projectName },
             }));
           }
+
+          const newLabelMap: Record<string, string> = {};
+          for (const n of result.data.nodes || []) {
+            newLabelMap[n.id] = n.label;
+          }
+          setNodeLabelMap(newLabelMap);
         } else {
           addChatMessage({
             id: uuidv4(),
@@ -376,7 +398,7 @@ export default function ChatPanel() {
     </div>
   );
 
-  const phaseLabel: Record<Phase, string> = {
+  const phaseLabel: Record<ChatPhase, string> = {
     idle: "",
     drafting: "生成草稿中...",
     questioning: "",
@@ -385,7 +407,7 @@ export default function ChatPanel() {
     refining: "修改流程图中...",
   };
 
-  const placeholder: Record<Phase, string> = {
+  const placeholder: Record<ChatPhase, string> = {
     idle: "描述你的业务流程...",
     drafting: "生成中，请稍候...",
     questioning: "也可以直接打字补充...",
@@ -395,7 +417,7 @@ export default function ChatPanel() {
   };
 
   const showWelcome = chatMessages.length === 0 && phase === "idle";
-  const inputDisabled = isLoading || phase === "questioning";
+  const inputDisabled = isLoading;
 
   return (
     <div className="w-[340px] border-r border-zinc-200 bg-white flex flex-col h-full">
@@ -452,6 +474,7 @@ export default function ChatPanel() {
                 nodeIndex={currentNodeIdx}
                 totalNodes={pendingNodes.length}
                 onConfirm={handleNodeConfirm}
+                onSkipNode={handleSkipNode}
                 onSkipAll={handleSkipAll}
                 disabled={phase === "refining_node"}
               />
