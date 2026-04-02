@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useFlowAgentStore } from "@/lib/store";
 import { MOCK_TECH_FILES } from "@/lib/mock-data";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -82,6 +82,12 @@ export default function KnowledgePanel() {
   const [searchQuery, setSearchQuery] = useState("");
   const isTech = currentRole === "tech";
   const [activeTab, setActiveTab] = useState<TabId>("business");
+
+  useEffect(() => {
+    if (!isTech && activeTab === "tech") {
+      setActiveTab("business");
+    }
+  }, [isTech, activeTab]);
 
   if (!showKnowledgePanel) return null;
 

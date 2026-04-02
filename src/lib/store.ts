@@ -72,6 +72,7 @@ interface FlowAgentState {
   agenticConfig: AgenticTaskConfig | null;
   agenticConfirmItems: AgenticConfirmItem[];
   agenticConfirmIdx: number;
+  isReviewMode: boolean;
 
   setCurrentRole: (role: UserRole) => void;
   setViewMode: (mode: ViewMode) => void;
@@ -106,6 +107,7 @@ interface FlowAgentState {
   setAgenticConfig: (config: AgenticTaskConfig | null) => void;
   setAgenticConfirmItems: (items: AgenticConfirmItem[]) => void;
   setAgenticConfirmIdx: (idx: number) => void;
+  setIsReviewMode: (v: boolean) => void;
   updateAgenticGoal: (goal: string) => void;
   updateAgenticBackground: (background: string) => void;
   addAgenticSkill: (skill: AgenticSkill) => void;
@@ -155,6 +157,7 @@ const initialState = {
   agenticConfig: null as AgenticTaskConfig | null,
   agenticConfirmItems: [] as AgenticConfirmItem[],
   agenticConfirmIdx: 0,
+  isReviewMode: false,
 };
 
 export const useFlowAgentStore = create<FlowAgentState>()(
@@ -231,6 +234,7 @@ export const useFlowAgentStore = create<FlowAgentState>()(
       setAgenticConfig: (config) => set({ agenticConfig: config }),
       setAgenticConfirmItems: (items) => set({ agenticConfirmItems: items }),
       setAgenticConfirmIdx: (idx) => set({ agenticConfirmIdx: idx }),
+      setIsReviewMode: (v) => set({ isReviewMode: v }),
       updateAgenticGoal: (goal) =>
         set((state) => ({
           agenticConfig: state.agenticConfig
@@ -320,8 +324,12 @@ export const useFlowAgentStore = create<FlowAgentState>()(
       onRehydrateStorage: () => (state) => {
         if (!state) return;
         const { chatPhase, pendingNodes, currentNodeIdx, nodes, agenticConfig } = state;
-        const loadingPhases: ChatPhase[] = ["drafting", "refining_node", "refining", "classifying", "drafting_agentic", "refining_agentic"];
-        if (loadingPhases.includes(chatPhase)) {
+        const unstablePhases: ChatPhase[] = [
+          "drafting", "refining_node", "refining",
+          "classifying", "drafting_agentic", "refining_agentic",
+          "confirming_agentic",
+        ];
+        if (unstablePhases.includes(chatPhase)) {
           let recovered: ChatPhase;
           if (agenticConfig) {
             recovered = "agentic_ready";
@@ -332,7 +340,11 @@ export const useFlowAgentStore = create<FlowAgentState>()(
           } else {
             recovered = "idle";
           }
-          useFlowAgentStore.setState({ chatPhase: recovered });
+          useFlowAgentStore.setState({
+            chatPhase: recovered,
+            agenticConfirmItems: [],
+            agenticConfirmIdx: 0,
+          });
         }
       },
     }

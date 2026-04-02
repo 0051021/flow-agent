@@ -51,6 +51,7 @@ function EditorContent() {
 
     const store = useFlowAgentStore.getState();
     store.resetAll();
+    store.setIsReviewMode(true);
     store.setCurrentRole("tech");
     store.setViewMode("tech");
 

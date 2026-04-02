@@ -11,6 +11,7 @@ import {
   ShieldCheck, Zap, LayoutDashboard, Bot, GitBranch,
   CheckCircle2, ArrowUpRight,
 } from "lucide-react";
+import { CONSOLE_STATS } from "@/lib/mock-console";
 
 const EXAMPLES = [
   {
@@ -207,11 +208,11 @@ export default function HomePage() {
             <div className="flex items-center gap-3 shrink-0 text-xs text-zinc-400">
               <div className="flex items-center gap-1">
                 <Bot className="w-3.5 h-3.5" />
-                <span>4 个 Agent</span>
+                <span>{CONSOLE_STATS.activeAgents} 个 Agent</span>
               </div>
               <div className="flex items-center gap-1">
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>96.2% 成功率</span>
+                <span>{CONSOLE_STATS.successRate}% 成功率</span>
               </div>
               <ArrowRight className="w-4 h-4 text-white/40 group-hover:translate-x-1 transition-transform" />
             </div>

@@ -287,7 +287,7 @@ export const CONSOLE_STATS = {
   activeAgents: 4,
   monthlyTasks: 517,
   successRate: 96.2,
-  pendingItems: 3,
+  pendingItems: 4,
 };
 
 // ============================================================

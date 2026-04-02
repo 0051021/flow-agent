@@ -24,23 +24,27 @@ export default function AnnotationPanel() {
   const {
     selectedNodeId, annotations, nodes, showAnnotationPanel,
     setShowAnnotationPanel, addAnnotation, addReply, updateAnnotationStatus,
-    viewMode,
+    viewMode, taskType,
   } = useFlowAgentStore();
 
   const [newContent, setNewContent] = useState("");
   const [replyContent, setReplyContent] = useState<Record<string, string>>({});
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
 
+  const isAgentic = taskType === "agentic";
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
-  const nodeAnnotations = annotations.filter((a) => a.nodeId === selectedNodeId);
+  const displayAnnotations = isAgentic
+    ? annotations
+    : annotations.filter((a) => a.nodeId === selectedNodeId);
 
   if (!showAnnotationPanel) return null;
 
   const handleAddAnnotation = () => {
-    if (!newContent.trim() || !selectedNodeId) return;
+    if (!newContent.trim()) return;
+    if (!isAgentic && !selectedNodeId) return;
     const annotation: Annotation = {
       id: uuidv4(),
-      nodeId: selectedNodeId,
+      nodeId: isAgentic ? "__global__" : selectedNodeId!,
       author: {
         name: viewMode === "tech" ? "王工" : "李总",
         role: viewMode === "tech" ? "tech" : "business",
@@ -79,11 +83,13 @@ export default function AnnotationPanel() {
         <div className="flex items-center gap-2">
           <MessageSquare className="w-4 h-4 text-zinc-500" />
           <h3 className="text-sm font-semibold text-zinc-900">批注</h3>
-          {selectedNode && (
+          {isAgentic ? (
+            <span className="text-xs text-zinc-400">· 全局</span>
+          ) : selectedNode ? (
             <span className="text-xs text-zinc-400">
               · {(selectedNode.data as unknown as { label: string }).label}
             </span>
-          )}
+          ) : null}
         </div>
         <button
           onClick={() => setShowAnnotationPanel(false)}
@@ -96,14 +102,14 @@ export default function AnnotationPanel() {
       {/* Annotations list */}
       <ScrollArea className="flex-1">
         <div className="p-4 space-y-4">
-          {nodeAnnotations.length === 0 ? (
+          {displayAnnotations.length === 0 ? (
             <div className="text-center py-8">
               <MessageSquare className="w-8 h-8 text-zinc-200 mx-auto mb-2" />
               <p className="text-sm text-zinc-400">暂无批注</p>
               <p className="text-xs text-zinc-300 mt-1">在下方添加第一条批注</p>
             </div>
           ) : (
-            nodeAnnotations.map((annotation) => {
+            displayAnnotations.map((annotation) => {
               const statusConfig = STATUS_CONFIG[annotation.status];
               const StatusIcon = statusConfig.icon;
               return (
@@ -231,7 +237,12 @@ export default function AnnotationPanel() {
           <Button size="sm" variant="ghost" className="h-7 text-xs text-zinc-500">
             <Paperclip className="w-3 h-3 mr-1" /> 从知识中心引用
           </Button>
-          <Button size="sm" className="h-7 text-xs" onClick={handleAddAnnotation} disabled={!newContent.trim()}>
+          <Button
+            size="sm"
+            className="h-7 text-xs"
+            onClick={handleAddAnnotation}
+            disabled={!newContent.trim() || (!isAgentic && !selectedNodeId)}
+          >
             <Send className="w-3 h-3 mr-1" /> 提交批注
           </Button>
         </div>
