@@ -88,12 +88,21 @@ function EditorContent() {
 
     const store = useFlowAgentStore.getState();
 
+    const wasReviewData = store.isReviewMode;
     const alreadyHasThisFlow =
-      store.originalPrompt === q && (store.nodes.length > 0 || store.agenticConfig !== null);
+      !wasReviewData &&
+      store.originalPrompt === q &&
+      (store.nodes.length > 0 || store.agenticConfig !== null);
 
     if (alreadyHasThisFlow) {
       store.setIsReviewMode(false);
-      if (roleParam === "tech" && store.project.status !== "tech_reviewing" && store.project.status !== "confirmed") {
+      if (roleParam !== "tech") {
+        store.setCurrentRole("business");
+        store.setViewMode("business");
+        if (store.project.status === "tech_reviewing") {
+          store.setProjectStatus("business_editing");
+        }
+      } else if (store.project.status !== "tech_reviewing" && store.project.status !== "confirmed") {
         store.setProjectStatus("tech_reviewing");
       }
       return;
