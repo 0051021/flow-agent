@@ -12,6 +12,7 @@ import NodeDetailPanel from "@/components/panels/NodeDetailPanel";
 import NodeEditDialog from "@/components/flow/NodeEditDialog";
 import { useFlowAgentStore } from "@/lib/store";
 import { MOCK_ANNOTATIONS } from "@/lib/mock-data";
+import { getReviewById } from "@/lib/mock-reviews";
 
 const FlowCanvas = dynamic(() => import("@/components/flow/FlowCanvas"), { ssr: false });
 
@@ -19,6 +20,7 @@ function EditorContent() {
   const searchParams = useSearchParams();
   const q = searchParams.get("q");
   const roleParam = searchParams.get("role");
+  const reviewId = searchParams.get("reviewId");
   const {
     project, showAnnotationPanel, showKnowledgePanel,
     selectedNodeId, editingNodeId, taskType,
@@ -40,7 +42,45 @@ function EditorContent() {
     }
   }, [roleParam, currentRole, setCurrentRole, setViewMode]);
 
+  // Load mock review data directly (no AI generation)
   useEffect(() => {
+    if (!reviewId || initDoneRef.current) return;
+    const review = getReviewById(reviewId);
+    if (!review) return;
+    initDoneRef.current = true;
+
+    const store = useFlowAgentStore.getState();
+    store.resetAll();
+    store.setCurrentRole("tech");
+    store.setViewMode("tech");
+
+    const statusMap = { pending: "tech_reviewing" as const, reviewed: "tech_reviewing" as const, confirmed: "confirmed" as const };
+    store.setProjectStatus(statusMap[review.status]);
+
+    store.setOriginalPrompt(review.prompt);
+    store.setTaskType(review.type);
+
+    if (review.type === "workflow" && review.nodes && review.edges) {
+      store.loadGeneratedFlow(review.nodes, review.edges);
+      store.setProjectStatus(statusMap[review.status]);
+      store.setChatPhase("ready");
+    } else if (review.type === "agentic" && review.agenticConfig) {
+      store.setAgenticConfig(review.agenticConfig);
+      store.setChatPhase("agentic_ready");
+    }
+
+    const p = store.project;
+    store.setNodes(store.nodes);
+    useFlowAgentStore.setState({
+      project: { ...p, name: review.projectName, status: statusMap[review.status] },
+    });
+
+    review.chatMessages.forEach((msg) => store.addChatMessage(msg));
+  }, [reviewId]);
+
+  // Load from ?q= param (AI generation flow)
+  useEffect(() => {
+    if (reviewId) return;
     if (!q || initDoneRef.current) return;
     initDoneRef.current = true;
 
@@ -73,12 +113,12 @@ function EditorContent() {
       });
       s.setInitQuery(q);
     }, 0);
-  }, [q, roleParam]);
+  }, [q, roleParam, reviewId]);
 
-  // When tech role and flow/config is ready, auto-set to tech_reviewing
+  // When tech role and flow/config is ready via AI, auto-set to tech_reviewing
   const techStatusRef = useRef(false);
   useEffect(() => {
-    if (techStatusRef.current) return;
+    if (techStatusRef.current || reviewId) return;
     if (roleParam !== "tech") return;
     const store = useFlowAgentStore.getState();
     const hasContent = store.nodes.length > 0 || store.agenticConfig !== null;
@@ -95,9 +135,11 @@ function EditorContent() {
       annotationsLoadedRef.current = true;
       const store = useFlowAgentStore.getState();
       MOCK_ANNOTATIONS.forEach((a) => store.addAnnotation(a));
-      store.setShowAnnotationPanel(true);
+      if (taskType === "workflow") {
+        store.setShowAnnotationPanel(true);
+      }
     }
-  }, [project.status]);
+  }, [project.status, taskType]);
 
   const isAgentic = taskType === "agentic";
 
