@@ -60,11 +60,8 @@ export default function TopBar() {
 
   const handleSubmitReview = () => {
     if (project.status === "business_editing" || project.status === "draft") {
-      setProjectStatus("pending_review");
-      setTimeout(() => {
-        setProjectStatus("tech_reviewing");
-        setCurrentRole("tech");
-      }, 300);
+      setProjectStatus("tech_reviewing");
+      setCurrentRole("tech");
     }
   };
 
@@ -78,11 +75,8 @@ export default function TopBar() {
   };
 
   const handleResubmit = () => {
-    setProjectStatus("pending_review");
-    setTimeout(() => {
-      setProjectStatus("tech_reviewing");
-      setCurrentRole("tech");
-    }, 300);
+    setProjectStatus("tech_reviewing");
+    setCurrentRole("tech");
   };
 
   const headerBg = isTech ? "bg-slate-900" : "bg-white";

@@ -133,7 +133,7 @@ export default function ChatPanel() {
         addChatMessage({
           id: uuidv4(),
           role: "assistant",
-          content: `生成失败：${result.error}`,
+          content: `生成失败：${result.error || "未知错误"}`,
           timestamp: new Date().toISOString(),
         });
       }
@@ -198,24 +198,30 @@ export default function ChatPanel() {
             }));
           }
 
-          // Update label map if nodes changed
           const newLabelMap: Record<string, string> = { ...nodeLabelMap };
           for (const n of result.data.nodes || []) {
             newLabelMap[n.id] = n.label;
           }
           setNodeLabelMap(newLabelMap);
+        } else {
+          addChatMessage({
+            id: uuidv4(),
+            role: "assistant",
+            content: `优化「${nodeLabel}」失败：${result.error || "未知错误"}，已跳过该节点的优化。`,
+            timestamp: new Date().toISOString(),
+          });
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "网络错误";
         addChatMessage({
           id: uuidv4(),
           role: "assistant",
-          content: `优化「${nodeLabel}」时出错：${msg}，但流程图仍可使用。`,
+          content: `优化「${nodeLabel}」时出错：${msg}，已跳过该节点的优化。`,
           timestamp: new Date().toISOString(),
         });
       }
 
-      // Move to next pending node or finish
+      // Always advance — the node's answers are recorded, flow still usable
       const nextIdx = currentNodeIdx + 1;
       if (nextIdx < pendingNodes.length) {
         setCurrentNodeIdx(nextIdx);

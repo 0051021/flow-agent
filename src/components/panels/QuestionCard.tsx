@@ -99,7 +99,7 @@ export default function NodeQuestionCard({
       <div className="h-1 bg-zinc-100">
         <div
           className="h-full bg-blue-500 transition-all duration-500"
-          style={{ width: `${((nodeIndex + 1) / totalNodes) * 100}%` }}
+          style={{ width: `${((nodeIndex + 1) / Math.max(totalNodes, 1)) * 100}%` }}
         />
       </div>
 

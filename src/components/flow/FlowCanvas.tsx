@@ -9,9 +9,13 @@ import {
   useNodesState,
   useEdgesState,
   addEdge,
+  applyNodeChanges,
+  applyEdgeChanges,
   type Connection,
   type Edge,
   type Node,
+  type NodeChange,
+  type EdgeChange,
   BackgroundVariant,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -31,9 +35,10 @@ export default function FlowCanvas() {
     setSelectedNodeId,
     setEditingNodeId,
   } = useFlowAgentStore();
-  const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>(storeNodes as FlowNode[]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(storeEdges);
+  const [nodes, setNodes] = useNodesState<FlowNode>(storeNodes as FlowNode[]);
+  const [edges, setEdges] = useEdgesState(storeEdges);
   const prevStoreNodesRef = useRef(storeNodes);
+  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const nodeTypes = useMemo(() => ({ flowCard: FlowCardNode }), []);
 
@@ -45,9 +50,48 @@ export default function FlowCanvas() {
     }
   }, [storeNodes, storeEdges, setNodes, setEdges]);
 
-  const onNodeDragStop = useCallback(() => {
-    onNodesChangeSync(nodes as Node<FlowNodeData>[]);
-  }, [nodes, onNodesChangeSync]);
+  const debouncedSyncNodes = useCallback(
+    (updated: FlowNode[]) => {
+      if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+      syncTimerRef.current = setTimeout(() => {
+        onNodesChangeSync(updated as Node<FlowNodeData>[]);
+      }, 100);
+    },
+    [onNodesChangeSync]
+  );
+
+  const handleNodesChange = useCallback(
+    (changes: NodeChange<FlowNode>[]) => {
+      setNodes((prev) => {
+        const updated = applyNodeChanges(changes, prev);
+        const hasStructuralChange = changes.some(
+          (c) => c.type === "remove" || c.type === "add" || c.type === "replace"
+        );
+        const hasDrag = changes.some((c) => c.type === "position" && c.dragging === false);
+        if (hasStructuralChange || hasDrag) {
+          debouncedSyncNodes(updated);
+        }
+        return updated;
+      });
+    },
+    [setNodes, debouncedSyncNodes]
+  );
+
+  const handleEdgesChange = useCallback(
+    (changes: EdgeChange[]) => {
+      setEdges((prev) => {
+        const updated = applyEdgeChanges(changes, prev);
+        const hasStructuralChange = changes.some(
+          (c) => c.type === "remove" || c.type === "add" || c.type === "replace"
+        );
+        if (hasStructuralChange) {
+          setTimeout(() => onEdgesChangeSync(updated), 0);
+        }
+        return updated;
+      });
+    },
+    [setEdges, onEdgesChangeSync]
+  );
 
   const onConnect = useCallback(
     (params: Connection) => {
@@ -63,10 +107,6 @@ export default function FlowCanvas() {
     [setEdges, onEdgesChangeSync]
   );
 
-  const onEdgeDelete = useCallback(() => {
-    setTimeout(() => onEdgesChangeSync(edges), 0);
-  }, [edges, onEdgesChangeSync]);
-
   const onNodeDoubleClick = useCallback(
     (_event: React.MouseEvent, node: { id: string }) => {
       setSelectedNodeId(node.id);
@@ -75,17 +115,21 @@ export default function FlowCanvas() {
     [setSelectedNodeId, setEditingNodeId]
   );
 
+  useEffect(() => {
+    return () => {
+      if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+    };
+  }, []);
+
   return (
     <div className="w-full h-full relative">
       <CanvasToolbar />
       <ReactFlow
         nodes={nodes}
         edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
+        onNodesChange={handleNodesChange}
+        onEdgesChange={handleEdgesChange}
         onConnect={onConnect}
-        onNodeDragStop={onNodeDragStop}
-        onEdgesDelete={onEdgeDelete}
         onNodeDoubleClick={onNodeDoubleClick}
         nodeTypes={nodeTypes}
         fitView

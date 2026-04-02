@@ -167,12 +167,13 @@ export default function NodeEditDialog() {
                 return (
                   <button
                     key={mode.value}
-                    onClick={() => setExecutionMode(mode.value)}
+                    onClick={() => !isTech && setExecutionMode(mode.value)}
+                    disabled={isTech}
                     className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all text-center ${
                       isActive
                         ? "border-blue-400 bg-blue-50 ring-1 ring-blue-200"
                         : "border-zinc-200 hover:border-zinc-300"
-                    }`}
+                    } ${isTech ? "opacity-60 cursor-default" : ""}`}
                   >
                     <Icon className={`w-5 h-5 ${isActive ? "text-blue-600" : "text-zinc-400"}`} />
                     <span className={`text-[11px] font-medium ${isActive ? "text-blue-700" : "text-zinc-600"}`}>

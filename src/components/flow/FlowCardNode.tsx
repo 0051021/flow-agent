@@ -8,12 +8,14 @@ import { Badge } from "@/components/ui/badge";
 import {
   BarChart3, Target, PenTool, ShieldCheck, Clock,
   Activity, RefreshCw, Bot, UserCheck, User,
-  MessageSquare,
+  MessageSquare, Search, FileText, Mail, Database,
+  Zap, Eye, Settings, Upload, Download, Users, Globe, Lock, Bell,
 } from "lucide-react";
 
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   BarChart3, Target, PenTool, ShieldCheck, Clock,
-  Activity, RefreshCw,
+  Activity, RefreshCw, Search, FileText, Mail, Database,
+  Zap, Eye, Settings, Upload, Download, Users, Globe, Lock, Bell,
 };
 
 const EXEC_MODE_CONFIG = {
@@ -22,12 +24,18 @@ const EXEC_MODE_CONFIG = {
   human_manual: { label: "人工操作", icon: User, className: "bg-purple-50 text-purple-700 border-purple-200" },
 };
 
+const DEFAULT_TECH_CONFIG = {
+  executionType: "deterministic" as const,
+  feasibility: "pending" as const,
+};
+
 function FlowCardNode({ data, id }: NodeProps) {
   const nodeData = data as unknown as FlowNodeData;
   const { viewMode, currentRole, selectedNodeId, setSelectedNodeId, setShowAnnotationPanel, annotations } = useFlowAgentStore();
   const IconComponent = ICON_MAP[nodeData.icon] || BarChart3;
-  const execConfig = EXEC_MODE_CONFIG[nodeData.executionMode];
+  const execConfig = EXEC_MODE_CONFIG[nodeData.executionMode] || EXEC_MODE_CONFIG.ai_auto;
   const ExecIcon = execConfig.icon;
+  const techConfig = nodeData.techConfig ?? DEFAULT_TECH_CONFIG;
   const nodeAnnotations = annotations.filter((a) => a.nodeId === id);
   const unresolvedCount = nodeAnnotations.filter((a) => a.status !== "resolved").length;
   const isSelected = selectedNodeId === id;
@@ -44,7 +52,7 @@ function FlowCardNode({ data, id }: NodeProps) {
       className={`
         w-[320px] bg-white rounded-xl border-2 shadow-sm cursor-pointer
         transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md
-        border-l-[4px] ${feasibilityBorder[nodeData.techConfig.feasibility]}
+        border-l-[4px] ${feasibilityBorder[techConfig.feasibility]}
         ${isSelected ? "border-blue-400 ring-2 ring-blue-100" : "border-zinc-200"}
       `}
       onClick={() => {
@@ -141,13 +149,13 @@ function FlowCardNode({ data, id }: NodeProps) {
           <div className="flex items-center gap-2 text-xs">
             <span className="text-zinc-400">执行类型:</span>
             <Badge variant="outline" className="text-[10px] h-5">
-              {nodeData.techConfig.executionType === "deterministic" ? "🔧 确定性" : "🧠 智能规划"}
+              {techConfig.executionType === "deterministic" ? "🔧 确定性" : "🧠 智能规划"}
             </Badge>
-            {nodeData.techConfig.boundSkill && (
+            {techConfig.boundSkill && (
               <>
                 <span className="text-zinc-400">Skill:</span>
                 <Badge variant="outline" className="text-[10px] h-5 font-mono">
-                  {nodeData.techConfig.boundSkill}
+                  {techConfig.boundSkill}
                 </Badge>
               </>
             )}
@@ -156,17 +164,17 @@ function FlowCardNode({ data, id }: NodeProps) {
       )}
 
       {/* Feasibility bar - tech view only */}
-      {currentRole === "tech" && nodeData.techConfig.feasibility !== "pending" && (
+      {currentRole === "tech" && techConfig.feasibility !== "pending" && (
         <div className={`mx-4 mt-2 px-2.5 py-1.5 rounded-lg text-[11px] font-medium ${
-          nodeData.techConfig.feasibility === "confirmed"
+          techConfig.feasibility === "confirmed"
             ? "bg-green-50 text-green-700 border border-green-200"
-            : nodeData.techConfig.feasibility === "partial"
+            : techConfig.feasibility === "partial"
             ? "bg-amber-50 text-amber-700 border border-amber-200"
             : "bg-red-50 text-red-700 border border-red-200"
         }`}>
-          {nodeData.techConfig.feasibility === "confirmed" && "✅ 技术可行"}
-          {nodeData.techConfig.feasibility === "partial" && "⚠️ 部分可行，需调整"}
-          {nodeData.techConfig.feasibility === "infeasible" && "❌ 技术不可行"}
+          {techConfig.feasibility === "confirmed" && "✅ 技术可行"}
+          {techConfig.feasibility === "partial" && "⚠️ 部分可行，需调整"}
+          {techConfig.feasibility === "infeasible" && "❌ 技术不可行"}
         </div>
       )}
 

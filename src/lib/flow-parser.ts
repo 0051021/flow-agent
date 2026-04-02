@@ -48,9 +48,9 @@ const EDGE_STYLE_MAP: Record<string, { stroke: string; dash?: boolean }> = {
 };
 
 const NODE_WIDTH = 340;
-const NODE_HEIGHT = 200;
-const X_GAP = 80;
-const Y_GAP = 60;
+const NODE_HEIGHT = 380;
+const X_GAP = 100;
+const Y_GAP = 80;
 
 /**
  * DAG-aware layout using topological sort + layer assignment.
@@ -235,14 +235,15 @@ export function serializeFlowForLLM(
   const json = {
     nodes: nodes.map((n) => {
       const d = n.data as unknown as FlowNodeData;
+      const tc = d.techConfig ?? { executionType: "deterministic" };
       return {
         id: n.id,
-        label: d.label,
-        icon: d.icon,
-        description: d.description,
-        executionMode: d.executionMode,
-        estimatedTime: d.estimatedTime,
-        inputs: d.inputs.map((inp) => ({
+        label: d.label || "未命名节点",
+        icon: d.icon || "Zap",
+        description: d.description || "",
+        executionMode: d.executionMode || "ai_auto",
+        estimatedTime: d.estimatedTime || "待定",
+        inputs: (d.inputs || []).map((inp) => ({
           name: inp.name,
           icon: inp.icon,
           description: inp.description,
@@ -250,14 +251,14 @@ export function serializeFlowForLLM(
           source: inp.source,
           sourceDetail: inp.sourceDetail,
         })),
-        outputs: d.outputs.map((out) => ({
+        outputs: (d.outputs || []).map((out) => ({
           name: out.name,
           icon: out.icon,
           description: out.description,
         })),
         isCondition: d.isCondition,
         conditionBranches: d.conditionBranches || null,
-        executionType: d.techConfig.executionType,
+        executionType: tc.executionType,
       };
     }),
     edges: edges.map((e) => ({
@@ -279,8 +280,9 @@ export function serializeFlowForLLM(
 
   for (const n of nodes) {
     const d = n.data as unknown as FlowNodeData;
-    const mode = { ai_auto: "AI自动", human_confirm: "需人工确认", human_manual: "人工操作" }[d.executionMode];
-    const type = d.techConfig.executionType === "deterministic" ? "确定性执行" : "智能规划";
+    const tc = d.techConfig ?? { executionType: "deterministic" };
+    const mode = { ai_auto: "AI自动", human_confirm: "需人工确认", human_manual: "人工操作" }[d.executionMode] || "未知";
+    const type = tc.executionType === "deterministic" ? "确定性执行" : "智能规划";
 
     lines.push(`### ${n.id}: ${d.label}`);
     lines.push(`- 描述: ${d.description}`);

@@ -210,7 +210,12 @@ async function callLLM(
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    let body;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: "请求体格式错误" }, { status: 400 });
+    }
     const { prompt, action = "draft", currentFlow, feedback, nodeId, nodeLabel, answers } = body;
 
     const apiKey = process.env.LLM_API_KEY;
@@ -225,21 +230,27 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "请输入业务描述" }, { status: 400 });
       }
       const result = await callLLM(DRAFT_SYSTEM, prompt);
+      if (!result?.flow?.nodes || !Array.isArray(result.flow.nodes)) {
+        return NextResponse.json({ error: "AI 返回的流程图格式异常，请重试" }, { status: 502 });
+      }
       return NextResponse.json({
         success: true,
         data: result.flow,
-        nodeConfidence: result.nodeConfidence,
+        nodeConfidence: result.nodeConfidence || [],
       });
     }
 
-    // --- Action: refine_node（一个节点的所有回答一次提交） ---
+    // --- Action: refine_node ---
     if (action === "refine_node") {
-      if (!currentFlow || !nodeId || !answers) {
-        return NextResponse.json({ error: "缺少流程图、节点ID或回答" }, { status: 400 });
+      if (!currentFlow || !nodeId) {
+        return NextResponse.json({ error: "缺少流程图或节点ID" }, { status: 400 });
+      }
+      if (!Array.isArray(answers)) {
+        return NextResponse.json({ error: "回答格式错误" }, { status: 400 });
       }
 
       const answersText = answers
-        .map((a: { question: string; answer: string }) => `问：${a.question}\n答：${a.answer}`)
+        .map((a: { question: string; answer: string }) => `问：${a.question || ""}\n答：${a.answer || ""}`)
         .join("\n\n");
 
       const refineInput = [
@@ -250,16 +261,22 @@ export async function POST(req: NextRequest) {
       ].join("\n");
 
       const refined = await callLLM(REFINE_NODE_SYSTEM, refineInput);
+      if (!refined?.nodes || !Array.isArray(refined.nodes)) {
+        return NextResponse.json({ error: "AI 优化结果格式异常，请重试" }, { status: 502 });
+      }
       return NextResponse.json({ success: true, data: refined });
     }
 
-    // --- Action: refine（自由对话修改） ---
+    // --- Action: refine ---
     if (action === "refine") {
       if (!currentFlow || !feedback) {
         return NextResponse.json({ error: "缺少流程图或反馈" }, { status: 400 });
       }
       const refineInput = `原始需求：${prompt || "未提供"}\n\n当前流程图：\n${JSON.stringify(currentFlow, null, 2)}\n\n用户反馈：${feedback}`;
       const refined = await callLLM(REFINE_SYSTEM, refineInput);
+      if (!refined?.nodes || !Array.isArray(refined.nodes)) {
+        return NextResponse.json({ error: "AI 修改结果格式异常，请重试" }, { status: 502 });
+      }
       return NextResponse.json({ success: true, data: refined });
     }
 

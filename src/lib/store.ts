@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import type {
   Annotation,
   AnnotationReply,
@@ -58,103 +59,108 @@ export interface ChatMessage {
   timestamp: string;
 }
 
-export const useFlowAgentStore = create<FlowAgentState>((set) => ({
+const initialState = {
   project: {
     id: "demo-1",
     name: "",
     description: "",
-    status: "draft",
+    status: "draft" as const,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
-  currentRole: "business",
-  viewMode: "business",
-  nodes: [],
-  edges: [],
-  annotations: [],
+  currentRole: "business" as const,
+  viewMode: "business" as const,
+  nodes: [] as Node<FlowNodeData>[],
+  edges: [] as Edge[],
+  annotations: [] as Annotation[],
   knowledgeFiles: MOCK_KNOWLEDGE_FILES,
   selectedNodeId: null,
   editingNodeId: null,
   showAnnotationPanel: false,
   showKnowledgePanel: false,
-  chatMessages: [],
+  chatMessages: [] as ChatMessage[],
+};
 
-  setCurrentRole: (role) =>
-    set({ currentRole: role, viewMode: role === "tech" ? "tech" : "business" }),
-  setViewMode: (mode) => set({ viewMode: mode }),
-  setNodes: (nodes) => set({ nodes }),
-  setEdges: (edges) => set({ edges }),
-  setSelectedNodeId: (id) => set({ selectedNodeId: id }),
-  setEditingNodeId: (id) => set({ editingNodeId: id }),
-  setShowAnnotationPanel: (show) => set({ showAnnotationPanel: show }),
-  setShowKnowledgePanel: (show) => set({ showKnowledgePanel: show }),
-  setProjectStatus: (status) =>
-    set((state) => ({
-      project: { ...state.project, status, updatedAt: new Date().toISOString() },
-    })),
-  addAnnotation: (annotation) =>
-    set((state) => ({ annotations: [...state.annotations, annotation] })),
-  addReply: (annotationId, reply) =>
-    set((state) => ({
-      annotations: state.annotations.map((a) =>
-        a.id === annotationId ? { ...a, replies: [...a.replies, reply] } : a
-      ),
-    })),
-  updateAnnotationStatus: (annotationId, status) =>
-    set((state) => ({
-      annotations: state.annotations.map((a) =>
-        a.id === annotationId ? { ...a, status } : a
-      ),
-    })),
-  addChatMessage: (message) =>
-    set((state) => ({ chatMessages: [...state.chatMessages, message] })),
-  loadGeneratedFlow: (nodes, edges) =>
-    set((state) => ({
-      nodes,
-      edges,
-      project: {
-        ...state.project,
-        status: "business_editing",
-        updatedAt: new Date().toISOString(),
-      },
-    })),
-  onNodesChangeSync: (nodes) => set({ nodes }),
-  onEdgesChangeSync: (edges) => set({ edges }),
-  addNode: (node) =>
-    set((state) => ({ nodes: [...state.nodes, node] })),
-  deleteNode: (nodeId) =>
-    set((state) => ({
-      nodes: state.nodes.filter((n) => n.id !== nodeId),
-      edges: state.edges.filter((e) => e.source !== nodeId && e.target !== nodeId),
-      selectedNodeId: state.selectedNodeId === nodeId ? null : state.selectedNodeId,
-    })),
-  updateNodeData: (nodeId, partial) =>
-    set((state) => ({
-      nodes: state.nodes.map((n) =>
-        n.id === nodeId
-          ? { ...n, data: { ...n.data, ...partial } as FlowNodeData }
-          : n
-      ),
-    })),
-  resetAll: () =>
-    set({
-      project: {
-        id: "demo-1",
-        name: "",
-        description: "",
-        status: "draft",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      currentRole: "business",
-      viewMode: "business",
-      nodes: [],
-      edges: [],
-      annotations: [],
-      selectedNodeId: null,
-      editingNodeId: null,
-      showAnnotationPanel: false,
-      showKnowledgePanel: false,
-      chatMessages: [],
+export const useFlowAgentStore = create<FlowAgentState>()(
+  persist(
+    (set) => ({
+      ...initialState,
+
+      setCurrentRole: (role) =>
+        set({ currentRole: role, viewMode: role === "tech" ? "tech" : "business" }),
+      setViewMode: (mode) => set({ viewMode: mode }),
+      setNodes: (nodes) => set({ nodes }),
+      setEdges: (edges) => set({ edges }),
+      setSelectedNodeId: (id) => set({ selectedNodeId: id }),
+      setEditingNodeId: (id) => set({ editingNodeId: id }),
+      setShowAnnotationPanel: (show) => set({ showAnnotationPanel: show }),
+      setShowKnowledgePanel: (show) => set({ showKnowledgePanel: show }),
+      setProjectStatus: (status) =>
+        set((state) => ({
+          project: { ...state.project, status, updatedAt: new Date().toISOString() },
+        })),
+      addAnnotation: (annotation) =>
+        set((state) => ({ annotations: [...state.annotations, annotation] })),
+      addReply: (annotationId, reply) =>
+        set((state) => ({
+          annotations: state.annotations.map((a) =>
+            a.id === annotationId ? { ...a, replies: [...a.replies, reply] } : a
+          ),
+        })),
+      updateAnnotationStatus: (annotationId, status) =>
+        set((state) => ({
+          annotations: state.annotations.map((a) =>
+            a.id === annotationId ? { ...a, status } : a
+          ),
+        })),
+      addChatMessage: (message) =>
+        set((state) => ({ chatMessages: [...state.chatMessages, message] })),
+      loadGeneratedFlow: (nodes, edges) =>
+        set((state) => ({
+          nodes,
+          edges,
+          project: {
+            ...state.project,
+            status: "business_editing",
+            updatedAt: new Date().toISOString(),
+          },
+        })),
+      onNodesChangeSync: (nodes) => set({ nodes }),
+      onEdgesChangeSync: (edges) => set({ edges }),
+      addNode: (node) =>
+        set((state) => ({ nodes: [...state.nodes, node] })),
+      deleteNode: (nodeId) =>
+        set((state) => ({
+          nodes: state.nodes.filter((n) => n.id !== nodeId),
+          edges: state.edges.filter((e) => e.source !== nodeId && e.target !== nodeId),
+          selectedNodeId: state.selectedNodeId === nodeId ? null : state.selectedNodeId,
+          editingNodeId: state.editingNodeId === nodeId ? null : state.editingNodeId,
+        })),
+      updateNodeData: (nodeId, partial) =>
+        set((state) => ({
+          nodes: state.nodes.map((n) =>
+            n.id === nodeId
+              ? { ...n, data: { ...n.data, ...partial } as FlowNodeData }
+              : n
+          ),
+        })),
+      resetAll: () =>
+        set({
+          ...initialState,
+          knowledgeFiles: MOCK_KNOWLEDGE_FILES,
+        }),
     }),
-}));
+    {
+      name: "flow-agent-store",
+      partialize: (state) => ({
+        project: state.project,
+        currentRole: state.currentRole,
+        viewMode: state.viewMode,
+        nodes: state.nodes,
+        edges: state.edges,
+        annotations: state.annotations,
+        chatMessages: state.chatMessages,
+      }),
+    }
+  )
+);

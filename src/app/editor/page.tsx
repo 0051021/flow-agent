@@ -28,13 +28,25 @@ function EditorContent() {
     selectedNodeId, editingNodeId,
   } = useFlowAgentStore();
   const lastQueryRef = useRef<string | null>(null);
+  const hydratedRef = useRef(false);
 
   useEffect(() => {
+    // First call: mark hydrated and proceed
+    hydratedRef.current = true;
+
     if (!q) return;
+
+    // If store already has this query with a flow, skip (restored from localStorage)
+    const store = useFlowAgentStore.getState();
+    const firstMsg = store.chatMessages[0];
+    if (firstMsg && firstMsg.content === q && store.nodes.length > 0) {
+      lastQueryRef.current = q;
+      return;
+    }
+
     if (lastQueryRef.current === q) return;
 
     lastQueryRef.current = q;
-    const store = useFlowAgentStore.getState();
     store.resetAll();
 
     setTimeout(() => {
