@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Workflow, ArrowRight, Sparkles, BarChart3, PenTool,
   ShieldCheck, Zap, LayoutDashboard, Bot, GitBranch,
-  CheckCircle2, ArrowUpRight,
+  CheckCircle2, ArrowUpRight, Code2,
 } from "lucide-react";
 import { CONSOLE_STATS } from "@/lib/mock-console";
 
@@ -85,14 +85,22 @@ export default function HomePage() {
           <span className="font-bold text-zinc-900">FlowAgent</span>
           <span className="ml-2 text-xs text-zinc-400 hidden sm:inline">业务翻译平台</span>
         </div>
-        <Link
-          href="/console"
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-zinc-900 text-white text-sm font-medium hover:bg-zinc-800 transition-colors shadow-sm"
-        >
-          <LayoutDashboard className="w-4 h-4" />
-          管控后台
-          <ArrowUpRight className="w-3.5 h-3.5 opacity-60" />
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/tech"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-zinc-200 text-zinc-600 text-sm font-medium hover:bg-zinc-50 transition-colors"
+          >
+            <Code2 className="w-3.5 h-3.5" />
+            技术方入口
+          </Link>
+          <Link
+            href="/console"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-zinc-900 text-white text-sm font-medium hover:bg-zinc-800 transition-colors shadow-sm"
+          >
+            <LayoutDashboard className="w-4 h-4" />
+            管控后台
+          </Link>
+        </div>
       </header>
 
       {/* Hero */}

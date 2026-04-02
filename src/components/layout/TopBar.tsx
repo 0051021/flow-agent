@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   BookOpen, MessageSquare,
   CheckCircle2, Send, Workflow, ChevronLeft,
-  Briefcase, Code2, AlertTriangle,
+  Briefcase, Code2, AlertTriangle, ArrowLeftRight,
 } from "lucide-react";
 import type { ProjectStatus, UserRole } from "@/lib/types";
 
@@ -105,10 +105,22 @@ export default function TopBar() {
       </div>
 
       <div className="flex items-center gap-2">
-        {/* Role indicator (read-only) */}
-        <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${roleConfig.bgColor} ${roleConfig.borderColor}`}>
+        {/* Role indicator + switch link */}
+        <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border ${roleConfig.bgColor} ${roleConfig.borderColor}`}>
           <RoleIcon className={`w-3.5 h-3.5 ${roleConfig.color}`} />
           <span className={`text-xs font-semibold ${roleConfig.color}`}>{roleConfig.label}</span>
+          <Link
+            href={isTech ? "/" : "/tech"}
+            className={`ml-1 flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded transition-colors ${
+              isTech
+                ? "text-slate-400 hover:text-slate-200 hover:bg-slate-700"
+                : "text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100"
+            }`}
+            title={isTech ? "切换到业务方视角" : "切换到技术方视角"}
+          >
+            <ArrowLeftRight className="w-3 h-3" />
+            {isTech ? "业务方" : "技术方"}
+          </Link>
         </div>
 
         <div className={`w-px h-6 ${isTech ? "bg-slate-700" : "bg-zinc-200"} mx-1`} />
