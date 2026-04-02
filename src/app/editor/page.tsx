@@ -135,12 +135,14 @@ function EditorContent() {
     if (project.status === "tech_reviewing" && !annotationsLoadedRef.current) {
       annotationsLoadedRef.current = true;
       const store = useFlowAgentStore.getState();
-      MOCK_ANNOTATIONS.forEach((a) => store.addAnnotation(a));
-      if (taskType === "workflow") {
-        store.setShowAnnotationPanel(true);
-      }
+      const isAgenticMode = store.taskType === "agentic";
+      MOCK_ANNOTATIONS.forEach((a) => {
+        const adjusted = isAgenticMode ? { ...a, nodeId: "__global__" } : a;
+        store.addAnnotation(adjusted);
+      });
+      store.setShowAnnotationPanel(true);
     }
-  }, [project.status, taskType]);
+  }, [project.status]);
 
   const isAgentic = taskType === "agentic";
 

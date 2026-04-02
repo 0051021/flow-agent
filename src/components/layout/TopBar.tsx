@@ -113,12 +113,16 @@ export default function TopBar() {
 
         <div className={`w-px h-6 ${isTech ? "bg-slate-700" : "bg-zinc-200"} mx-1`} />
 
-        {/* Panels toggle */}
+        {/* Panels toggle (mutually exclusive) */}
         <Button
           size="sm"
           variant={showKnowledgePanel ? "default" : "outline"}
           className={`h-8 text-xs ${isTech && !showKnowledgePanel ? "border-slate-600 text-slate-300 hover:bg-slate-800" : ""}`}
-          onClick={() => setShowKnowledgePanel(!showKnowledgePanel)}
+          onClick={() => {
+            const next = !showKnowledgePanel;
+            setShowKnowledgePanel(next);
+            if (next) setShowAnnotationPanel(false);
+          }}
         >
           <BookOpen className="w-3.5 h-3.5 mr-1" /> {knowledgeLabel}
         </Button>
@@ -126,7 +130,11 @@ export default function TopBar() {
           size="sm"
           variant={showAnnotationPanel ? "default" : "outline"}
           className={`h-8 text-xs relative ${isTech && !showAnnotationPanel ? "border-slate-600 text-slate-300 hover:bg-slate-800" : ""}`}
-          onClick={() => setShowAnnotationPanel(!showAnnotationPanel)}
+          onClick={() => {
+            const next = !showAnnotationPanel;
+            setShowAnnotationPanel(next);
+            if (next) setShowKnowledgePanel(false);
+          }}
         >
           <MessageSquare className="w-3.5 h-3.5 mr-1" /> 批注
           {unresolvedAnnotations > 0 && (
