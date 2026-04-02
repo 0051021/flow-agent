@@ -490,13 +490,7 @@ export default function ChatPanel() {
 
     const { isReviewMode } = useFlowAgentStore.getState();
     if (isReviewMode) {
-      addChatMessage({
-        id: uuidv4(),
-        role: "assistant",
-        content: "当前为评审模式，仅供查看和批注。如需修改配置，请联系业务方重新提交。",
-        timestamp: new Date().toISOString(),
-      });
-      return;
+      useFlowAgentStore.getState().setIsReviewMode(false);
     }
 
     try {
@@ -823,7 +817,7 @@ export default function ChatPanel() {
               handleSend();
             }
           }}
-          placeholder={useFlowAgentStore.getState().isReviewMode ? "评审模式：输入评审意见或问题..." : placeholder[phase]}
+          placeholder={placeholder[phase]}
           className="text-sm min-h-[60px] max-h-[120px] resize-none"
           disabled={inputDisabled}
         />
@@ -834,7 +828,7 @@ export default function ChatPanel() {
             disabled={!input.trim() || inputDisabled}
           >
             <Send className="w-3.5 h-3.5 mr-1" />
-            {useFlowAgentStore.getState().isReviewMode ? "发送" : (hasFlow || hasAgenticConfig ? "修改" : "生成")}
+            {hasFlow || hasAgenticConfig ? "修改" : "生成"}
           </Button>
         </div>
       </div>

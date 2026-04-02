@@ -31,16 +31,17 @@ function EditorContent() {
 
   useEffect(() => {
     if (roleSetRef.current) return;
-    if (roleParam === "tech" && currentRole !== "tech") {
-      roleSetRef.current = true;
-      setCurrentRole("tech");
-      setViewMode("tech");
-    } else if (roleParam === "business" && currentRole !== "business") {
-      roleSetRef.current = true;
-      setCurrentRole("business");
-      setViewMode("business");
+    roleSetRef.current = true;
+    const store = useFlowAgentStore.getState();
+    if (roleParam === "tech") {
+      store.setCurrentRole("tech");
+      store.setViewMode("tech");
+    } else {
+      store.setCurrentRole("business");
+      store.setViewMode("business");
+      store.setIsReviewMode(false);
     }
-  }, [roleParam, currentRole, setCurrentRole, setViewMode]);
+  }, [roleParam]);
 
   // Load mock review data directly (no AI generation)
   useEffect(() => {
@@ -91,6 +92,7 @@ function EditorContent() {
       store.originalPrompt === q && (store.nodes.length > 0 || store.agenticConfig !== null);
 
     if (alreadyHasThisFlow) {
+      store.setIsReviewMode(false);
       if (roleParam === "tech" && store.project.status !== "tech_reviewing" && store.project.status !== "confirmed") {
         store.setProjectStatus("tech_reviewing");
       }
@@ -98,10 +100,14 @@ function EditorContent() {
     }
 
     store.resetAll();
+    store.setIsReviewMode(false);
 
     if (roleParam === "tech") {
       useFlowAgentStore.getState().setCurrentRole("tech");
       useFlowAgentStore.getState().setViewMode("tech");
+    } else {
+      useFlowAgentStore.getState().setCurrentRole("business");
+      useFlowAgentStore.getState().setViewMode("business");
     }
 
     setTimeout(() => {

@@ -77,33 +77,36 @@ export default function CanvasToolbar() {
     addNode(newNode);
   }, [selectedNodeId, nodes, addNode]);
 
-  if (isTech) {
-    return (
-      <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5 bg-slate-800 rounded-lg border border-slate-700 shadow-sm px-3 py-1.5">
-        <Code2 className="w-3.5 h-3.5 text-purple-400" />
-        <span className="text-[11px] text-slate-300 font-medium">技术评审模式</span>
-        <span className="text-[10px] text-slate-500">· 点击节点查看详情并评估可行性</span>
-      </div>
-    );
-  }
+  const toolbarBg = isTech ? "bg-slate-800 border-slate-700" : "bg-white border-zinc-200";
+  const btnClass = isTech
+    ? "text-slate-300 hover:bg-slate-700"
+    : "text-zinc-600 hover:bg-zinc-100";
+  const dividerClass = isTech ? "bg-slate-600" : "bg-zinc-200";
 
   return (
-    <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1 bg-white rounded-lg border border-zinc-200 shadow-sm px-1.5 py-1">
+    <div className={`absolute top-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1 rounded-lg border shadow-sm px-1.5 py-1 ${toolbarBg}`}>
+      {isTech && (
+        <>
+          <Code2 className="w-3.5 h-3.5 text-purple-400 ml-1" />
+          <span className="text-[11px] text-slate-300 font-medium">技术评审</span>
+          <div className={`w-px h-5 ${dividerClass}`} />
+        </>
+      )}
       <button
         onClick={handleAddNode}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-zinc-600 hover:bg-zinc-100 transition-colors"
+        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium ${btnClass} transition-colors`}
         title="添加节点"
       >
         <Plus className="w-3.5 h-3.5" />
         添加节点
       </button>
 
-      <div className="w-px h-5 bg-zinc-200" />
+      <div className={`w-px h-5 ${dividerClass}`} />
 
       <button
         onClick={handleDuplicateNode}
         disabled={!selectedNodeId}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-zinc-600 hover:bg-zinc-100 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium ${btnClass} transition-colors disabled:opacity-30 disabled:cursor-not-allowed`}
         title="复制选中节点"
       >
         <Copy className="w-3.5 h-3.5" />
@@ -113,7 +116,7 @@ export default function CanvasToolbar() {
       <button
         onClick={handleDeleteNode}
         disabled={!selectedNodeId}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-red-500 hover:bg-red-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium ${isTech ? "text-red-400 hover:bg-red-900/30" : "text-red-500 hover:bg-red-50"} transition-colors disabled:opacity-30 disabled:cursor-not-allowed`}
         title="删除选中节点"
       >
         <Trash2 className="w-3.5 h-3.5" />
