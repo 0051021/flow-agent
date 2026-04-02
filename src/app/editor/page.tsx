@@ -18,11 +18,27 @@ const FlowCanvas = dynamic(() => import("@/components/flow/FlowCanvas"), { ssr: 
 function EditorContent() {
   const searchParams = useSearchParams();
   const q = searchParams.get("q");
+  const roleParam = searchParams.get("role");
   const {
     project, showAnnotationPanel, showKnowledgePanel,
     selectedNodeId, editingNodeId, taskType,
+    currentRole, setCurrentRole, setViewMode,
   } = useFlowAgentStore();
   const initDoneRef = useRef(false);
+  const roleSetRef = useRef(false);
+
+  useEffect(() => {
+    if (roleSetRef.current) return;
+    if (roleParam === "tech" && currentRole !== "tech") {
+      roleSetRef.current = true;
+      setCurrentRole("tech");
+      setViewMode("tech");
+    } else if (roleParam === "business" && currentRole !== "business") {
+      roleSetRef.current = true;
+      setCurrentRole("business");
+      setViewMode("business");
+    }
+  }, [roleParam, currentRole, setCurrentRole, setViewMode]);
 
   useEffect(() => {
     if (!q || initDoneRef.current) return;
@@ -37,6 +53,11 @@ function EditorContent() {
 
     store.resetAll();
 
+    if (roleParam === "tech") {
+      useFlowAgentStore.getState().setCurrentRole("tech");
+      useFlowAgentStore.getState().setViewMode("tech");
+    }
+
     setTimeout(() => {
       const s = useFlowAgentStore.getState();
       s.addChatMessage({
@@ -47,7 +68,7 @@ function EditorContent() {
       });
       s.setInitQuery(q);
     }, 0);
-  }, [q]);
+  }, [q, roleParam]);
 
   const annotationsLoadedRef = useRef(false);
   useEffect(() => {

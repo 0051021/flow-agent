@@ -1,6 +1,112 @@
 import type { KnowledgeFile, FlowNodeData, Annotation } from "./types";
 import type { Node, Edge } from "@xyflow/react";
 
+export const MOCK_TECH_FILES: KnowledgeFile[] = [
+  {
+    id: "tf-1",
+    name: "系统架构概览.md",
+    category: "系统架构",
+    content: `# 系统架构概览
+
+## 技术栈
+- 后端：Node.js + NestJS
+- 数据库：PostgreSQL + Redis
+- 消息队列：RabbitMQ
+- 对象存储：阿里云 OSS
+
+## 部署环境
+- 生产环境：阿里云 ECS（4核8G x 3）
+- 测试环境：阿里云 ECS（2核4G x 1）
+- CI/CD：GitHub Actions → Docker → K8s
+
+## 外部依赖
+- 小红书开放平台 API（已接入）
+- 微信支付 API（已接入）
+- 海关总署申报接口（已接入）`,
+    updatedAt: "2026-03-20",
+  },
+  {
+    id: "tf-2",
+    name: "已接入API清单.md",
+    category: "接口文档",
+    content: `# 已接入 API 清单
+
+## 社交平台
+- 小红书开放平台 v3.2（内容发布、数据查询、评论管理）
+- 抖音开放平台 v2.0（仅数据查询）
+
+## 企业系统
+- 用友 ERP（财务模块、库存模块）
+- 金蝶 K3（报销审批接口）
+- 海关总署 H2018（报关申报、状态查询）
+
+## AI 服务
+- OpenAI GPT-4o（文本生成）
+- DALL-E 3（图片生成，成功率约 70%）
+- 自研 NLP 模型（合规审查，准确率 98%）
+
+## 注意事项
+- 小红书 API QPS 限制 10/s
+- 海关接口响应时间 3-15s，需做异步处理
+- 图片生成建议加质量评分兜底`,
+    updatedAt: "2026-03-25",
+  },
+  {
+    id: "tf-3",
+    name: "Skill能力清单.md",
+    category: "能力清单",
+    content: `# 平台已有 Skill 清单
+
+## 通用 Skill
+| Skill | 状态 | 成功率 | 均耗时 |
+|-------|------|--------|--------|
+| 网页数据采集 | 可用 | 95% | 30s |
+| 文本内容生成 | 可用 | 98% | 15s |
+| 图片生成 | 可用 | 70% | 25s |
+| 数据分析报告 | 可用 | 92% | 45s |
+| PDF 解析 | 可用 | 90% | 20s |
+
+## 行业 Skill
+| Skill | 状态 | 成功率 | 均耗时 |
+|-------|------|--------|--------|
+| 小红书内容发布 | 可用 | 99% | 10s |
+| 竞品数据监控 | 可用 | 88% | 2min |
+| 合规审查 | 可用 | 98% | 5s |
+| 海关编码归类 | 可用 | 85% | 8s |
+
+## 待开发
+- 视频生成（排期 Q2）
+- 多平台同步发布（排期 Q2）`,
+    updatedAt: "2026-03-28",
+  },
+  {
+    id: "tf-4",
+    name: "技术约束与限制.md",
+    category: "技术约束",
+    content: `# 技术约束与限制
+
+## 性能约束
+- 单任务最大执行时间：30 分钟
+- 并发任务上限：50 个
+- 单次 LLM 调用 token 上限：4096
+
+## 安全约束
+- 所有外部 API 调用必须走网关
+- 敏感数据（身份证、银行卡）不可存入日志
+- 文件上传大小限制：50MB
+
+## 合规约束
+- 内容发布前必须经过合规审查 Skill
+- 涉及金额操作必须设置 human_confirm
+- 数据导出需记录审计日志
+
+## 已知问题
+- 图片生成人物面部变形概率 15%（建议加人工审核）
+- 海关接口偶发超时（已配置 3 次重试）`,
+    updatedAt: "2026-03-30",
+  },
+];
+
 export const MOCK_KNOWLEDGE_FILES: KnowledgeFile[] = [
   {
     id: "kf-1",

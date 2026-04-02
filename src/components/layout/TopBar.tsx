@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   BookOpen, MessageSquare,
   CheckCircle2, Send, Workflow, ChevronLeft,
-  Briefcase, Code2, ArrowLeftRight, AlertTriangle,
+  Briefcase, Code2, AlertTriangle,
 } from "lucide-react";
 import type { ProjectStatus, UserRole } from "@/lib/types";
 
@@ -39,11 +39,11 @@ const ROLE_CONFIG: Record<UserRole, { label: string; icon: React.ComponentType<{
 
 export default function TopBar() {
   const {
-    project, currentRole, setCurrentRole,
+    project, currentRole,
     annotations,
     showAnnotationPanel, setShowAnnotationPanel,
     showKnowledgePanel, setShowKnowledgePanel,
-    setProjectStatus, setViewMode, nodes,
+    setProjectStatus, setCurrentRole, setViewMode, nodes,
   } = useFlowAgentStore();
 
   const statusConfig = STATUS_LABELS[project.status];
@@ -53,16 +53,11 @@ export default function TopBar() {
   const isTech = currentRole === "tech";
   const hasFlow = nodes.length > 0;
 
-  const handleRoleSwitch = () => {
-    const newRole: UserRole = currentRole === "business" ? "tech" : "business";
-    setCurrentRole(newRole);
-    setViewMode(newRole === "tech" ? "tech" : "business");
-  };
+  const backHref = isTech ? "/tech" : "/";
 
   const handleSubmitReview = () => {
     if (project.status === "business_editing" || project.status === "draft") {
       setProjectStatus("tech_reviewing");
-      setCurrentRole("tech");
     }
   };
 
@@ -72,12 +67,10 @@ export default function TopBar() {
 
   const handleReject = () => {
     setProjectStatus("needs_revision");
-    setCurrentRole("business");
   };
 
   const handleResubmit = () => {
     setProjectStatus("tech_reviewing");
-    setCurrentRole("tech");
   };
 
   const headerBg = isTech ? "bg-slate-900" : "bg-white";
@@ -85,11 +78,13 @@ export default function TopBar() {
   const titleColor = isTech ? "text-white" : "text-zinc-900";
   const subtitleColor = isTech ? "text-slate-400" : "text-zinc-600";
 
+  const knowledgeLabel = isTech ? "知识 & 技术参考" : "知识中心";
+
   return (
     <header className={`h-14 border-b ${headerBorder} ${headerBg} flex items-center justify-between px-4 shrink-0 transition-colors duration-300`}>
       <div className="flex items-center gap-3">
         <Link
-          href="/"
+          href={backHref}
           className={`flex items-center gap-1.5 px-2 py-1 -ml-2 rounded-lg transition-colors ${
             isTech ? "hover:bg-slate-800" : "hover:bg-zinc-100"
           }`}
@@ -110,15 +105,11 @@ export default function TopBar() {
       </div>
 
       <div className="flex items-center gap-2">
-        {/* Role switcher */}
-        <button
-          onClick={handleRoleSwitch}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border-2 transition-all ${roleConfig.bgColor} ${roleConfig.borderColor}`}
-        >
+        {/* Role indicator (read-only) */}
+        <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${roleConfig.bgColor} ${roleConfig.borderColor}`}>
           <RoleIcon className={`w-3.5 h-3.5 ${roleConfig.color}`} />
           <span className={`text-xs font-semibold ${roleConfig.color}`}>{roleConfig.label}</span>
-          <ArrowLeftRight className={`w-3 h-3 ${roleConfig.color} opacity-50`} />
-        </button>
+        </div>
 
         <div className={`w-px h-6 ${isTech ? "bg-slate-700" : "bg-zinc-200"} mx-1`} />
 
@@ -129,7 +120,7 @@ export default function TopBar() {
           className={`h-8 text-xs ${isTech && !showKnowledgePanel ? "border-slate-600 text-slate-300 hover:bg-slate-800" : ""}`}
           onClick={() => setShowKnowledgePanel(!showKnowledgePanel)}
         >
-          <BookOpen className="w-3.5 h-3.5 mr-1" /> 知识中心
+          <BookOpen className="w-3.5 h-3.5 mr-1" /> {knowledgeLabel}
         </Button>
         <Button
           size="sm"
