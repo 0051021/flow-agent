@@ -53,13 +53,14 @@ const STRATEGY_LABELS: Record<AgenticExecutionStrategy, { label: string; desc: s
 };
 
 export default function AgenticConfigPanel() {
-  const { agenticConfig, chatPhase, project, taskType, originalPrompt } = useFlowAgentStore();
+  const { agenticConfig, chatPhase, project, taskType, originalPrompt, currentRole } = useFlowAgentStore();
   const [activeTab, setActiveTab] = useState<TabId>("goal");
   const [deploying, setDeploying] = useState(false);
   const [deployed, setDeployed] = useState(false);
   const router = useRouter();
 
   const isReady = chatPhase === "agentic_ready";
+  const isTech = currentRole === "tech";
 
   if (!agenticConfig) {
     return (
@@ -76,7 +77,8 @@ export default function AgenticConfigPanel() {
     setTimeout(() => {
       setDeploying(false);
       setDeployed(true);
-    }, 1500);
+      useFlowAgentStore.getState().setProjectStatus("confirmed");
+    }, 2000);
   };
 
   const handleGoToConsole = () => {
@@ -131,7 +133,7 @@ export default function AgenticConfigPanel() {
         {activeTab === "evaluators" && <EvaluatorsTab editable={isReady} />}
       </div>
 
-      {/* Deploy footer */}
+      {/* Footer actions */}
       {isReady && (
         <div className="px-5 py-3 border-t border-zinc-100 bg-zinc-50">
           {deployed ? (
@@ -140,28 +142,36 @@ export default function AgenticConfigPanel() {
                 <CheckCircle2 className="w-4 h-4" />
                 <span className="font-medium">已部署为「{project.name || "Agent"}」</span>
               </div>
+              <p className="text-[11px] text-zinc-400">配置已提交至管控后台，可在后台查看运行状态和任务监控</p>
               <Button variant="outline" className="w-full text-sm h-9" onClick={handleGoToConsole}>
                 前往管控后台查看
               </Button>
             </div>
+          ) : isTech ? (
+            <div className="space-y-2">
+              <p className="text-[11px] text-zinc-500">技术评审：确认技能可行性、约束合理性后，点击「评审通过」提交</p>
+            </div>
           ) : (
-            <Button
-              className="w-full bg-violet-600 hover:bg-violet-700 text-sm h-9"
-              onClick={handleDeploy}
-              disabled={deploying}
-            >
-              {deploying ? (
-                <>
-                  <div className="w-3.5 h-3.5 mr-1.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  部署中...
-                </>
-              ) : (
-                <>
-                  <Rocket className="w-3.5 h-3.5 mr-1.5" />
-                  部署为 Agent
-                </>
-              )}
-            </Button>
+            <div className="space-y-2">
+              <Button
+                className="w-full bg-violet-600 hover:bg-violet-700 text-sm h-9"
+                onClick={handleDeploy}
+                disabled={deploying}
+              >
+                {deploying ? (
+                  <>
+                    <div className="w-3.5 h-3.5 mr-1.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    正在部署...
+                  </>
+                ) : (
+                  <>
+                    <Rocket className="w-3.5 h-3.5 mr-1.5" />
+                    部署为 Agent
+                  </>
+                )}
+              </Button>
+              <p className="text-[11px] text-zinc-400 text-center">将配置提交至管控后台，启动 Agent 自动执行任务</p>
+            </div>
           )}
         </div>
       )}

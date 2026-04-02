@@ -158,8 +158,8 @@ function EditorContent() {
             {selectedNodeId && <NodeDetailPanel />}
           </div>
         )}
-        {showAnnotationPanel && !isAgentic && <AnnotationPanel />}
-        {showKnowledgePanel && !isAgentic && <KnowledgePanel />}
+        {showAnnotationPanel && <AnnotationPanel />}
+        {showKnowledgePanel && <KnowledgePanel />}
       </div>
       {editingNodeId && !isAgentic && <NodeEditDialog />}
     </div>
