@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import TopBar from "@/components/layout/TopBar";
 import ChatPanel from "@/components/panels/ChatPanel";
+import AgenticConfigPanel from "@/components/panels/AgenticConfigPanel";
 import AnnotationPanel from "@/components/panels/AnnotationPanel";
 import KnowledgePanel from "@/components/panels/KnowledgePanel";
 import NodeDetailPanel from "@/components/panels/NodeDetailPanel";
@@ -19,7 +20,7 @@ function EditorContent() {
   const q = searchParams.get("q");
   const {
     project, showAnnotationPanel, showKnowledgePanel,
-    selectedNodeId, editingNodeId,
+    selectedNodeId, editingNodeId, taskType,
   } = useFlowAgentStore();
   const initDoneRef = useRef(false);
 
@@ -30,7 +31,7 @@ function EditorContent() {
     const store = useFlowAgentStore.getState();
 
     const alreadyHasThisFlow =
-      store.originalPrompt === q && store.nodes.length > 0;
+      store.originalPrompt === q && (store.nodes.length > 0 || store.agenticConfig !== null);
 
     if (alreadyHasThisFlow) return;
 
@@ -58,21 +59,27 @@ function EditorContent() {
     }
   }, [project.status]);
 
+  const isAgentic = taskType === "agentic";
+
   return (
     <div className="h-screen flex flex-col bg-zinc-50">
       <TopBar />
       <div className="flex-1 flex overflow-hidden">
         <ChatPanel />
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="flex-1 overflow-hidden">
-            <FlowCanvas />
+        {isAgentic ? (
+          <AgenticConfigPanel />
+        ) : (
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <div className="flex-1 overflow-hidden">
+              <FlowCanvas />
+            </div>
+            {selectedNodeId && <NodeDetailPanel />}
           </div>
-          {selectedNodeId && <NodeDetailPanel />}
-        </div>
-        {showAnnotationPanel && <AnnotationPanel />}
-        {showKnowledgePanel && <KnowledgePanel />}
+        )}
+        {showAnnotationPanel && !isAgentic && <AnnotationPanel />}
+        {showKnowledgePanel && !isAgentic && <KnowledgePanel />}
       </div>
-      {editingNodeId && <NodeEditDialog />}
+      {editingNodeId && !isAgentic && <NodeEditDialog />}
     </div>
   );
 }

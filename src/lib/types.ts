@@ -119,3 +119,116 @@ export interface KnowledgeFile {
   content: string;
   updatedAt: string;
 }
+
+// ============================================================
+// Task Type (Workflow vs Agentic)
+// ============================================================
+
+export type TaskType = "workflow" | "agentic";
+
+// ============================================================
+// Agentic Task Configuration
+// ============================================================
+
+export interface AgenticSkill {
+  id: string;
+  name: string;
+  description: string;
+  inputs: { name: string; type: string }[];
+  outputs: { name: string; type: string }[];
+  evaluator?: string;
+}
+
+export type AgenticConstraintType = "budget" | "time" | "quality" | "compliance" | "custom";
+
+export interface AgenticConstraint {
+  id: string;
+  type: AgenticConstraintType;
+  description: string;
+  value?: string;
+}
+
+export interface AgenticEvaluatorMetric {
+  name: string;
+  threshold: string;
+  weight: number;
+}
+
+export interface AgenticEvaluator {
+  id: string;
+  name: string;
+  description: string;
+  metrics: AgenticEvaluatorMetric[];
+}
+
+export type AgenticExecutionStrategy = "sequential" | "parallel" | "adaptive";
+
+export interface AgenticTaskConfig {
+  goal: string;
+  background: string;
+  constraints: AgenticConstraint[];
+  skills: AgenticSkill[];
+  evaluators: AgenticEvaluator[];
+  executionStrategy: AgenticExecutionStrategy;
+  maxIterations: number;
+  humanCheckpoints: string[];
+}
+
+// ============================================================
+// Console: Agent & Task Management
+// ============================================================
+
+export interface AgenticConfirmItem {
+  id: string;
+  section: "goal" | "skills" | "constraints" | "evaluators";
+  question: string;
+  context: string;
+  options?: string[];
+}
+
+export type AgentStatus = "running" | "draft" | "error" | "paused";
+export type ConsoleTaskStatus = "queued" | "running" | "pending_confirm" | "completed" | "error";
+export type TaskEventType = "node_start" | "node_complete" | "node_error" | "human_confirm" | "system";
+
+export interface ConsoleAgent {
+  id: string;
+  name: string;
+  icon: string;
+  sceneId: string;
+  sceneName: string;
+  taskType: TaskType;
+  status: AgentStatus;
+  successRate: number;
+  taskCount: number;
+  avgDuration: string;
+  version: string;
+  department: string;
+  lastActiveAt: string;
+  description: string;
+}
+
+export interface ConsoleTask {
+  id: string;
+  agentId: string;
+  agentName: string;
+  agentIcon: string;
+  currentNode: string;
+  progress: number;
+  status: ConsoleTaskStatus;
+  startedAt: string;
+  completedAt?: string;
+  duration: string;
+  priority?: "normal" | "high" | "urgent";
+  description: string;
+}
+
+export interface TaskEvent {
+  id: string;
+  taskId: string;
+  nodeId?: string;
+  nodeName?: string;
+  type: TaskEventType;
+  content: string;
+  timestamp: string;
+  details?: Record<string, unknown>;
+}

@@ -142,6 +142,154 @@ ${FLOW_JSON_SCHEMA}`;
 // Prompt: Refine（自由对话修改）
 // ============================================================
 
+// ============================================================
+// Prompt: Classify（判断任务类型）
+// ============================================================
+
+const CLASSIFY_SYSTEM = `你是一个企业级 AI 产品架构师。你需要判断用户描述的业务场景属于哪种任务类型。
+
+**两种任务类型的定义**：
+
+1. **workflow（工作流/运维类）**：
+   - 有明确的、固定的步骤顺序
+   - 每一步的输入输出是确定的
+   - 流程可以画成流程图
+   - 重点是"准确执行"
+   - 典型场景：财务报销、合同审批、进出口报关、IT 工单处理、售后退货
+
+2. **agentic（智能体/运营类）**：
+   - 有业务目标但执行路径不固定
+   - 需要 AI 自主规划和决策
+   - 涉及策略制定、内容生成、数据分析等创造性工作
+   - 重点是"达成目标"
+   - 典型场景：账号运营涨粉、竞品分析、营销活动执行、PPT 生成、项目管理
+
+**判断标准**：
+- 如果用户描述的是一个"流程"（有步骤、有顺序、有规则）→ workflow
+- 如果用户描述的是一个"目标"（要达成什么、需要什么能力）→ agentic
+- 如果不确定，倾向于 agentic（因为 agentic 可以包含 workflow 子任务）
+
+请输出 JSON：
+{
+  "taskType": "workflow 或 agentic",
+  "reason": "一句话解释为什么是这个类型",
+  "confidence": 0.0-1.0
+}
+
+规则：直接输出合法 JSON，不要用 markdown 代码块包裹。`;
+
+// ============================================================
+// Prompt: Draft Agentic（生成 Agentic 任务配置草稿）
+// ============================================================
+
+const AGENTIC_JSON_SCHEMA = `{
+  "projectName": "项目名称（简短）",
+  "config": {
+    "goal": "用一句话描述业务目标（如：3个月内小红书账号涨粉5万）",
+    "background": "业务背景描述（2-3句话，说明当前状况和为什么要做这件事）",
+    "constraints": [
+      {
+        "id": "c-1",
+        "type": "budget 或 time 或 quality 或 compliance 或 custom",
+        "description": "约束条件描述",
+        "value": "具体数值或标准（如：每月预算不超过5000元）"
+      }
+    ],
+    "skills": [
+      {
+        "id": "sk-1",
+        "name": "技能名称（2-4个字）",
+        "description": "这个技能做什么（一句话）",
+        "inputs": [{ "name": "输入名", "type": "数据类型" }],
+        "outputs": [{ "name": "输出名", "type": "数据类型" }],
+        "evaluator": "评估这个技能输出质量的标准（一句话）"
+      }
+    ],
+    "evaluators": [
+      {
+        "id": "ev-1",
+        "name": "评估器名称",
+        "description": "评估什么（一句话）",
+        "metrics": [
+          { "name": "指标名", "threshold": "达标阈值", "weight": 0.0-1.0 }
+        ]
+      }
+    ],
+    "executionStrategy": "sequential 或 parallel 或 adaptive",
+    "maxIterations": 5,
+    "humanCheckpoints": ["需要人工确认的关键节点描述"]
+  },
+  "confirmItems": [
+    {
+      "id": "confirm-1",
+      "section": "goal 或 skills 或 constraints 或 evaluators",
+      "question": "用通俗语言提问",
+      "context": "为什么要确认这个",
+      "options": ["选项A", "选项B"]
+    }
+  ]
+}`;
+
+const DRAFT_AGENTIC_SYSTEM = `你是一个资深的 AI 产品架构师，擅长将业务目标转化为可执行的 Agent 任务配置。
+
+用户会用自然语言描述一个业务目标。你的任务是：
+1. 分析业务目标，生成完整的 Agent 任务配置
+2. 对不确定的部分提出确认问题
+
+**关于技能（skills）**：
+- 每个技能是一个原子能力，有明确的输入和输出
+- 技能数量 3-6 个
+- 技能名称要具体（"竞品数据采集" 而非 "数据采集"）
+- 每个技能要有评估标准
+
+**关于约束条件（constraints）**：
+- 至少包含时间和质量两个维度
+- 如果用户提到了预算、合规等要求，也要加上
+
+**关于评估器（evaluators）**：
+- 至少 1 个整体评估器
+- 每个评估器有 2-3 个具体指标
+- 指标要可量化（如"互动率 > 5%"）
+
+**关于确认项（confirmItems）**：
+- 3-5 个确认问题
+- 聚焦于目标是否准确、技能是否合适、约束是否合理
+- 每个问题提供 2-3 个选项
+
+请严格按以下 JSON 格式输出：
+${AGENTIC_JSON_SCHEMA}
+
+规则：
+- 直接输出合法 JSON，不要用 markdown 代码块包裹
+- 确保 JSON 格式严格正确`;
+
+// ============================================================
+// Prompt: Refine Agentic（根据反馈修改 Agentic 配置）
+// ============================================================
+
+const REFINE_AGENTIC_SYSTEM = `你是一个 AI 产品架构师。你会收到：
+1. 当前的 Agent 任务配置 JSON
+2. 用户的修改意见
+3. 用户的原始需求（供参考）
+
+请根据用户意见修改配置，输出修改后的完整 JSON。
+
+修改规则：
+1. 只改用户提到的部分
+2. 新增的 skill/constraint/evaluator，id 接着当前最大 id 递增
+3. 保持 JSON 格式一致
+4. 直接输出合法 JSON，不要用 markdown 代码块包裹
+
+输出格式（只需要 config 部分，不需要 confirmItems）：
+{
+  "projectName": "项目名称",
+  "config": { ... }
+}`;
+
+// ============================================================
+// Prompt: Refine（自由对话修改 Workflow）
+// ============================================================
+
 const REFINE_SYSTEM = `你是一个业务流程优化专家。你会收到：
 1. 当前的流程图（结构化 JSON，反映用户在画布上的最新修改）
 2. 用户的修改意见
@@ -236,12 +384,63 @@ export async function POST(req: NextRequest) {
     } catch {
       return NextResponse.json({ error: "请求体格式错误" }, { status: 400 });
     }
-    const { prompt, action = "draft", currentFlow, feedback, nodeId, nodeLabel, answers } = body;
+    const { prompt, action = "draft", currentFlow, currentConfig, feedback, nodeId, nodeLabel, answers } = body;
 
     const apiKey = process.env.LLM_API_KEY;
     const baseUrl = process.env.LLM_BASE_URL;
     if (!apiKey || !baseUrl) {
       return NextResponse.json({ error: "LLM 配置缺失" }, { status: 500 });
+    }
+
+    // --- Action: classify ---
+    if (action === "classify") {
+      if (!prompt?.trim()) {
+        return NextResponse.json({ error: "请输入业务描述" }, { status: 400 });
+      }
+      const result = await callLLM(CLASSIFY_SYSTEM, prompt, { temperature: 0.1 });
+      if (!result?.taskType) {
+        return NextResponse.json({ error: "AI 分类结果格式异常" }, { status: 502 });
+      }
+      return NextResponse.json({
+        success: true,
+        taskType: result.taskType,
+        reason: result.reason || "",
+        confidence: result.confidence || 0.5,
+      });
+    }
+
+    // --- Action: draft_agentic ---
+    if (action === "draft_agentic") {
+      if (!prompt?.trim()) {
+        return NextResponse.json({ error: "请输入业务描述" }, { status: 400 });
+      }
+      const result = await callLLM(DRAFT_AGENTIC_SYSTEM, prompt);
+      if (!result?.config) {
+        return NextResponse.json({ error: "AI 返回的任务配置格式异常，请重试" }, { status: 502 });
+      }
+      return NextResponse.json({
+        success: true,
+        data: result.config,
+        projectName: result.projectName || "",
+        confirmItems: result.confirmItems || [],
+      });
+    }
+
+    // --- Action: refine_agentic ---
+    if (action === "refine_agentic") {
+      if (!currentConfig || !feedback) {
+        return NextResponse.json({ error: "缺少当前配置或反馈" }, { status: 400 });
+      }
+      const refineInput = `原始需求：${prompt || "未提供"}\n\n当前 Agent 任务配置：\n${JSON.stringify(currentConfig, null, 2)}\n\n用户反馈：${feedback}`;
+      const refined = await callLLM(REFINE_AGENTIC_SYSTEM, refineInput);
+      if (!refined?.config) {
+        return NextResponse.json({ error: "AI 修改结果格式异常，请重试" }, { status: 502 });
+      }
+      return NextResponse.json({
+        success: true,
+        data: refined.config,
+        projectName: refined.projectName || "",
+      });
     }
 
     // --- Action: draft ---

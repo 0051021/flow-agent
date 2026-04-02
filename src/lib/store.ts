@@ -9,17 +9,28 @@ import type {
   ProjectStatus,
   UserRole,
   ViewMode,
+  TaskType,
+  AgenticTaskConfig,
+  AgenticSkill,
+  AgenticConstraint,
+  AgenticEvaluator,
+  AgenticConfirmItem,
 } from "./types";
 import type { Node, Edge } from "@xyflow/react";
 import { MOCK_KNOWLEDGE_FILES } from "./mock-data";
 
 export type ChatPhase =
   | "idle"
+  | "classifying"
   | "drafting"
   | "questioning"
   | "refining_node"
   | "ready"
-  | "refining";
+  | "refining"
+  | "drafting_agentic"
+  | "confirming_agentic"
+  | "agentic_ready"
+  | "refining_agentic";
 
 export interface NodeQuestion {
   id: string;
@@ -57,6 +68,11 @@ interface FlowAgentState {
   nodeLabelMap: Record<string, string>;
   initQuery: string | null;
 
+  taskType: TaskType;
+  agenticConfig: AgenticTaskConfig | null;
+  agenticConfirmItems: AgenticConfirmItem[];
+  agenticConfirmIdx: number;
+
   setCurrentRole: (role: UserRole) => void;
   setViewMode: (mode: ViewMode) => void;
   setNodes: (nodes: Node<FlowNodeData>[]) => void;
@@ -85,6 +101,20 @@ interface FlowAgentState {
   setCurrentNodeIdx: (idx: number) => void;
   setNodeLabelMap: (map: Record<string, string>) => void;
   setInitQuery: (query: string | null) => void;
+
+  setTaskType: (type: TaskType) => void;
+  setAgenticConfig: (config: AgenticTaskConfig | null) => void;
+  setAgenticConfirmItems: (items: AgenticConfirmItem[]) => void;
+  setAgenticConfirmIdx: (idx: number) => void;
+  updateAgenticGoal: (goal: string) => void;
+  updateAgenticBackground: (background: string) => void;
+  addAgenticSkill: (skill: AgenticSkill) => void;
+  removeAgenticSkill: (skillId: string) => void;
+  addAgenticConstraint: (constraint: AgenticConstraint) => void;
+  removeAgenticConstraint: (constraintId: string) => void;
+  updateAgenticEvaluator: (evaluator: AgenticEvaluator) => void;
+  removeAgenticEvaluator: (evaluatorId: string) => void;
+
   resetAll: () => void;
 }
 
@@ -121,6 +151,10 @@ const initialState = {
   currentNodeIdx: 0,
   nodeLabelMap: {} as Record<string, string>,
   initQuery: null as string | null,
+  taskType: "workflow" as TaskType,
+  agenticConfig: null as AgenticTaskConfig | null,
+  agenticConfirmItems: [] as AgenticConfirmItem[],
+  agenticConfirmIdx: 0,
 };
 
 export const useFlowAgentStore = create<FlowAgentState>()(
@@ -192,6 +226,65 @@ export const useFlowAgentStore = create<FlowAgentState>()(
       setCurrentNodeIdx: (idx) => set({ currentNodeIdx: idx }),
       setNodeLabelMap: (map) => set({ nodeLabelMap: map }),
       setInitQuery: (query) => set({ initQuery: query }),
+
+      setTaskType: (type) => set({ taskType: type }),
+      setAgenticConfig: (config) => set({ agenticConfig: config }),
+      setAgenticConfirmItems: (items) => set({ agenticConfirmItems: items }),
+      setAgenticConfirmIdx: (idx) => set({ agenticConfirmIdx: idx }),
+      updateAgenticGoal: (goal) =>
+        set((state) => ({
+          agenticConfig: state.agenticConfig
+            ? { ...state.agenticConfig, goal }
+            : null,
+        })),
+      updateAgenticBackground: (background) =>
+        set((state) => ({
+          agenticConfig: state.agenticConfig
+            ? { ...state.agenticConfig, background }
+            : null,
+        })),
+      addAgenticSkill: (skill) =>
+        set((state) => ({
+          agenticConfig: state.agenticConfig
+            ? { ...state.agenticConfig, skills: [...state.agenticConfig.skills, skill] }
+            : null,
+        })),
+      removeAgenticSkill: (skillId) =>
+        set((state) => ({
+          agenticConfig: state.agenticConfig
+            ? { ...state.agenticConfig, skills: state.agenticConfig.skills.filter((s) => s.id !== skillId) }
+            : null,
+        })),
+      addAgenticConstraint: (constraint) =>
+        set((state) => ({
+          agenticConfig: state.agenticConfig
+            ? { ...state.agenticConfig, constraints: [...state.agenticConfig.constraints, constraint] }
+            : null,
+        })),
+      removeAgenticConstraint: (constraintId) =>
+        set((state) => ({
+          agenticConfig: state.agenticConfig
+            ? { ...state.agenticConfig, constraints: state.agenticConfig.constraints.filter((c) => c.id !== constraintId) }
+            : null,
+        })),
+      updateAgenticEvaluator: (evaluator) =>
+        set((state) => ({
+          agenticConfig: state.agenticConfig
+            ? {
+                ...state.agenticConfig,
+                evaluators: state.agenticConfig.evaluators.some((e) => e.id === evaluator.id)
+                  ? state.agenticConfig.evaluators.map((e) => (e.id === evaluator.id ? evaluator : e))
+                  : [...state.agenticConfig.evaluators, evaluator],
+              }
+            : null,
+        })),
+      removeAgenticEvaluator: (evaluatorId) =>
+        set((state) => ({
+          agenticConfig: state.agenticConfig
+            ? { ...state.agenticConfig, evaluators: state.agenticConfig.evaluators.filter((e) => e.id !== evaluatorId) }
+            : null,
+        })),
+
       resetAll: () =>
         set({
           ...initialState,
@@ -200,10 +293,13 @@ export const useFlowAgentStore = create<FlowAgentState>()(
     }),
     {
       name: "flow-agent-store",
-      version: 1,
-      migrate: (persisted: unknown, version: number) => {
-        if (version === 0 || !persisted) return { ...initialState, ...(persisted as Record<string, unknown>) };
-        return persisted as FlowAgentState;
+      version: 2,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      migrate: (persisted: any, version: number) => {
+        if (version < 2 || !persisted) {
+          return { ...initialState, ...persisted, taskType: "workflow", agenticConfig: null };
+        }
+        return persisted;
       },
       partialize: (state) => ({
         project: state.project,
@@ -218,14 +314,24 @@ export const useFlowAgentStore = create<FlowAgentState>()(
         pendingNodes: state.pendingNodes,
         currentNodeIdx: state.currentNodeIdx,
         nodeLabelMap: state.nodeLabelMap,
+        taskType: state.taskType,
+        agenticConfig: state.agenticConfig,
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;
-        const { chatPhase, pendingNodes, currentNodeIdx, nodes } = state;
-        if (chatPhase === "drafting" || chatPhase === "refining_node" || chatPhase === "refining") {
-          const recovered = pendingNodes.length > 0 && currentNodeIdx < pendingNodes.length
-            ? "questioning" as ChatPhase
-            : (nodes.length > 0 ? "ready" as ChatPhase : "idle" as ChatPhase);
+        const { chatPhase, pendingNodes, currentNodeIdx, nodes, agenticConfig } = state;
+        const loadingPhases: ChatPhase[] = ["drafting", "refining_node", "refining", "classifying", "drafting_agentic", "refining_agentic"];
+        if (loadingPhases.includes(chatPhase)) {
+          let recovered: ChatPhase;
+          if (agenticConfig) {
+            recovered = "agentic_ready";
+          } else if (pendingNodes.length > 0 && currentNodeIdx < pendingNodes.length) {
+            recovered = "questioning";
+          } else if (nodes.length > 0) {
+            recovered = "ready";
+          } else {
+            recovered = "idle";
+          }
           useFlowAgentStore.setState({ chatPhase: recovered });
         }
       },
