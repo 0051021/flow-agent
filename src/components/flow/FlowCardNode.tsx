@@ -72,7 +72,7 @@ function FlowCardNode({ data, id }: NodeProps) {
           </div>
         </div>
         <div className="flex items-center gap-1.5">
-          {unresolvedCount > 0 && (
+          {currentRole === "tech" && unresolvedCount > 0 && (
             <button
               className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-600 text-xs hover:bg-amber-100 transition-colors"
               onClick={(e) => {

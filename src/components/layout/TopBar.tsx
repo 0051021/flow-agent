@@ -138,23 +138,25 @@ export default function TopBar() {
         >
           <BookOpen className="w-3.5 h-3.5 mr-1" /> {knowledgeLabel}
         </Button>
-        <Button
-          size="sm"
-          variant={showAnnotationPanel ? "default" : "outline"}
-          className={`h-8 text-xs relative ${isTech && !showAnnotationPanel ? "border-slate-600 text-slate-300 hover:bg-slate-800" : ""}`}
-          onClick={() => {
-            const next = !showAnnotationPanel;
-            setShowAnnotationPanel(next);
-            if (next) setShowKnowledgePanel(false);
-          }}
-        >
-          <MessageSquare className="w-3.5 h-3.5 mr-1" /> 批注
-          {unresolvedAnnotations > 0 && (
-            <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center">
-              {unresolvedAnnotations}
-            </span>
-          )}
-        </Button>
+        {isTech && (
+          <Button
+            size="sm"
+            variant={showAnnotationPanel ? "default" : "outline"}
+            className={`h-8 text-xs relative ${!showAnnotationPanel ? "border-slate-600 text-slate-300 hover:bg-slate-800" : ""}`}
+            onClick={() => {
+              const next = !showAnnotationPanel;
+              setShowAnnotationPanel(next);
+              if (next) setShowKnowledgePanel(false);
+            }}
+          >
+            <MessageSquare className="w-3.5 h-3.5 mr-1" /> 批注
+            {unresolvedAnnotations > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center">
+                {unresolvedAnnotations}
+              </span>
+            )}
+          </Button>
+        )}
 
         <div className={`w-px h-6 ${isTech ? "bg-slate-700" : "bg-zinc-200"} mx-1`} />
 

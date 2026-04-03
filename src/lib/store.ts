@@ -311,7 +311,6 @@ export const useFlowAgentStore = create<FlowAgentState>()(
         viewMode: state.viewMode,
         nodes: state.nodes,
         edges: state.edges,
-        annotations: state.annotations,
         chatMessages: state.chatMessages,
         chatPhase: state.chatPhase,
         originalPrompt: state.originalPrompt,

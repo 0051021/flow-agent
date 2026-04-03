@@ -147,9 +147,13 @@ function EditorContent() {
 
   const annotationsLoadedRef = useRef(false);
   useEffect(() => {
-    if (project.status === "tech_reviewing" && !annotationsLoadedRef.current) {
+    const store = useFlowAgentStore.getState();
+    if (
+      project.status === "tech_reviewing" &&
+      store.currentRole === "tech" &&
+      !annotationsLoadedRef.current
+    ) {
       annotationsLoadedRef.current = true;
-      const store = useFlowAgentStore.getState();
       const isAgenticMode = store.taskType === "agentic";
       MOCK_ANNOTATIONS.forEach((a) => {
         const adjusted = isAgenticMode ? { ...a, nodeId: "__global__" } : a;
