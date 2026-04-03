@@ -151,7 +151,7 @@ ${FLOW_JSON_SCHEMA}`;
 // ============================================================
 
 // ============================================================
-// Prompt: Classify（判断任务类型）
+// Prompt: Classify（判断任务类型）— 保留向后兼容
 // ============================================================
 
 const CLASSIFY_SYSTEM = `你是一个企业级 AI 产品架构师。你需要判断用户描述的业务场景属于哪种任务类型。
@@ -310,6 +310,107 @@ const REFINE_AGENTIC_SYSTEM = `你是一个 AI 产品架构师。你会收到：
 }`;
 
 // ============================================================
+// Prompt: Unified Draft（分类 + 生成一次完成）
+// ============================================================
+
+const UNIFIED_DRAFT_SYSTEM = `你是一个资深的业务流程分析师和 AI 产品架构师。
+
+用户会用自然语言描述一个业务场景。你的任务是：
+1. 判断这个场景属于哪种任务类型
+2. 根据类型直接生成对应的方案草稿
+
+**三种任务类型**：
+- **workflow**：有明确步骤顺序，每步输入输出确定，追求准确执行。如：财务报销、合同审批、进出口报关
+- **agentic**：有目标但路径不固定，需要 AI 自主规划。如：账号运营涨粉、竞品分析、营销活动策划
+- **hybrid**：部分步骤确定性高，部分需要 AI 灵活发挥。如：内容营销、招聘流程、数据报告（当前按 workflow 处理）
+
+**判断标准**：
+- 全是流程（有步骤、有顺序）→ workflow
+- 全是目标（要达成什么）→ agentic
+- 既有固定流程又有 AI 发挥 → hybrid
+- 不确定 → hybrid
+
+**输出格式（根据类型不同）**：
+
+如果是 workflow 或 hybrid，输出：
+{
+  "taskType": "workflow 或 hybrid",
+  "classifyReason": "一句话解释为什么是这个类型",
+  "flow": ${FLOW_JSON_SCHEMA},
+  "nodeConfidence": [
+    {
+      "nodeId": "node-1",
+      "confidence": "high 或 medium 或 low",
+      "reason": "为什么是这个 confidence（一句话）",
+      "questions": [
+        {
+          "id": "node-1-q1",
+          "question": "用通俗的语言提问",
+          "context": "为什么要问这个（一句话）",
+          "defaultSuggestion": "如果你没有特别要求，我建议...",
+          "options": ["具体方案A", "具体方案B"]
+        }
+      ]
+    }
+  ]
+}
+
+如果是 agentic，输出：
+{
+  "taskType": "agentic",
+  "classifyReason": "一句话解释为什么是这个类型",
+  "agenticConfig": ${AGENTIC_JSON_SCHEMA}
+}
+
+**Workflow/Hybrid 的规则**：
+- 节点数量 4-8 个
+- label 要具体（"从ERP导出销售数据" 而非 "获取数据"）
+- inputs/outputs 标明文件格式
+- confidence 为 "high" 的节点 questions 必须为空数组 []
+- 每个节点最多 2 个问题
+
+**关于人机分工（executionMode）— 核心要求**：
+- 数据采集、格式转换、定时执行 → "ai_auto"
+- 数据校验、策略确认、内容审核 → "human_confirm"
+- 发布、删除、付款等不可逆操作 → "human_confirm"
+- 纯人工操作 → "human_manual"
+- 典型 6 节点流程应有 2-3 个 human_confirm 或 human_manual
+
+**Agentic 的规则**：
+- 技能 3-6 个，名称具体
+- 约束至少包含时间和质量维度
+- 至少 1 个评估器，指标可量化
+- 必须包含至少 2 个 humanCheckpoints
+- confirmItems 3-5 个
+
+规则：
+- 直接输出合法 JSON，不要用 markdown 代码块包裹
+- 确保 JSON 格式严格正确`;
+
+// ============================================================
+// Prompt: Refine Batch（批量优化多个节点）
+// ============================================================
+
+const REFINE_BATCH_SYSTEM = `你是一个业务流程优化专家。你会收到：
+1. 当前的流程图 JSON
+2. 多个节点的确认回答（每个节点可能有 1-2 个问题的回答）
+3. 用户的原始需求（供参考）
+
+请根据所有回答，一次性修改相关节点，输出修改后的完整流程图 JSON。
+
+修改规则：
+1. 逐个处理每个节点的回答，更新对应节点的 label、description、inputs、outputs、executionMode 等
+2. 如果某个回答揭示了新的子步骤，可以将该节点拆分（新节点 id 接着最大 id 递增）
+3. 如果某个回答揭示了条件分支，相应调整 edges
+4. 如果修改影响了相邻节点的 inputs/outputs 衔接，也要同步修改
+5. **不要动没有收到回答的节点**
+6. 修改后的 JSON 格式必须和原来一致
+7. 直接输出合法 JSON，不要用 markdown 代码块包裹，不要有任何解释文字
+
+输出格式：
+${FLOW_JSON_SCHEMA}`;
+
+// ============================================================
 // Prompt: Refine（自由对话修改 Workflow）
 // ============================================================
 
@@ -407,7 +508,7 @@ export async function POST(req: NextRequest) {
     } catch {
       return NextResponse.json({ error: "请求体格式错误" }, { status: 400 });
     }
-    const { prompt, action = "draft", currentFlow, currentConfig, feedback, nodeId, nodeLabel, answers } = body;
+    const { prompt, action = "draft", currentFlow, currentConfig, feedback, nodeId, nodeLabel, answers, nodeAnswers } = body;
 
     const apiKey = process.env.LLM_API_KEY;
     const baseUrl = process.env.LLM_BASE_URL;
@@ -415,7 +516,75 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "LLM 配置缺失" }, { status: 500 });
     }
 
-    // --- Action: classify ---
+    // --- Action: unified_draft (classify + draft in one call) ---
+    if (action === "unified_draft") {
+      if (!prompt?.trim()) {
+        return NextResponse.json({ error: "请输入业务描述" }, { status: 400 });
+      }
+      const result = await callLLM(UNIFIED_DRAFT_SYSTEM, prompt, { temperature: 0.3 });
+      if (!result?.taskType) {
+        return NextResponse.json({ error: "AI 返回格式异常" }, { status: 502 });
+      }
+
+      const taskType = result.taskType as string;
+
+      if (taskType === "agentic") {
+        const agConfig = result.agenticConfig;
+        if (!agConfig?.config) {
+          return NextResponse.json({ error: "AI 返回的 Agentic 配置异常" }, { status: 502 });
+        }
+        return NextResponse.json({
+          success: true,
+          taskType,
+          classifyReason: result.classifyReason || "",
+          data: agConfig.config,
+          projectName: agConfig.projectName || "",
+          confirmItems: agConfig.confirmItems || [],
+        });
+      }
+
+      // workflow or hybrid
+      if (!result.flow?.nodes || !Array.isArray(result.flow.nodes)) {
+        return NextResponse.json({ error: "AI 返回的流程图异常" }, { status: 502 });
+      }
+      return NextResponse.json({
+        success: true,
+        taskType,
+        classifyReason: result.classifyReason || "",
+        data: result.flow,
+        nodeConfidence: result.nodeConfidence || [],
+      });
+    }
+
+    // --- Action: refine_batch (batch refine multiple nodes) ---
+    if (action === "refine_batch") {
+      if (!currentFlow || !Array.isArray(nodeAnswers) || nodeAnswers.length === 0) {
+        return NextResponse.json({ error: "缺少流程图或节点回答" }, { status: 400 });
+      }
+
+      const allAnswersText = nodeAnswers
+        .map((na: { nodeId: string; nodeLabel: string; answers: { question: string; answer: string }[] }) => {
+          const qaText = na.answers
+            .map((a) => `  问：${a.question}\n  答：${a.answer}`)
+            .join("\n");
+          return `节点：${na.nodeId}（${na.nodeLabel}）\n${qaText}`;
+        })
+        .join("\n\n");
+
+      const refineInput = [
+        `当前流程图：\n${JSON.stringify(currentFlow, null, 2)}`,
+        `\n用户对以下节点的确认：\n${allAnswersText}`,
+        prompt ? `\n原始需求（供参考）：${prompt}` : "",
+      ].join("\n");
+
+      const refined = await callLLM(REFINE_BATCH_SYSTEM, refineInput);
+      if (!refined?.nodes || !Array.isArray(refined.nodes)) {
+        return NextResponse.json({ error: "AI 批量优化结果格式异常" }, { status: 502 });
+      }
+      return NextResponse.json({ success: true, data: refined });
+    }
+
+    // --- Action: classify (kept for backward compatibility) ---
     if (action === "classify") {
       if (!prompt?.trim()) {
         return NextResponse.json({ error: "请输入业务描述" }, { status: 400 });

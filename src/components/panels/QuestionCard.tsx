@@ -9,122 +9,64 @@ import {
   Pencil,
   SkipForward,
   Sparkles,
+  ArrowRight,
 } from "lucide-react";
 import type { NodeConfidence } from "@/lib/store";
 
+const NODES_PER_PAGE = 3;
+
 // ============================================================
-// NodeQuestionCard — 一张卡片展示一个节点的所有问题
+// Single node question block (used inside pages)
 // ============================================================
 
-interface NodeQuestionCardProps {
-  nodeConf: NodeConfidence;
-  nodeLabel: string;
-  nodeIndex: number;
-  totalNodes: number;
-  onConfirm: (answers: { question: string; answer: string }[]) => void;
-  onSkipNode: () => void;
-  onSkipAll: () => void;
-  disabled?: boolean;
-}
-
-export default function NodeQuestionCard({
+function SingleNodeBlock({
   nodeConf,
   nodeLabel,
-  nodeIndex,
-  totalNodes,
-  onConfirm,
-  onSkipNode,
-  onSkipAll,
+  answers,
+  customInputs,
+  customTexts,
+  onSelectAnswer,
+  onToggleCustom,
+  onCustomTextChange,
   disabled,
-}: NodeQuestionCardProps) {
-  const questions = nodeConf.questions;
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [customInputs, setCustomInputs] = useState<Record<string, boolean>>({});
-  const [customTexts, setCustomTexts] = useState<Record<string, string>>({});
-
-  const setAnswer = useCallback((qId: string, value: string) => {
-    setAnswers((prev) => ({ ...prev, [qId]: value }));
-    setCustomInputs((prev) => ({ ...prev, [qId]: false }));
-  }, []);
-
-  const allAnswered = questions.every((q) => answers[q.id]);
-
-  const handleConfirm = () => {
-    const result = questions.map((q) => ({
-      question: q.question,
-      answer: answers[q.id] || q.defaultSuggestion,
-    }));
-    onConfirm(result);
-  };
-
-  const handleUseDefaults = () => {
-    const result = questions.map((q) => ({
-      question: q.question,
-      answer: q.defaultSuggestion,
-    }));
-    onConfirm(result);
-  };
+}: {
+  nodeConf: NodeConfidence;
+  nodeLabel: string;
+  answers: Record<string, string>;
+  customInputs: Record<string, boolean>;
+  customTexts: Record<string, string>;
+  onSelectAnswer: (qId: string, value: string) => void;
+  onToggleCustom: (qId: string) => void;
+  onCustomTextChange: (qId: string, value: string) => void;
+  disabled?: boolean;
+}) {
+  const { questions, confidence, reason } = nodeConf;
 
   const confidenceColor = {
     high: "text-green-600 bg-green-50 border-green-200",
     medium: "text-amber-600 bg-amber-50 border-amber-200",
     low: "text-red-500 bg-red-50 border-red-200",
-  }[nodeConf.confidence];
+  }[confidence];
 
   const confidenceLabel = {
     high: "把握较大",
     medium: "需要确认",
     low: "需要补充",
-  }[nodeConf.confidence];
+  }[confidence];
 
   return (
-    <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden shadow-sm">
-      {/* Progress bar */}
-      <div className="h-1 bg-zinc-100">
-        <div
-          className="h-full bg-blue-500 transition-all duration-500"
-          style={{ width: `${((nodeIndex + 1) / Math.max(totalNodes, 1)) * 100}%` }}
-        />
-      </div>
-
-      {/* Node header */}
-      <div className="px-3 pt-2.5 pb-2 border-b border-zinc-100">
-        <div className="flex items-center justify-between mb-1">
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] text-zinc-400 font-medium">
-              节点 {nodeIndex + 1}/{totalNodes}
-            </span>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${confidenceColor}`}>
-              {confidenceLabel}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              className="flex items-center gap-1 text-[10px] text-zinc-400 hover:text-zinc-600 transition-colors"
-              onClick={onSkipNode}
-              disabled={disabled}
-            >
-              <ChevronRight className="w-2.5 h-2.5" />
-              跳过此节点
-            </button>
-            {nodeIndex < totalNodes - 1 && (
-              <button
-                className="flex items-center gap-1 text-[10px] text-zinc-400 hover:text-zinc-600 transition-colors"
-                onClick={onSkipAll}
-                disabled={disabled}
-              >
-                <SkipForward className="w-2.5 h-2.5" />
-                跳过全部
-              </button>
-            )}
-          </div>
+    <div className="border border-zinc-150 rounded-lg overflow-hidden">
+      <div className="px-3 pt-2 pb-1.5 bg-zinc-50/80 border-b border-zinc-100">
+        <div className="flex items-center gap-2 mb-0.5">
+          <p className="text-xs font-semibold text-zinc-800">{nodeLabel}</p>
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${confidenceColor}`}>
+            {confidenceLabel}
+          </span>
         </div>
-        <p className="text-xs font-semibold text-zinc-800">{nodeLabel}</p>
-        <p className="text-[10px] text-zinc-400 mt-0.5">{nodeConf.reason}</p>
+        <p className="text-[10px] text-zinc-400">{reason}</p>
       </div>
 
-      {/* Questions */}
-      <div className="px-3 py-2.5 space-y-3">
+      <div className="px-3 py-2 space-y-2.5">
         {questions.map((q, qi) => {
           const selected = answers[q.id];
           const showCustom = customInputs[q.id];
@@ -137,7 +79,7 @@ export default function NodeQuestionCard({
           return (
             <div key={q.id}>
               {questions.length > 1 && (
-                <p className="text-[10px] text-zinc-400 mb-1">
+                <p className="text-[10px] text-zinc-400 mb-0.5">
                   问题 {qi + 1}/{questions.length}
                 </p>
               )}
@@ -157,7 +99,7 @@ export default function NodeQuestionCard({
                           ? "bg-blue-50 border-blue-300 ring-1 ring-blue-200"
                           : "border-zinc-100 bg-zinc-50 hover:bg-blue-50 hover:border-blue-200"
                       }`}
-                      onClick={() => setAnswer(q.id, opt.label)}
+                      onClick={() => onSelectAnswer(q.id, opt.label)}
                       disabled={disabled}
                     >
                       {opt.isDefault ? (
@@ -185,10 +127,10 @@ export default function NodeQuestionCard({
                       placeholder="输入你的想法..."
                       className="flex-1 text-[11px] px-2.5 py-1.5 rounded-lg border border-zinc-200 bg-white focus:outline-none focus:ring-1 focus:ring-blue-300"
                       value={customTexts[q.id] || ""}
-                      onChange={(e) => setCustomTexts((prev) => ({ ...prev, [q.id]: e.target.value }))}
+                      onChange={(e) => onCustomTextChange(q.id, e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" && (customTexts[q.id] || "").trim()) {
-                          setAnswer(q.id, (customTexts[q.id] || "").trim());
+                          onSelectAnswer(q.id, (customTexts[q.id] || "").trim());
                         }
                       }}
                       disabled={disabled}
@@ -200,7 +142,7 @@ export default function NodeQuestionCard({
                       className="h-7 text-[10px] px-2"
                       onClick={() => {
                         const text = (customTexts[q.id] || "").trim();
-                        if (text) setAnswer(q.id, text);
+                        if (text) onSelectAnswer(q.id, text);
                       }}
                       disabled={disabled || !(customTexts[q.id] || "").trim()}
                     >
@@ -210,7 +152,7 @@ export default function NodeQuestionCard({
                 ) : (
                   <button
                     className="flex items-center gap-1.5 text-[10px] text-zinc-400 hover:text-zinc-600 transition-colors mt-0.5"
-                    onClick={() => setCustomInputs((prev) => ({ ...prev, [q.id]: true }))}
+                    onClick={() => onToggleCustom(q.id)}
                     disabled={disabled}
                   >
                     <Pencil className="w-2.5 h-2.5" />
@@ -219,10 +161,164 @@ export default function NodeQuestionCard({
                 )}
               </div>
 
-              {qi < questions.length - 1 && <div className="border-b border-zinc-100 mt-3" />}
+              {qi < questions.length - 1 && <div className="border-b border-zinc-100 mt-2.5" />}
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// NodeQuestionPage — paginated display of all pending nodes
+// ============================================================
+
+interface NodeQuestionPageProps {
+  pendingNodes: NodeConfidence[];
+  nodeLabelMap: Record<string, string>;
+  onSubmitAll: (collected: Record<string, { question: string; answer: string }[]>) => void;
+  onSkipAll: () => void;
+  disabled?: boolean;
+}
+
+export default function NodeQuestionPage({
+  pendingNodes,
+  nodeLabelMap,
+  onSubmitAll,
+  onSkipAll,
+  disabled,
+}: NodeQuestionPageProps) {
+  const [pageIdx, setPageIdx] = useState(0);
+  const [allAnswers, setAllAnswers] = useState<Record<string, string>>({});
+  const [customInputs, setCustomInputs] = useState<Record<string, boolean>>({});
+  const [customTexts, setCustomTexts] = useState<Record<string, string>>({});
+
+  const totalPages = Math.ceil(pendingNodes.length / NODES_PER_PAGE);
+  const pageNodes = pendingNodes.slice(
+    pageIdx * NODES_PER_PAGE,
+    (pageIdx + 1) * NODES_PER_PAGE
+  );
+  const isLastPage = pageIdx >= totalPages - 1;
+
+  const handleSelectAnswer = useCallback((qId: string, value: string) => {
+    setAllAnswers((prev) => ({ ...prev, [qId]: value }));
+    setCustomInputs((prev) => ({ ...prev, [qId]: false }));
+  }, []);
+
+  const handleToggleCustom = useCallback((qId: string) => {
+    setCustomInputs((prev) => ({ ...prev, [qId]: true }));
+  }, []);
+
+  const handleCustomTextChange = useCallback((qId: string, value: string) => {
+    setCustomTexts((prev) => ({ ...prev, [qId]: value }));
+  }, []);
+
+  const currentPageAllAnswered = pageNodes.every((nc) =>
+    nc.questions.every((q) => allAnswers[q.id])
+  );
+
+  const handleUseDefaultsForPage = () => {
+    const defaults: Record<string, string> = {};
+    for (const nc of pageNodes) {
+      for (const q of nc.questions) {
+        if (!allAnswers[q.id]) {
+          defaults[q.id] = q.defaultSuggestion;
+        }
+      }
+    }
+    setAllAnswers((prev) => ({ ...prev, ...defaults }));
+  };
+
+  const handleUseAllDefaults = () => {
+    const defaults: Record<string, string> = {};
+    for (const nc of pendingNodes) {
+      for (const q of nc.questions) {
+        defaults[q.id] = q.defaultSuggestion;
+      }
+    }
+    buildAndSubmit({ ...allAnswers, ...defaults });
+  };
+
+  const buildAndSubmit = (finalAnswers: Record<string, string>) => {
+    const collected: Record<string, { question: string; answer: string }[]> = {};
+    for (const nc of pendingNodes) {
+      collected[nc.nodeId] = nc.questions.map((q) => ({
+        question: q.question,
+        answer: finalAnswers[q.id] || q.defaultSuggestion,
+      }));
+    }
+    onSubmitAll(collected);
+  };
+
+  const handleNextPage = () => {
+    if (!currentPageAllAnswered) {
+      handleUseDefaultsForPage();
+    }
+    if (isLastPage) {
+      buildAndSubmit(allAnswers);
+    } else {
+      setPageIdx((p) => p + 1);
+    }
+  };
+
+  const handleSubmitNow = () => {
+    const withDefaults = { ...allAnswers };
+    for (const nc of pendingNodes) {
+      for (const q of nc.questions) {
+        if (!withDefaults[q.id]) {
+          withDefaults[q.id] = q.defaultSuggestion;
+        }
+      }
+    }
+    buildAndSubmit(withDefaults);
+  };
+
+  return (
+    <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden shadow-sm">
+      {/* Progress bar */}
+      <div className="h-1 bg-zinc-100">
+        <div
+          className="h-full bg-blue-500 transition-all duration-500"
+          style={{ width: `${((pageIdx + 1) / Math.max(totalPages, 1)) * 100}%` }}
+        />
+      </div>
+
+      {/* Page header */}
+      <div className="px-3 pt-2.5 pb-2 border-b border-zinc-100 flex items-center justify-between">
+        <span className="text-[10px] text-zinc-400 font-medium">
+          {totalPages > 1 ? `第 ${pageIdx + 1}/${totalPages} 页` : `${pendingNodes.length} 个节点待确认`}
+        </span>
+        <div className="flex items-center gap-2">
+          {pendingNodes.length > 1 && (
+            <button
+              className="flex items-center gap-1 text-[10px] text-zinc-400 hover:text-zinc-600 transition-colors"
+              onClick={onSkipAll}
+              disabled={disabled}
+            >
+              <SkipForward className="w-2.5 h-2.5" />
+              全部跳过
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Node blocks */}
+      <div className="px-3 py-2.5 space-y-3">
+        {pageNodes.map((nc) => (
+          <SingleNodeBlock
+            key={nc.nodeId}
+            nodeConf={nc}
+            nodeLabel={nodeLabelMap[nc.nodeId] || nc.nodeId}
+            answers={allAnswers}
+            customInputs={customInputs}
+            customTexts={customTexts}
+            onSelectAnswer={handleSelectAnswer}
+            onToggleCustom={handleToggleCustom}
+            onCustomTextChange={handleCustomTextChange}
+            disabled={disabled}
+          />
+        ))}
       </div>
 
       {/* Footer actions */}
@@ -231,21 +327,33 @@ export default function NodeQuestionCard({
           size="sm"
           variant="outline"
           className="flex-1 h-8 text-[11px] text-zinc-500"
-          onClick={handleUseDefaults}
+          onClick={handleUseAllDefaults}
           disabled={disabled}
         >
           <Sparkles className="w-3 h-3 mr-1" />
           全部用推荐
         </Button>
-        <Button
-          size="sm"
-          className="flex-1 h-8 text-[11px] bg-blue-600 hover:bg-blue-700 text-white"
-          onClick={handleConfirm}
-          disabled={disabled || !allAnswered}
-        >
-          <CheckCircle2 className="w-3 h-3 mr-1" />
-          确认这个节点
-        </Button>
+        {isLastPage ? (
+          <Button
+            size="sm"
+            className="flex-1 h-8 text-[11px] bg-blue-600 hover:bg-blue-700 text-white"
+            onClick={handleSubmitNow}
+            disabled={disabled}
+          >
+            <CheckCircle2 className="w-3 h-3 mr-1" />
+            确认并优化
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            className="flex-1 h-8 text-[11px] bg-blue-600 hover:bg-blue-700 text-white"
+            onClick={handleNextPage}
+            disabled={disabled}
+          >
+            下一页
+            <ArrowRight className="w-3 h-3 ml-1" />
+          </Button>
+        )}
       </div>
     </div>
   );

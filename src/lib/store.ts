@@ -73,6 +73,7 @@ interface FlowAgentState {
   agenticConfirmItems: AgenticConfirmItem[];
   agenticConfirmIdx: number;
   isReviewMode: boolean;
+  collectedAnswers: Record<string, { question: string; answer: string }[]>;
 
   setCurrentRole: (role: UserRole) => void;
   setViewMode: (mode: ViewMode) => void;
@@ -108,6 +109,8 @@ interface FlowAgentState {
   setAgenticConfirmItems: (items: AgenticConfirmItem[]) => void;
   setAgenticConfirmIdx: (idx: number) => void;
   setIsReviewMode: (v: boolean) => void;
+  setCollectedAnswers: (answers: Record<string, { question: string; answer: string }[]>) => void;
+  addCollectedAnswer: (nodeId: string, answers: { question: string; answer: string }[]) => void;
   updateAgenticGoal: (goal: string) => void;
   updateAgenticBackground: (background: string) => void;
   addAgenticSkill: (skill: AgenticSkill) => void;
@@ -158,6 +161,7 @@ const initialState = {
   agenticConfirmItems: [] as AgenticConfirmItem[],
   agenticConfirmIdx: 0,
   isReviewMode: false,
+  collectedAnswers: {} as Record<string, { question: string; answer: string }[]>,
 };
 
 export const useFlowAgentStore = create<FlowAgentState>()(
@@ -235,6 +239,11 @@ export const useFlowAgentStore = create<FlowAgentState>()(
       setAgenticConfirmItems: (items) => set({ agenticConfirmItems: items }),
       setAgenticConfirmIdx: (idx) => set({ agenticConfirmIdx: idx }),
       setIsReviewMode: (v) => set({ isReviewMode: v }),
+      setCollectedAnswers: (answers) => set({ collectedAnswers: answers }),
+      addCollectedAnswer: (nodeId, answers) =>
+        set((state) => ({
+          collectedAnswers: { ...state.collectedAnswers, [nodeId]: answers },
+        })),
       updateAgenticGoal: (goal) =>
         set((state) => ({
           agenticConfig: state.agenticConfig

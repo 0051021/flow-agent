@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Bot, Send, User, Sparkles, Loader2 } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
 import { parseLLMResponse, serializeFlowForLLM } from "@/lib/flow-parser";
-import NodeQuestionCard, { CompletionCard } from "./QuestionCard";
+import NodeQuestionPage, { CompletionCard } from "./QuestionCard";
 import AgenticConfirmCard from "./AgenticConfirmCard";
 import type { NodeConfidence } from "@/lib/store";
 import type { AgenticTaskConfig, AgenticConfirmItem } from "@/lib/types";
@@ -24,6 +24,7 @@ export default function ChatPanel() {
     agenticConfig, setAgenticConfig,
     agenticConfirmItems, setAgenticConfirmItems,
     agenticConfirmIdx, setAgenticConfirmIdx,
+    setCollectedAnswers,
   } = useFlowAgentStore();
   const [input, setInput] = useState("");
   const [showCompletion, setShowCompletion] = useState(false);
@@ -37,158 +38,45 @@ export default function ChatPanel() {
     "classifying", "drafting", "refining_node", "refining",
     "drafting_agentic", "refining_agentic",
   ].includes(phase);
-  const currentNodeConf = phase === "questioning" && currentNodeIdx < pendingNodes.length
-    ? pendingNodes[currentNodeIdx]
-    : null;
+  const hasPendingQuestions = phase === "questioning" && pendingNodes.length > 0;
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [chatMessages.length, isLoading, currentNodeConf, showCompletion]);
+  }, [chatMessages.length, isLoading, hasPendingQuestions, showCompletion]);
 
   useEffect(() => {
     const { initQuery } = useFlowAgentStore.getState();
     if (initQuery && !initTriggered.current && phase === "idle") {
       initTriggered.current = true;
       useFlowAgentStore.getState().setInitQuery(null);
-      triggerClassify(initQuery);
+      triggerUnifiedDraft(initQuery);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatMessages.length]);
 
   // ============================================================
-  // Phase 0: Classify task type
+  // Phase 0+1: Unified draft (classify + draft in one LLM call)
   // ============================================================
 
-  const triggerClassify = useCallback(async (prompt: string) => {
-    setPhase("classifying");
-    setOriginalPrompt(prompt);
-
-    try {
-      const res = await fetch("/api/generate-flow", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, action: "classify" }),
-      });
-      const result = await res.json();
-
-      if (result.success && result.taskType) {
-        const rawType = result.taskType as "workflow" | "agentic" | "hybrid";
-        const isHybrid = rawType === "hybrid";
-        const effectiveType: "workflow" | "agentic" = isHybrid ? "workflow" : rawType;
-        setTaskType(effectiveType);
-
-        const typeLabels: Record<string, string> = {
-          workflow: "工作流（Workflow）",
-          agentic: "智能体（Agentic）",
-          hybrid: "混合型（Hybrid）",
-        };
-        const hybridNote = isHybrid
-          ? "\n\n> 检测到既有固定流程也有 AI 自主发挥的环节，当前先以工作流模式呈现。后续版本将支持在流程中嵌入智能体节点。"
-          : "";
-        addChatMessage({
-          id: uuidv4(),
-          role: "assistant",
-          content: `分析完成，判断为 **${typeLabels[rawType]}** 类型。\n\n${result.reason || ""}${hybridNote}`,
-          timestamp: new Date().toISOString(),
-        });
-
-        if (effectiveType === "workflow") {
-          await triggerDraft(prompt);
-        } else {
-          await triggerAgenticDraft(prompt);
-        }
-      } else {
-        setPhase("idle");
-        addChatMessage({
-          id: uuidv4(),
-          role: "assistant",
-          content: `分类失败：${result.error || "未知错误"}，将按工作流模式处理。`,
-          timestamp: new Date().toISOString(),
-        });
-        setTaskType("workflow");
-        await triggerDraft(prompt);
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "网络错误";
-      addChatMessage({
-        id: uuidv4(),
-        role: "assistant",
-        content: `分类请求出错：${msg}，将按工作流模式处理。`,
-        timestamp: new Date().toISOString(),
-      });
-      setTaskType("workflow");
-      await triggerDraft(prompt);
-    }
-  }, [addChatMessage, setPhase, setOriginalPrompt, setTaskType]);
-
-  // ============================================================
-  // Phase 1a: Draft Workflow
-  // ============================================================
-
-  const triggerDraft = useCallback(async (prompt: string) => {
+  const triggerUnifiedDraft = useCallback(async (prompt: string) => {
     setPhase("drafting");
+    setOriginalPrompt(prompt);
     setPendingNodes([]);
     setCurrentNodeIdx(0);
     setShowCompletion(false);
+    setCollectedAnswers({});
 
     try {
       const res = await fetch("/api/generate-flow", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, action: "draft" }),
+        body: JSON.stringify({ prompt, action: "unified_draft" }),
       });
       const result = await res.json();
 
-      if (result.success && result.data) {
-        const { projectName, nodes: parsedNodes, edges: parsedEdges } =
-          parseLLMResponse(result.data);
-
-        loadGeneratedFlow(parsedNodes, parsedEdges);
-        useFlowAgentStore.setState((s) => ({
-          project: { ...s.project, name: projectName },
-        }));
-
-        const labelMap: Record<string, string> = {};
-        for (const n of result.data.nodes || []) {
-          labelMap[n.id] = n.label;
-        }
-        setNodeLabelMap(labelMap);
-
-        const allNodeConf: NodeConfidence[] = result.nodeConfidence || [];
-        const needConfirm = allNodeConf.filter(
-          (nc) => nc.confidence !== "high" && nc.questions.length > 0
-        );
-        const autoSkipped = allNodeConf.length - needConfirm.length;
-
-        if (needConfirm.length > 0) {
-          const skippedMsg = autoSkipped > 0
-            ? `（其中 ${autoSkipped} 个节点已自动确认）`
-            : "";
-
-          useFlowAgentStore.setState({
-            pendingNodes: needConfirm,
-            currentNodeIdx: 0,
-            chatPhase: "questioning",
-          });
-
-          addChatMessage({
-            id: uuidv4(),
-            role: "assistant",
-            content: `已生成「${projectName}」草稿流程图，共 ${allNodeConf.length} 个节点。${skippedMsg}\n\n让我逐个确认需要补充细节的节点：`,
-            timestamp: new Date().toISOString(),
-          });
-        } else {
-          setPhase("ready");
-          addChatMessage({
-            id: uuidv4(),
-            role: "assistant",
-            content: `已生成「${projectName}」流程图，所有节点信息都比较完整。你可以在画布上拖拽调整，或告诉我哪里需要修改。`,
-            timestamp: new Date().toISOString(),
-          });
-        }
-      } else {
+      if (!result.success) {
         setPhase("idle");
         addChatMessage({
           id: uuidv4(),
@@ -196,6 +84,34 @@ export default function ChatPanel() {
           content: `生成失败：${result.error || "未知错误"}`,
           timestamp: new Date().toISOString(),
         });
+        return;
+      }
+
+      const rawType = result.taskType as "workflow" | "agentic" | "hybrid";
+      const isHybrid = rawType === "hybrid";
+      const effectiveType: "workflow" | "agentic" = rawType === "agentic" ? "agentic" : "workflow";
+      setTaskType(effectiveType);
+
+      const typeLabels: Record<string, string> = {
+        workflow: "工作流（Workflow）",
+        agentic: "智能体（Agentic）",
+        hybrid: "混合型（Hybrid）",
+      };
+      const hybridNote = isHybrid
+        ? "\n\n> 检测到混合型场景，当前先以工作流模式呈现。"
+        : "";
+
+      addChatMessage({
+        id: uuidv4(),
+        role: "assistant",
+        content: `判断为 **${typeLabels[rawType]}** 类型。${result.classifyReason || ""}${hybridNote}`,
+        timestamp: new Date().toISOString(),
+      });
+
+      if (effectiveType === "agentic") {
+        handleAgenticResult(result, prompt);
+      } else {
+        handleWorkflowResult(result);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "网络错误";
@@ -207,111 +123,133 @@ export default function ChatPanel() {
       });
       setPhase("idle");
     }
-  }, [addChatMessage, loadGeneratedFlow, setPhase, setPendingNodes, setCurrentNodeIdx, setNodeLabelMap]);
+  }, [addChatMessage, setPhase, setOriginalPrompt, setTaskType, setPendingNodes, setCurrentNodeIdx, setCollectedAnswers]);
 
-  // ============================================================
-  // Phase 1b: Draft Agentic
-  // ============================================================
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const handleWorkflowResult = useCallback((result: Record<string, any>) => {
+    const data = result.data;
+    if (!data) { setPhase("idle"); return; }
 
-  const triggerAgenticDraft = useCallback(async (prompt: string) => {
-    setPhase("drafting_agentic");
+    const { projectName, nodes: parsedNodes, edges: parsedEdges } =
+      parseLLMResponse(data);
 
-    try {
-      const res = await fetch("/api/generate-flow", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, action: "draft_agentic" }),
+    loadGeneratedFlow(parsedNodes, parsedEdges);
+    useFlowAgentStore.setState((s) => ({
+      project: { ...s.project, name: projectName },
+    }));
+
+    const labelMap: Record<string, string> = {};
+    for (const n of (data.nodes as { id: string; label: string }[]) || []) {
+      labelMap[n.id] = n.label;
+    }
+    setNodeLabelMap(labelMap);
+
+    const allNodeConf: NodeConfidence[] = (result.nodeConfidence as NodeConfidence[]) || [];
+    const needConfirm = allNodeConf.filter(
+      (nc) => nc.confidence !== "high" && nc.questions.length > 0
+    );
+    const autoSkipped = allNodeConf.length - needConfirm.length;
+
+    if (needConfirm.length > 0) {
+      const skippedMsg = autoSkipped > 0
+        ? `（${autoSkipped} 个节点已自动确认）`
+        : "";
+
+      useFlowAgentStore.setState({
+        pendingNodes: needConfirm,
+        currentNodeIdx: 0,
+        chatPhase: "questioning",
       });
-      const result = await res.json();
 
-      if (result.success && result.data) {
-        const config: AgenticTaskConfig = {
-          goal: result.data.goal || "",
-          background: result.data.background || "",
-          constraints: result.data.constraints || [],
-          skills: result.data.skills || [],
-          evaluators: result.data.evaluators || [],
-          executionStrategy: result.data.executionStrategy || "adaptive",
-          maxIterations: result.data.maxIterations || 5,
-          humanCheckpoints: result.data.humanCheckpoints || [],
-        };
-
-        setAgenticConfig(config);
-
-        if (result.projectName) {
-          useFlowAgentStore.setState((s) => ({
-            project: { ...s.project, name: result.projectName, status: "business_editing" },
-          }));
-        }
-
-        const skillNames = config.skills.map((s) => s.name).join("、");
-        const confirmItems: AgenticConfirmItem[] = result.confirmItems || [];
-
-        if (confirmItems.length > 0) {
-          setAgenticConfirmItems(confirmItems);
-          setAgenticConfirmIdx(0);
-
-          addChatMessage({
-            id: uuidv4(),
-            role: "assistant",
-            content: `已生成「${result.projectName || "Agent 任务"}」配置草稿：\n\n**目标**：${config.goal}\n**技能**：${skillNames}\n\n有 ${confirmItems.length} 个细节需要确认：`,
-            timestamp: new Date().toISOString(),
-          });
-
-          setPhase("confirming_agentic");
-        } else {
-          addChatMessage({
-            id: uuidv4(),
-            role: "assistant",
-            content: `已生成「${result.projectName || "Agent 任务"}」配置方案：\n\n**目标**：${config.goal}\n**技能**：${skillNames}\n**约束**：${config.constraints.length} 项\n**评估器**：${config.evaluators.length} 个\n\n请在右侧面板查看和编辑详细配置，或直接告诉我需要调整的地方。`,
-            timestamp: new Date().toISOString(),
-          });
-
-          setPhase("agentic_ready");
-        }
-      } else {
-        setPhase("idle");
-        addChatMessage({
-          id: uuidv4(),
-          role: "assistant",
-          content: `生成失败：${result.error || "未知错误"}`,
-          timestamp: new Date().toISOString(),
-        });
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "网络错误";
       addChatMessage({
         id: uuidv4(),
         role: "assistant",
-        content: `请求出错：${msg}`,
+        content: `已生成「${projectName}」草稿，共 ${allNodeConf.length} 个节点。${skippedMsg}\n\n有 ${needConfirm.length} 个节点需要确认细节：`,
         timestamp: new Date().toISOString(),
       });
-      setPhase("idle");
+    } else {
+      setPhase("ready");
+      addChatMessage({
+        id: uuidv4(),
+        role: "assistant",
+        content: `已生成「${projectName}」流程图，所有节点信息都比较完整。你可以在画布上调整，或告诉我哪里需要修改。`,
+        timestamp: new Date().toISOString(),
+      });
     }
-  }, [addChatMessage, setPhase, setAgenticConfig]);
+  }, [addChatMessage, loadGeneratedFlow, setPhase, setNodeLabelMap]);
+
+  const handleAgenticResult = useCallback((result: Record<string, any>, prompt: string) => {
+    const data = result.data;
+    /* eslint-enable @typescript-eslint/no-explicit-any */
+    if (!data) { setPhase("idle"); return; }
+
+    const config: AgenticTaskConfig = {
+      goal: (data.goal as string) || "",
+      background: (data.background as string) || "",
+      constraints: (data.constraints as AgenticTaskConfig["constraints"]) || [],
+      skills: (data.skills as AgenticTaskConfig["skills"]) || [],
+      evaluators: (data.evaluators as AgenticTaskConfig["evaluators"]) || [],
+      executionStrategy: (data.executionStrategy as AgenticTaskConfig["executionStrategy"]) || "adaptive",
+      maxIterations: (data.maxIterations as number) || 5,
+      humanCheckpoints: (data.humanCheckpoints as string[]) || [],
+    };
+
+    setAgenticConfig(config);
+
+    const pName = (result.projectName as string) || "";
+    if (pName) {
+      useFlowAgentStore.setState((s) => ({
+        project: { ...s.project, name: pName, status: "business_editing" },
+      }));
+    }
+
+    const skillNames = config.skills.map((s) => s.name).join("、");
+    const confirmItems: AgenticConfirmItem[] = (result.confirmItems as AgenticConfirmItem[]) || [];
+
+    if (confirmItems.length > 0) {
+      setAgenticConfirmItems(confirmItems);
+      setAgenticConfirmIdx(0);
+
+      addChatMessage({
+        id: uuidv4(),
+        role: "assistant",
+        content: `已生成「${pName || "Agent 任务"}」配置草稿：\n\n**目标**：${config.goal}\n**技能**：${skillNames}\n\n有 ${confirmItems.length} 个细节需要确认：`,
+        timestamp: new Date().toISOString(),
+      });
+
+      setPhase("confirming_agentic");
+    } else {
+      addChatMessage({
+        id: uuidv4(),
+        role: "assistant",
+        content: `已生成「${pName || "Agent 任务"}」配置方案：\n\n**目标**：${config.goal}\n**技能**：${skillNames}\n\n请在右侧面板查看详细配置。`,
+        timestamp: new Date().toISOString(),
+      });
+
+      setPhase("agentic_ready");
+    }
+  }, [addChatMessage, setPhase, setAgenticConfig, setAgenticConfirmItems, setAgenticConfirmIdx]);
 
   // ============================================================
-  // Phase 2: Node-by-node confirmation (Workflow)
+  // Phase 2: Batch confirmation (Workflow) — collect then refine once
   // ============================================================
 
-  const finishQuestioning = useCallback(() => {
-    setShowCompletion(true);
-    setPhase("ready");
-  }, [setPhase]);
-
-  const handleNodeConfirm = useCallback(
-    async (answers: { question: string; answer: string }[]) => {
-      const { pendingNodes: pn, currentNodeIdx: idx, nodeLabelMap: lm, originalPrompt: op } =
+  const handleBatchSubmit = useCallback(
+    async (collected: Record<string, { question: string; answer: string }[]>) => {
+      const { pendingNodes: pn, nodeLabelMap: lm, originalPrompt: op } =
         useFlowAgentStore.getState();
-      const nc = pn[idx];
-      if (!nc) return;
 
-      const nodeLabel = lm[nc.nodeId] || nc.nodeId;
+      const answeredSummary = Object.entries(collected)
+        .map(([nodeId, answers]) => {
+          const label = lm[nodeId] || nodeId;
+          return `「${label}」：${answers.map((a) => a.answer).join("、")}`;
+        })
+        .join("\n");
 
       addChatMessage({
         id: uuidv4(),
         role: "user",
-        content: `「${nodeLabel}」已确认：\n${answers.map((a) => `• ${a.answer}`).join("\n")}`,
+        content: `已确认 ${Object.keys(collected).length} 个节点：\n${answeredSummary}`,
         timestamp: new Date().toISOString(),
       });
 
@@ -322,16 +260,23 @@ export default function ChatPanel() {
           useFlowAgentStore.getState();
         const { json: canvasJson } = serializeFlowForLLM(currentNodes, currentEdges);
 
+        const nodeAnswers = pn.map((nc) => ({
+          nodeId: nc.nodeId,
+          nodeLabel: lm[nc.nodeId] || nc.nodeId,
+          answers: collected[nc.nodeId] || nc.questions.map((q) => ({
+            question: q.question,
+            answer: q.defaultSuggestion,
+          })),
+        }));
+
         const res = await fetch("/api/generate-flow", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            action: "refine_node",
+            action: "refine_batch",
             prompt: op,
             currentFlow: canvasJson,
-            nodeId: nc.nodeId,
-            nodeLabel,
-            answers,
+            nodeAnswers,
           }),
         });
         const result = await res.json();
@@ -351,11 +296,18 @@ export default function ChatPanel() {
             newLabelMap[n.id] = n.label;
           }
           setNodeLabelMap(newLabelMap);
+
+          addChatMessage({
+            id: uuidv4(),
+            role: "assistant",
+            content: `已根据你的确认优化了 ${nodeAnswers.length} 个节点。你可以继续调整，或告诉我还有什么需要修改的。`,
+            timestamp: new Date().toISOString(),
+          });
         } else {
           addChatMessage({
             id: uuidv4(),
             role: "assistant",
-            content: `优化「${nodeLabel}」失败：${result.error || "未知错误"}，已跳过该节点的优化。`,
+            content: `批量优化失败：${result.error || "未知错误"}，流程图保持不变。`,
             timestamp: new Date().toISOString(),
           });
         }
@@ -364,58 +316,29 @@ export default function ChatPanel() {
         addChatMessage({
           id: uuidv4(),
           role: "assistant",
-          content: `优化「${nodeLabel}」时出错：${msg}，已跳过该节点的优化。`,
+          content: `优化请求出错：${msg}，流程图保持不变。`,
           timestamp: new Date().toISOString(),
         });
       }
 
-      const { currentNodeIdx: curIdx, pendingNodes: curPending } = useFlowAgentStore.getState();
-      const nextIdx = curIdx + 1;
-      if (nextIdx < curPending.length) {
-        useFlowAgentStore.setState({
-          currentNodeIdx: nextIdx,
-          chatPhase: "questioning",
-        });
-      } else {
-        finishQuestioning();
-      }
+      setShowCompletion(true);
+      setPhase("ready");
+      useFlowAgentStore.setState({ pendingNodes: [], currentNodeIdx: 0 });
     },
-    [addChatMessage, loadGeneratedFlow, setPhase, setNodeLabelMap, finishQuestioning]
+    [addChatMessage, loadGeneratedFlow, setPhase, setNodeLabelMap]
   );
 
-  const handleSkipNode = useCallback(() => {
-    const { pendingNodes: pn, currentNodeIdx: idx, nodeLabelMap: lm } = useFlowAgentStore.getState();
-    const nc = pn[idx];
-    const nodeLabel = nc ? (lm[nc.nodeId] || nc.nodeId) : "";
-    addChatMessage({
-      id: uuidv4(),
-      role: "user",
-      content: `跳过「${nodeLabel}」的确认，使用默认方案`,
-      timestamp: new Date().toISOString(),
-    });
-
-    const nextIdx = idx + 1;
-    if (nextIdx < pn.length) {
-      useFlowAgentStore.setState({
-        currentNodeIdx: nextIdx,
-        chatPhase: "questioning",
-      });
-    } else {
-      finishQuestioning();
-    }
-  }, [addChatMessage, finishQuestioning]);
-
   const handleSkipAll = useCallback(() => {
-    const { pendingNodes: pn, currentNodeIdx: idx } = useFlowAgentStore.getState();
-    const remaining = pn.length - idx;
     addChatMessage({
       id: uuidv4(),
       role: "user",
-      content: `跳过剩余 ${remaining} 个节点的确认，就按现在的来`,
+      content: "跳过全部确认，使用 AI 推荐方案",
       timestamp: new Date().toISOString(),
     });
-    finishQuestioning();
-  }, [addChatMessage, finishQuestioning]);
+    setShowCompletion(true);
+    setPhase("ready");
+    useFlowAgentStore.setState({ pendingNodes: [], currentNodeIdx: 0 });
+  }, [addChatMessage, setPhase]);
 
   const handleCompletionDone = () => {
     setShowCompletion(false);
@@ -503,9 +426,8 @@ export default function ChatPanel() {
     }
 
     try {
-      // No flow and no agentic config yet → classify first
       if (!hasFlow && !hasAgenticConfig && phase !== "questioning") {
-        await triggerClassify(userInput);
+        await triggerUnifiedDraft(userInput);
         return;
       }
 
@@ -680,7 +602,7 @@ export default function ChatPanel() {
   const phaseLabel: Record<ChatPhase, string> = {
     idle: "",
     classifying: "分析任务类型...",
-    drafting: "生成草稿中...",
+    drafting: "分析并生成方案...",
     questioning: "",
     refining_node: "优化节点中...",
     ready: "",
@@ -719,9 +641,9 @@ export default function ChatPanel() {
             <Loader2 className="w-3 h-3 animate-spin" /> {phaseLabel[phase]}
           </span>
         )}
-        {phase === "questioning" && currentNodeConf && (
+        {hasPendingQuestions && (
           <span className="flex items-center gap-1 text-[10px] text-blue-600 ml-auto">
-            确认节点 {currentNodeIdx + 1}/{pendingNodes.length}
+            {pendingNodes.length} 个节点待确认
           </span>
         )}
         {phase === "ready" && !showCompletion && (
@@ -750,30 +672,26 @@ export default function ChatPanel() {
                 <br /><br />
                 描述你的业务场景，我会：
                 <br />
-                1. 自动判断是工作流还是智能体任务
+                1. 自动判断任务类型并生成方案
                 <br />
-                2. 生成对应的配置方案
+                2. 标注人机分工
                 <br />
-                3. 逐步确认和优化细节
+                3. 确认和优化细节
               </div>
             </div>
           )}
 
           {chatMessages.map(renderMessage)}
 
-          {/* Node question card (Workflow) */}
-          {currentNodeConf && (
+          {/* Paginated node questions (Workflow) */}
+          {hasPendingQuestions && (
             <div className="ml-9">
-              <NodeQuestionCard
-                key={currentNodeConf.nodeId}
-                nodeConf={currentNodeConf}
-                nodeLabel={nodeLabelMap[currentNodeConf.nodeId] || currentNodeConf.nodeId}
-                nodeIndex={currentNodeIdx}
-                totalNodes={pendingNodes.length}
-                onConfirm={handleNodeConfirm}
-                onSkipNode={handleSkipNode}
+              <NodeQuestionPage
+                pendingNodes={pendingNodes}
+                nodeLabelMap={nodeLabelMap}
+                onSubmitAll={handleBatchSubmit}
                 onSkipAll={handleSkipAll}
-                disabled={phase === "refining_node"}
+                disabled={isLoading}
               />
             </div>
           )}
