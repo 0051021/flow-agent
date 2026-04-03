@@ -55,6 +55,7 @@ const EXAMPLES = [
 const TYPE_BADGE = {
   workflow: { label: "工作流", icon: GitBranch, className: "bg-blue-50 text-blue-600 border-blue-200" },
   agentic: { label: "智能体", icon: Bot, className: "bg-violet-50 text-violet-600 border-violet-200" },
+  hybrid: { label: "混合型", icon: GitBranch, className: "bg-emerald-50 text-emerald-600 border-emerald-200" },
 };
 
 const FEATURES = [
@@ -134,8 +135,14 @@ export default function HomePage() {
               placeholder="例如：我想做小红书账号运营，目标是3个月涨粉5万..."
               className="border-0 shadow-none focus-visible:ring-0 text-sm min-h-[80px] resize-none p-0"
             />
-            <div className="flex justify-between items-center mt-3 pt-3 border-t border-zinc-100">
-              <p className="text-xs text-zinc-400">AI 会自动判断是工作流还是智能体任务</p>
+            <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-zinc-100">
+              <p className="w-full text-[11px] text-zinc-400 mb-1">💡 试试描述清楚这几点，AI 翻译更准确：</p>
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-zinc-50 text-zinc-500 border border-zinc-100">你要解决什么问题？</span>
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-zinc-50 text-zinc-500 border border-zinc-100">现在是怎么做的？</span>
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-zinc-50 text-zinc-500 border border-zinc-100">期望的结果是什么？</span>
+            </div>
+            <div className="flex justify-between items-center mt-3">
+              <p className="text-xs text-zinc-400">AI 自动判断任务类型并标注人机分工</p>
               <Button
                 onClick={() => handleStart()}
                 disabled={!input.trim()}

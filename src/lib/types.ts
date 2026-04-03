@@ -124,7 +124,7 @@ export interface KnowledgeFile {
 // Task Type (Workflow vs Agentic)
 // ============================================================
 
-export type TaskType = "workflow" | "agentic";
+export type TaskType = "workflow" | "agentic" | "hybrid";
 
 // ============================================================
 // Agentic Task Configuration

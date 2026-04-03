@@ -74,18 +74,27 @@ export default function ChatPanel() {
       const result = await res.json();
 
       if (result.success && result.taskType) {
-        const detectedType = result.taskType as "workflow" | "agentic";
-        setTaskType(detectedType);
+        const rawType = result.taskType as "workflow" | "agentic" | "hybrid";
+        const isHybrid = rawType === "hybrid";
+        const effectiveType: "workflow" | "agentic" = isHybrid ? "workflow" : rawType;
+        setTaskType(effectiveType);
 
-        const typeLabel = detectedType === "workflow" ? "工作流（Workflow）" : "智能体（Agentic）";
+        const typeLabels: Record<string, string> = {
+          workflow: "工作流（Workflow）",
+          agentic: "智能体（Agentic）",
+          hybrid: "混合型（Hybrid）",
+        };
+        const hybridNote = isHybrid
+          ? "\n\n> 检测到既有固定流程也有 AI 自主发挥的环节，当前先以工作流模式呈现。后续版本将支持在流程中嵌入智能体节点。"
+          : "";
         addChatMessage({
           id: uuidv4(),
           role: "assistant",
-          content: `分析完成，判断为 **${typeLabel}** 类型。\n\n${result.reason || ""}`,
+          content: `分析完成，判断为 **${typeLabels[rawType]}** 类型。\n\n${result.reason || ""}${hybridNote}`,
           timestamp: new Date().toISOString(),
         });
 
-        if (detectedType === "workflow") {
+        if (effectiveType === "workflow") {
           await triggerDraft(prompt);
         } else {
           await triggerAgenticDraft(prompt);
