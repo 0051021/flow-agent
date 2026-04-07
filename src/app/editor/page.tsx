@@ -179,7 +179,14 @@ function EditorContent() {
             <path strokeLinecap="round" strokeLinejoin="round" d={chatOpen ? "M6 18L18 6M6 6l12 12" : "M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"} />
           </svg>
         </button>
-        <div className={`${chatOpen ? "block" : "hidden"} lg:block absolute lg:relative inset-0 lg:inset-auto z-20 lg:z-auto`}>
+        {/* Mobile backdrop */}
+        {chatOpen && (
+          <div
+            className="lg:hidden fixed inset-0 z-10 bg-black/30"
+            onClick={() => setChatOpen(false)}
+          />
+        )}
+        <div className={`${chatOpen ? "block" : "hidden"} lg:block fixed lg:relative left-0 top-0 bottom-0 lg:inset-auto z-20 lg:z-auto`}>
           <ChatPanel />
         </div>
         {isAgentic ? (

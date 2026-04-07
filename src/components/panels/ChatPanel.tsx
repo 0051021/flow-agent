@@ -584,8 +584,6 @@ export default function ChatPanel() {
   // Render
   // ============================================================
 
-  const [lastFailedPrompt, setLastFailedPrompt] = useState<string | null>(null);
-
   const renderMarkdown = (text: string, msgId: string) => {
     return text.split("\n").map((line, i) => {
       const isBlockquote = line.startsWith("> ");

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { useFlowAgentStore } from "@/lib/store";
@@ -89,6 +89,18 @@ export default function TopBar() {
 
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const exportRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showExportMenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (exportRef.current && !exportRef.current.contains(e.target as globalThis.Node)) {
+        setShowExportMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showExportMenu]);
 
   const statusConfig = STATUS_LABELS[project.status];
   const roleConfig = ROLE_CONFIG[currentRole];
@@ -297,7 +309,7 @@ export default function TopBar() {
 
         {/* Export */}
         {hasFlow && (
-          <div className="relative">
+          <div className="relative" ref={exportRef}>
             <Button
               size="sm"
               variant="outline"

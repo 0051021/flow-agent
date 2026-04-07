@@ -1,0 +1,1370 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FlowAgent 知识地图</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: #f5f6fa;
+  color: #1a1a2e;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  overflow: hidden;
+  width: 100vw;
+  height: 100vh;
+}
+
+#bg-canvas {
+  position: fixed;
+  top: 0; left: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+#graph-container {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 1;
+}
+
+svg { width: 100%; height: 100%; }
+
+svg .link-line {
+  stroke-opacity: 0.5;
+  fill: none;
+}
+
+svg .link-label {
+  font-size: 11px;
+  fill: #666;
+  text-anchor: middle;
+  pointer-events: none;
+  font-weight: 600;
+}
+
+svg .node-glow {
+  pointer-events: none;
+}
+
+svg .node-circle {
+  cursor: pointer;
+  stroke-width: 2.5;
+  transition: r 0.2s;
+}
+
+svg .node-label {
+  fill: #2d3748;
+  text-anchor: middle;
+  pointer-events: none;
+  font-weight: 600;
+}
+
+svg .node-label-bg {
+  fill: rgba(245, 246, 250, 0.8);
+  pointer-events: none;
+}
+
+/* Detail panel */
+#detail-panel {
+  position: fixed;
+  top: 0;
+  right: -480px;
+  width: 480px;
+  height: 100vh;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(20px);
+  border-left: 1px solid #e2e8f0;
+  box-shadow: -8px 0 30px rgba(0,0,0,0.08);
+  z-index: 10;
+  transition: right 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow-y: auto;
+  padding: 0;
+}
+
+#detail-panel.open { right: 0; }
+
+#detail-panel .panel-header {
+  position: sticky;
+  top: 0;
+  padding: 28px 28px 20px;
+  background: linear-gradient(180deg, rgba(255,255,255,1) 60%, rgba(255,255,255,0));
+  z-index: 2;
+}
+
+#detail-panel .close-btn {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f7fafc;
+  color: #a0aec0;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+#detail-panel .close-btn:hover {
+  background: #edf2f7;
+  color: #4a5568;
+}
+
+#detail-panel .panel-title {
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 6px;
+  color: #1a202c;
+}
+
+#detail-panel .panel-group {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  opacity: 0.6;
+  margin-bottom: 4px;
+}
+
+#detail-panel .panel-status {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-top: 8px;
+}
+
+#detail-panel .panel-body {
+  padding: 0 28px 40px;
+}
+
+#detail-panel .panel-body h3 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #a0aec0;
+  margin: 24px 0 10px;
+}
+
+#detail-panel .panel-body ul {
+  list-style: none;
+  padding: 0;
+}
+
+#detail-panel .panel-body li {
+  position: relative;
+  padding: 8px 0 8px 18px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #4a5568;
+  border-bottom: 1px solid #f0f0f5;
+}
+
+#detail-panel .panel-body li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 15px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.5;
+}
+
+#detail-panel .panel-body .detail-text {
+  font-size: 14px;
+  line-height: 1.8;
+  color: #4a5568;
+}
+
+#detail-panel .panel-body .tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  margin: 2px 4px 2px 0;
+  background: #f7fafc;
+  color: #718096;
+  border: 1px solid #e2e8f0;
+}
+
+/* Legend */
+#legend {
+  position: fixed;
+  bottom: 24px;
+  left: 24px;
+  z-index: 5;
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  background: rgba(255,255,255,0.8);
+  backdrop-filter: blur(8px);
+  padding: 8px 16px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+}
+
+#legend .legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #718096;
+}
+
+#legend .legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+/* Title */
+#page-title {
+  position: fixed;
+  top: 24px;
+  left: 28px;
+  z-index: 5;
+  pointer-events: none;
+}
+
+#page-title h1 {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1a202c;
+}
+
+#page-title p {
+  font-size: 12px;
+  color: #a0aec0;
+  margin-top: 4px;
+}
+
+/* Hint */
+#hint {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 5;
+  font-size: 11px;
+  color: #a0aec0;
+}
+
+/* Filter bar */
+#filters {
+  position: fixed;
+  top: 24px;
+  right: 28px;
+  z-index: 5;
+  display: flex;
+  gap: 8px;
+}
+
+#filters button {
+  padding: 5px 14px;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  background: rgba(255,255,255,0.8);
+  color: #718096;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  backdrop-filter: blur(8px);
+}
+
+#filters button:hover,
+#filters button.active {
+  background: #fff;
+  color: #2d3748;
+  border-color: #cbd5e0;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+/* Scrollbar */
+#detail-panel::-webkit-scrollbar { width: 4px; }
+#detail-panel::-webkit-scrollbar-track { background: transparent; }
+#detail-panel::-webkit-scrollbar-thumb { background: #cbd5e0; border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<canvas id="bg-canvas"></canvas>
+<div id="graph-container"><svg id="graph-svg"></svg></div>
+
+<div id="page-title">
+  <h1>FlowAgent 知识地图</h1>
+  <p>点击节点查看详情 · 滚轮缩放 · 拖拽移动</p>
+</div>
+
+<div id="filters">
+  <button class="active" data-filter="all">全部</button>
+  <button data-filter="flowagent">FlowAgent</button>
+  <button data-filter="console">管控后台</button>
+  <button data-filter="skill">Skill 平台</button>
+  <button data-filter="principle">设计原则</button>
+  <button data-filter="research">论文洞察</button>
+  <button data-filter="roadmap">路线图</button>
+</div>
+
+<div id="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:#4a9eff"></div>FlowAgent</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#34d399"></div>管控后台</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#a78bfa"></div>Skill 平台</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#fb923c"></div>设计原则</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#f472b6"></div>论文洞察</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#64748b"></div>路线图</div>
+</div>
+
+<div id="hint">按住 Shift + 拖拽节点可固定位置</div>
+
+<div id="detail-panel">
+  <div class="panel-header">
+    <div class="panel-group" id="panel-group"></div>
+    <div class="panel-title" id="panel-title"></div>
+    <div class="panel-status" id="panel-status"></div>
+    <button class="close-btn" onclick="closePanel()">✕</button>
+  </div>
+  <div class="panel-body" id="panel-body"></div>
+</div>
+
+<script>
+// ============================================================
+// DATA — 从聊天记录和文档中提取的全部核心内容
+// ============================================================
+const GRAPH_DATA = {
+nodes: [
+  // ── 第一层：三大平台 ──
+  {
+    id: "flowagent", label: "FlowAgent", level: 1, group: "flowagent",
+    status: "已上线",
+    detail: {
+      summary: "AI 驱动的业务翻译平台，把自然语言描述的业务场景翻译成结构化的可执行方案蓝图。",
+      points: [
+        "核心用户：业务专家 + 技术人员（共创）",
+        "使用频率：低频高强度（一次 10-20 分钟）",
+        "当前阶段定位：技术方的方案设计工具",
+        "输出物：方案蓝图（不是可直接运行的成品）",
+        "线上地址：flow-agent-iota.vercel.app"
+      ],
+      tags: ["业务翻译", "双角色协作", "AI 生成"]
+    }
+  },
+  {
+    id: "console", label: "管控后台", level: 1, group: "console",
+    status: "已上线(Mock)",
+    detail: {
+      summary: "SaaS 运营监控平台，监控 Agent 运行状态、任务执行进度、人工确认/干预、异常处理。",
+      points: [
+        "核心用户：运维人员、管理者",
+        "使用频率：高频低强度（每天看几分钟）",
+        "当前数据全部为 Mock，未对接真实 Agent 运行时",
+        "包含：仪表盘、Agent 团队、任务监控、任务详情",
+        "线上地址：flow-agent-iota.vercel.app/console"
+      ],
+      tags: ["SaaS", "任务监控", "人工确认"]
+    }
+  },
+  {
+    id: "skill_platform", label: "Skill 平台", level: 1, group: "skill",
+    status: "规划中",
+    detail: {
+      summary: "原子能力的注册、管理、复用平台。Skill 是最小的可执行单元，被 FlowAgent 和管控后台共同调用。",
+      points: [
+        "核心用户：技术开发者",
+        "使用频率：按需",
+        "Skill 标准化程度决定自动化程度",
+        "当前 FlowAgent 内嵌了 8 个 Mock 技能",
+        "远期目标：独立平台，有标准 API schema"
+      ],
+      tags: ["能力基础设施", "API Schema", "评估器"]
+    }
+  },
+
+  // ── 第二层：FlowAgent 核心概念 ──
+  {
+    id: "workflow", label: "Workflow", level: 2, group: "flowagent",
+    status: "已实现",
+    detail: {
+      summary: "确定性流程，本质是 COT（思维链）。把复杂任务分解成线性步骤，每步输入输出确定，追求每一步都准确。",
+      points: [
+        "类比 COT：验证思维链的每一环",
+        "确认方式：逐节点确认（\"这步对不对\"）",
+        "失败模式：某一步错了 → 后面全错",
+        "人工介入：节点级 — 某步出错就暂停",
+        "适用场景：财务报销、进出口报关、审批等 SOP 明确的流程",
+        "会议分类：运维类任务"
+      ],
+      tags: ["COT", "确定性", "逐节点确认"]
+    }
+  },
+  {
+    id: "agentic", label: "Agentic", level: 2, group: "flowagent",
+    status: "已实现",
+    detail: {
+      summary: "目标导向，本质是 ReAct / Tree of Thought。给一个目标，Agent 自主规划路径，过程中可能尝试多种方法。",
+      points: [
+        "类比 ReAct：给目标，自主规划怎么做",
+        "确认方式：确认目标/约束/评估器（\"方向对不对\"）",
+        "失败模式：可能走弯路但最终可能达到目标",
+        "人工介入：阶段级 — 关键里程碑暂停",
+        "适用场景：小红书运营、竞品分析、内容生成",
+        "会议分类：运营类、分析类、专业生成类、协作类"
+      ],
+      tags: ["ReAct", "目标导向", "自主规划"]
+    }
+  },
+  {
+    id: "hybrid", label: "混合型", level: 2, group: "flowagent",
+    status: "分类已支持",
+    detail: {
+      summary: "一个业务同时包含 Workflow 和 Agentic 节点。真实业务的常态——部分步骤确定性，部分需要 AI 自主发挥。",
+      points: [
+        "Agentic 节点共享整个任务执行上下文，不是独立 Agent",
+        "Agentic 节点是流程图中的\"自由发挥区间\"",
+        "前后有确定性 Workflow 步骤约束输入输出格式",
+        "UI 设计：流程图上 Agentic 节点用紫色双层边框区分",
+        "从 Phase 3 提前到 Phase 2（论文二证明真实业务大多混合）",
+        "当前 AI 分类已支持 hybrid，但前端降级为 workflow 渲染"
+      ],
+      tags: ["混合", "共享上下文", "Phase 2"]
+    }
+  },
+  {
+    id: "translation", label: "业务翻译", level: 2, group: "flowagent",
+    status: "核心功能",
+    detail: {
+      summary: "FlowAgent 的核心价值——把业务方的模糊描述翻译成结构化的可执行方案。会议反复强调这是最关键的环节。",
+      points: [
+        "会议金句：\"不要指望业务直接给 AI 讲明白\"",
+        "翻译准确性 = 业务专家准确性 × AI 翻译能力",
+        "输出标准需明确设计，作为验收/交付/执行的统一依据",
+        "当前实现：AI 生成 → 逐项确认 → 自由对话修改",
+        "缺失：初始输入阶段的引导式追问（已有提示词，追问未做）",
+        "远期：从 SOP 文档/Wiki 自动提取 Workflow 草稿"
+      ],
+      tags: ["核心价值", "引导式输入", "SOP 提取"]
+    }
+  },
+  {
+    id: "human_ai_collab", label: "人机协作", level: 2, group: "flowagent",
+    status: "已实现",
+    detail: {
+      summary: "AI 做擅长的（数据处理、内容初稿），人做 AI 不擅长的（质量判断、方向决策、审美把控）。",
+      points: [
+        "核心原则：增强而非替代（论文二核心发现）",
+        "方案中自动标注人机分工（executionMode 字段）",
+        "AI 生成方案时主动插入人工确认节点",
+        "数据校验后 → 人工确认（防捏造）",
+        "内容生成后 → 人工确认（审美把控）",
+        "不可逆操作前 → 人工确认（发布/付款/删除）",
+        "典型 6 节点方案应有 2-3 个确认节点"
+      ],
+      tags: ["增强模式", "人工确认节点", "executionMode"]
+    }
+  },
+  {
+    id: "dual_role", label: "双角色体系", level: 2, group: "flowagent",
+    status: "已实现",
+    detail: {
+      summary: "业务方和技术方通过不同 URL 入口进入，看到不同的界面和操作权限。",
+      points: [
+        "业务方入口：/ → 白色主题，描述场景，AI 翻译",
+        "技术方入口：/tech → 深色主题，评审列表，技术视角",
+        "角色由 URL 决定，不需要登录系统",
+        "知识面板：业务方只看业务文档，技术方多一个\"技术参考\"Tab",
+        "技术方可以看到业务方的所有资料（超集关系）",
+        "编辑器 TopBar 有角色切换链接"
+      ],
+      tags: ["业务方", "技术方", "URL 路由"]
+    }
+  },
+
+  // ── 第二层：管控后台核心模块 ──
+  {
+    id: "dashboard", label: "仪表盘", level: 2, group: "console",
+    status: "已实现(Mock)",
+    detail: {
+      summary: "运营数据概览：活跃 Agent 数、月任务量、成功率、待处理事项。",
+      points: [
+        "4 个统计卡片 + 待处理事项列表 + 最近任务表格",
+        "数据来源于 CONSOLE_STATS（Mock）",
+        "待处理 = pending_confirm + error 任务数"
+      ],
+      tags: ["统计", "Mock 数据"]
+    }
+  },
+  {
+    id: "task_monitor", label: "任务监控", level: 2, group: "console",
+    status: "已实现(Mock)",
+    detail: {
+      summary: "按状态筛选任务列表，点进去可以看执行时间线和做人工确认。",
+      points: [
+        "状态筛选 Tab：全部/执行中/待确认/已完成/异常",
+        "任务详情页：执行时间线 + 当前节点详情",
+        "人工确认：通过/驳回（带原因表单）",
+        "异常处理：重试/人工接管/跳过 三选一",
+        "会议要求：过程不可黑盒化，任务可追踪"
+      ],
+      tags: ["状态筛选", "人工确认", "异常处理"]
+    }
+  },
+  {
+    id: "agent_team", label: "Agent 团队", level: 2, group: "console",
+    status: "已实现(Mock)",
+    detail: {
+      summary: "查看所有已部署 Agent 的状态和运营指标。",
+      points: [
+        "Agent 卡片：名称、关联场景、状态、成功率、任务数",
+        "5 个 Mock Agent（含 Workflow 和 Agentic 类型）",
+        "从 FlowAgent \"提交至管控后台\" 后应在此出现",
+        "当前缺少 Agent 创建/配置的完整流程"
+      ],
+      tags: ["Agent 管理", "运营指标"]
+    }
+  },
+
+  // ── 第二层：Skill 平台 ──
+  {
+    id: "skill_market", label: "技能市场", level: 2, group: "skill",
+    status: "Mock 集成",
+    detail: {
+      summary: "Agentic 配置中选择已有 Skill 的入口。当前 8 个 Mock 技能，分通用/行业两类。",
+      points: [
+        "通用类：网页搜索、数据分析、文档生成、图片生成",
+        "行业类：社媒分析、内容策划、竞品监控、SEO 优化",
+        "每个 Skill 展示调用次数和平均耗时",
+        "远期：Skill 有标准化 API schema 后可自动映射"
+      ],
+      tags: ["通用技能", "行业技能", "API Schema"]
+    }
+  },
+  {
+    id: "evaluator", label: "评估器", level: 2, group: "skill",
+    status: "已实现",
+    detail: {
+      summary: "评估 Agent 输出质量的标准。每个评估器有指标/阈值/权重。",
+      points: [
+        "Agentic 配置面板的\"评估体系\"Tab",
+        "支持新增/编辑/删除评估器",
+        "每个评估器可配置多行指标（名称/阈值/权重）",
+        "会议提到：清华用 XML 输出 + 三维度打分 + 超 9 分停止"
+      ],
+      tags: ["质量保障", "指标配置"]
+    }
+  },
+
+  // ── 设计原则 ──
+  {
+    id: "augment_not_replace", label: "增强而非替代", level: 2, group: "principle",
+    status: "核心原则",
+    detail: {
+      summary: "AI 辅助人做决策，不替代人做决策。这不仅体现在产品本身，也要体现在 AI 生成的方案里。",
+      points: [
+        "论文二核心发现：AI 增强效率 +24.3%，AI 自动化效率 -17.7%",
+        "产品层面：AI 翻译方案，人确认和决策",
+        "方案层面：生成的方案必须标注人机分工",
+        "会议金句：\"企业级 agent 必须被考核，可溯源\"",
+        "决策类的东西一般由人来做"
+      ],
+      tags: ["论文二", "人机分工", "核心"]
+    }
+  },
+  {
+    id: "blueprint_output", label: "方案蓝图定位", level: 2, group: "principle",
+    status: "核心原则",
+    detail: {
+      summary: "FlowAgent 输出的是\"方案蓝图\"而非\"可直接运行的成品\"。技术方参考蓝图搭建。",
+      points: [
+        "Workflow 部分：参考蓝图在 Dify 配置（未来可半自动）",
+        "Agentic 部分：参考蓝图配置 Agent 参数（短期必须手动）",
+        "Skill 标准化程度决定自动化程度",
+        "从\"业务语言\"到\"技术实现\"中间有 gap",
+        "FlowAgent 的价值 = 让技术方搭建时有清晰的、业务方已确认的蓝图"
+      ],
+      tags: ["方案蓝图", "Dify 对接", "半自动"]
+    }
+  },
+  {
+    id: "feedback_loop", label: "反馈闭环", level: 2, group: "principle",
+    status: "设计完成",
+    detail: {
+      summary: "知识沉淀由系统和技术方驱动，不由业务方填表。",
+      points: [
+        "系统自动采集：执行日志、每个节点成功/失败/耗时",
+        "技术方标注：异常归因（搭建质量 vs 链路设计 vs 环境问题）",
+        "业务方自然反馈：通过下一次对话输入（不是填问卷）",
+        "CogTwin 启发：静态知识(DKR) + 动态知识(DIKG)",
+        "AI 翻译时参考技术方已确认的历史方案"
+      ],
+      tags: ["知识沉淀", "CogTwin", "异常归因"]
+    }
+  },
+
+  // ── 论文洞察 ──
+  {
+    id: "paper_cogtwin", label: "CogTwin 论文", level: 2, group: "research",
+    status: "理论参考",
+    detail: {
+      summary: "IJCAI-25 论文。提出混合认知架构框架，让数字孪生具备类人认知能力。对我们的价值是架构参考。",
+      points: [
+        "双重知识图谱：DKR（静态领域知识）+ DIKG（动态运行时知识）",
+        "50ms 认知循环：感知→决策→行动→反馈→学习",
+        "元认知层：持续监控系统性能，检测不一致",
+        "对我们的指导：知识面板应从 Mock 升级为可沉淀/可反哺",
+        "管控后台应有主动检测能力（不只是被动展示）",
+        "当前状态：伪代码阶段，距离工程落地很远"
+      ],
+      tags: ["IJCAI-25", "认知架构", "知识图谱"]
+    }
+  },
+  {
+    id: "paper_human_agent", label: "人-Agent 工作流论文", level: 2, group: "research",
+    status: "直接指导",
+    detail: {
+      summary: "CMU+Stanford 论文。首次人-Agent 工作流直接对比，112 个真实任务轨迹。对我们有直接产品指导价值。",
+      points: [
+        "Agent 93.8% 用编程方式解决一切（包括不适合编程的任务）",
+        "AI 增强效率 +24.3%，AI 自动化效率 -17.7%",
+        "Agent 成功率比人类低 32.5%-49.5%",
+        "最大问题：数据捏造（fabrication）",
+        "Agent 完成任务快 88.3%，成本低 90.4%-96.2%",
+        "最佳策略：人机协作，效率提升 68.7%",
+        "任务可编程性三级：容易/半可编程/难编程 → 对应 Workflow/Agentic/不适合"
+      ],
+      tags: ["CMU+Stanford", "人机协作", "数据捏造"]
+    }
+  },
+
+  // ── 任务分类（会议纪要） ──
+  {
+    id: "task_ops", label: "运营类任务", level: 3, group: "flowagent",
+    status: "Agentic",
+    detail: {
+      summary: "有明确业务目标的任务，需专业方法论。通过评估器保证专业性和效率。",
+      points: [
+        "示例：小红书运营涨粉、账号运营",
+        "需要：业务目标 + 专业方法论 + Skill 库 + 评估器",
+        "架构：Agent Tech",
+        "特点：任务导向（增长/执行无误/降本）"
+      ],
+      tags: ["运营", "Agentic"]
+    }
+  },
+  {
+    id: "task_devops", label: "运维类任务", level: 3, group: "flowagent",
+    status: "Workflow",
+    detail: {
+      summary: "以标准 workflow 准确执行为目标，如财务报销等严格流程任务。",
+      points: [
+        "示例：财务报销、进出口报关、审批流程",
+        "通过明确规则和流程实现自动化执行和监控",
+        "架构：Workflow",
+        "特点：复杂流程的准确执行"
+      ],
+      tags: ["运维", "Workflow", "SOP"]
+    }
+  },
+  {
+    id: "task_generation", label: "专业生成类", level: 3, group: "flowagent",
+    status: "Agentic",
+    detail: {
+      summary: "生图、生视频、生专业 PPT 等，需提供模板和评估器。",
+      points: [
+        "示例：PPT 生成、科技类图生成",
+        "需要：模板 + 评估器 + 多轮迭代",
+        "清华方案：最多迭代 5 轮，三维度打分，超 9 分停止",
+        "架构：Agent Tech"
+      ],
+      tags: ["生成", "模板", "迭代"]
+    }
+  },
+  {
+    id: "task_collab", label: "协作类任务", level: 3, group: "flowagent",
+    status: "Agentic",
+    detail: {
+      summary: "运营类任务的升级版。有主 Agent 接收意图并调度子 Agent。",
+      points: [
+        "类似企业中主管协调多团队工作",
+        "主从/主谓结构",
+        "示例：账号运营主管协调内容生成、设计等团队",
+        "架构：Agent Tech（多 Agent）"
+      ],
+      tags: ["协作", "多 Agent", "调度"]
+    }
+  },
+  {
+    id: "task_analysis", label: "分析类任务", level: 3, group: "flowagent",
+    status: "Agentic",
+    detail: {
+      summary: "输入输出不完全明确，本质是归因任务，可做相关性分析。",
+      points: [
+        "示例：产品分析、竞品分析、数据归因",
+        "完全归因较难，目前多做相关性分析",
+        "Agent Tech 架构能满足相关性分析",
+        "按方法论执行，输入输出难穷举"
+      ],
+      tags: ["分析", "归因", "相关性"]
+    }
+  },
+
+  // ── 路线图 ──
+  {
+    id: "phase1", label: "Phase 1", level: 2, group: "roadmap",
+    status: "进行中",
+    detail: {
+      summary: "当前阶段 → 近期。打通核心链路。",
+      points: [
+        "✅ Workflow 完整链路（输入→翻译→流程图→确认→输出）",
+        "✅ Agentic 完整链路（输入→分类→配置→确认→输出）",
+        "✅ AI 自动判断 Workflow/Agentic/混合型",
+        "✅ 方案中自动标注人机分工",
+        "⚠️ 引导式输入（有提示词，追问未做）",
+        "⚠️ 反问异步流转（暂缓/跳过/转给业务方，设计完成未实现）",
+        "❌ 用户系统 + 数据持久化（替代 localStorage）"
+      ],
+      tags: ["当前", "核心链路"]
+    }
+  },
+  {
+    id: "phase2", label: "Phase 2", level: 2, group: "roadmap",
+    status: "规划中",
+    detail: {
+      summary: "短期。混合型 + 执行对接 + 知识沉淀。",
+      points: [
+        "混合型任务（Workflow 节点可标记为 Agentic 节点）",
+        "执行层对接（FlowAgent 编排层 + Dify/LangGraph 执行引擎）",
+        "知识沉淀（技术方确认方案自动沉淀为模板）",
+        "SOP 文档提取（上传 SOP → AI 自动提取为 Workflow 草稿）",
+        "管控后台真实数据（对接 Agent 运行时）",
+        "引导式追问（需求不清晰时 AI 先追问再生成）"
+      ],
+      tags: ["混合型", "Dify", "知识沉淀"]
+    }
+  },
+  {
+    id: "phase3", label: "Phase 3", level: 2, group: "roadmap",
+    status: "远期",
+    detail: {
+      summary: "中期。平台化。",
+      points: [
+        "Skill 平台独立化（标准 API schema）",
+        "场景模板库（可沉淀，确认方案自动成为候选模板）",
+        "多租户 + 权限管理（飞书/钉钉 SSO）",
+        "数据驾驶舱 / 审计中心",
+        "管控后台主动检测能力（方案自洽性检查、异常模式识别）"
+      ],
+      tags: ["平台化", "多租户", "SSO"]
+    }
+  },
+
+  // ── 第三层：关键细节 ──
+  {
+    id: "guided_input", label: "引导式输入", level: 3, group: "flowagent",
+    status: "部分实现",
+    detail: {
+      summary: "帮用户结构化描述需求。类比 Cursor 的 Plan 模式，但更靠前——在理解需求阶段做信息补全。",
+      points: [
+        "首页已有引导提示词（你要解决什么/现在怎么做/期望结果）",
+        "快思考：需求清晰 → 直接生成（类似 Cursor Agent 模式）",
+        "慢思考：需求模糊 → 先追问再生成（类似 Cursor Plan 模式）",
+        "追问最多 2-3 个关键问题，避免\"这个工具好麻烦\"",
+        "引导式输入在 Plan 之前：确认\"题目\"→ 确认\"思路\"→ 执行"
+      ],
+      tags: ["引导", "快慢思考", "Cursor 类比"]
+    }
+  },
+  {
+    id: "sop_extract", label: "SOP 文档提取", level: 3, group: "flowagent",
+    status: "规划中",
+    detail: {
+      summary: "从现有 SOP 文档/流程图/内部 Wiki 自动提取 Workflow 草稿，比从零口述高效得多。",
+      points: [
+        "用户上传 SOP 文档（Word/PDF/飞书文档）",
+        "AI 提取步骤结构 → 生成 Workflow 草稿",
+        "用户在 FlowAgent 里确认和修改",
+        "技术上：文档理解 + 结构化提取，成熟技术",
+        "录屏归纳方式：论文二有方案但企业隐私问题大，暂不考虑"
+      ],
+      tags: ["SOP", "文档提取", "Phase 2"]
+    }
+  },
+  {
+    id: "demo_review", label: "Demo 评审", level: 3, group: "principle",
+    status: "已完成",
+    detail: {
+      summary: "对产品经理做的 DeskClaw Enterprise Demo 的评审。核心结论：功能堆砌，缺乏产品逻辑。",
+      points: [
+        "业务翻译核心功能只有一个空白输入框（7 步流程只做了第 1 步）",
+        "Workflow 和 Agentic 的场景详情页完全一样",
+        "33 个场景没有一个能跑通完整链路",
+        "人机协作完全缺失",
+        "10 个模块堆在一个平台里，没有产品边界划分",
+        "用户分类不清晰",
+        "结论：先打通 1 个 Workflow + 1 个 Agentic 的完整链路"
+      ],
+      tags: ["评审", "DeskClaw", "功能堆砌"]
+    }
+  },
+  {
+    id: "office_integration", label: "办公平台集成", level: 3, group: "console",
+    status: "工程层(未做)",
+    detail: {
+      summary: "钉钉/飞书/企业微信的通知和触发渠道。属于工程层，不是产品 UI 问题。",
+      points: [
+        "Agent 执行到人工确认节点 → 推送通知",
+        "用户点击链接 → 跳转管控后台操作",
+        "会议要求：通知及时、反馈及时、过程不可黑盒化",
+        "属于后端对接的事，不是 FlowAgent 的 UI 问题"
+      ],
+      tags: ["钉钉", "飞书", "通知"]
+    }
+  },
+  {
+    id: "knowledge_system", label: "双层知识架构", level: 3, group: "research",
+    status: "设计完成",
+    detail: {
+      summary: "来自 CogTwin 的启发。静态知识 + 动态知识，双层协同。",
+      points: [
+        "静态层(DKR)：行业模板、最佳实践、API 文档、技术方确认的方案",
+        "动态层(DIKG)：执行日志、评审批注、异常归因标注",
+        "沉淀格式：方案骨架 + 关键决策点 JSON",
+        "检索方式：语义相似度匹配 scenario 字段",
+        "初期用简单向量检索，不需要复杂 RAG"
+      ],
+      tags: ["DKR", "DIKG", "向量检索"]
+    }
+  },
+  {
+    id: "execution_arch", label: "执行层架构", level: 3, group: "roadmap",
+    status: "规划中",
+    detail: {
+      summary: "三层架构：FlowAgent 编排层 + 执行引擎(Dify/LangGraph) + 管控后台。",
+      points: [
+        "FlowAgent 负责：方案翻译 → 可执行 DAG 定义",
+        "执行引擎负责：按 DAG 调度执行 Skill",
+        "管控后台负责：监控、人工确认、异常处理",
+        "人工确认节点：DAG 中的特殊节点类型，执行到此暂停并回调",
+        "技术选型未定：自建 vs Dify vs LangGraph vs 混合"
+      ],
+      tags: ["DAG", "Dify", "LangGraph"]
+    }
+  }
+],
+
+links: [
+  // 平台间关系
+  { source: "flowagent", target: "console", label: "部署/交付", type: "primary" },
+  { source: "skill_platform", target: "flowagent", label: "提供能力", type: "primary" },
+  { source: "skill_platform", target: "console", label: "运行时调用", type: "primary" },
+
+  // FlowAgent 内部
+  { source: "flowagent", target: "workflow", label: "", type: "contains" },
+  { source: "flowagent", target: "agentic", label: "", type: "contains" },
+  { source: "flowagent", target: "hybrid", label: "", type: "contains" },
+  { source: "flowagent", target: "translation", label: "", type: "contains" },
+  { source: "flowagent", target: "human_ai_collab", label: "", type: "contains" },
+  { source: "flowagent", target: "dual_role", label: "", type: "contains" },
+  { source: "workflow", target: "hybrid", label: "组合", type: "relation" },
+  { source: "agentic", target: "hybrid", label: "组合", type: "relation" },
+  { source: "translation", target: "guided_input", label: "", type: "contains" },
+  { source: "translation", target: "sop_extract", label: "", type: "contains" },
+
+  // 任务分类
+  { source: "agentic", target: "task_ops", label: "", type: "contains" },
+  { source: "workflow", target: "task_devops", label: "", type: "contains" },
+  { source: "agentic", target: "task_generation", label: "", type: "contains" },
+  { source: "agentic", target: "task_collab", label: "", type: "contains" },
+  { source: "agentic", target: "task_analysis", label: "", type: "contains" },
+
+  // 管控后台内部
+  { source: "console", target: "dashboard", label: "", type: "contains" },
+  { source: "console", target: "task_monitor", label: "", type: "contains" },
+  { source: "console", target: "agent_team", label: "", type: "contains" },
+  { source: "console", target: "office_integration", label: "", type: "contains" },
+
+  // Skill 平台内部
+  { source: "skill_platform", target: "skill_market", label: "", type: "contains" },
+  { source: "skill_platform", target: "evaluator", label: "", type: "contains" },
+
+  // 设计原则
+  { source: "augment_not_replace", target: "human_ai_collab", label: "指导", type: "relation" },
+  { source: "blueprint_output", target: "flowagent", label: "定位", type: "relation" },
+  { source: "feedback_loop", target: "knowledge_system", label: "实现", type: "relation" },
+  { source: "demo_review", target: "flowagent", label: "驱动改进", type: "relation" },
+
+  // 论文关联
+  { source: "paper_human_agent", target: "augment_not_replace", label: "验证", type: "relation" },
+  { source: "paper_human_agent", target: "human_ai_collab", label: "指导", type: "relation" },
+  { source: "paper_cogtwin", target: "feedback_loop", label: "启发", type: "relation" },
+  { source: "paper_cogtwin", target: "knowledge_system", label: "启发", type: "relation" },
+
+  // 路线图
+  { source: "phase1", target: "flowagent", label: "", type: "relation" },
+  { source: "phase2", target: "hybrid", label: "", type: "relation" },
+  { source: "phase2", target: "execution_arch", label: "", type: "relation" },
+  { source: "phase2", target: "sop_extract", label: "", type: "relation" },
+  { source: "phase3", target: "skill_platform", label: "", type: "relation" },
+]
+};
+
+// ============================================================
+// COLOR SCHEME
+// ============================================================
+const GROUP_COLORS = {
+  flowagent:  { main: "#3b82f6", glow: "#3b82f630", bg: "#3b82f610" },
+  console:    { main: "#10b981", glow: "#10b98130", bg: "#10b98110" },
+  skill:      { main: "#8b5cf6", glow: "#8b5cf630", bg: "#8b5cf610" },
+  principle:  { main: "#f59e0b", glow: "#f59e0b30", bg: "#f59e0b10" },
+  research:   { main: "#ec4899", glow: "#ec489930", bg: "#ec489910" },
+  roadmap:    { main: "#6b7280", glow: "#6b728030", bg: "#6b728010" },
+};
+
+const STATUS_COLORS = {
+  "已上线": "#34d399", "已实现": "#34d399", "已实现(Mock)": "#34d399",
+  "核心功能": "#4a9eff", "核心原则": "#fb923c",
+  "已完成": "#34d399", "直接指导": "#f472b6", "理论参考": "#a78bfa",
+  "进行中": "#facc15", "部分实现": "#facc15", "分类已支持": "#facc15",
+  "Mock 集成": "#facc15",
+  "规划中": "#64748b", "远期": "#64748b", "设计完成": "#818cf8",
+  "工程层(未做)": "#64748b",
+  "Agentic": "#a78bfa", "Workflow": "#4a9eff",
+};
+
+const LEVEL_RADIUS = { 1: 32, 2: 20, 3: 12 };
+
+// ============================================================
+// BACKGROUND PARTICLES (Canvas)
+// ============================================================
+const bgCanvas = document.getElementById("bg-canvas");
+const bgCtx = bgCanvas.getContext("2d");
+let bgParticles = [];
+
+function resizeBg() {
+  bgCanvas.width = window.innerWidth;
+  bgCanvas.height = window.innerHeight;
+}
+
+function initBgParticles() {
+  bgParticles = [];
+  const count = Math.floor((window.innerWidth * window.innerHeight) / 12000);
+  for (let i = 0; i < count; i++) {
+    bgParticles.push({
+      x: Math.random() * bgCanvas.width,
+      y: Math.random() * bgCanvas.height,
+      r: Math.random() * 1.5 + 0.3,
+      vx: (Math.random() - 0.5) * 0.15,
+      vy: (Math.random() - 0.5) * 0.15,
+      alpha: Math.random() * 0.4 + 0.1,
+    });
+  }
+}
+
+function drawBg() {
+  bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
+  for (const p of bgParticles) {
+    p.x += p.vx;
+    p.y += p.vy;
+    if (p.x < 0) p.x = bgCanvas.width;
+    if (p.x > bgCanvas.width) p.x = 0;
+    if (p.y < 0) p.y = bgCanvas.height;
+    if (p.y > bgCanvas.height) p.y = 0;
+    bgCtx.beginPath();
+    bgCtx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    bgCtx.fillStyle = `rgba(100, 130, 180, ${p.alpha * 0.25})`;
+    bgCtx.fill();
+  }
+  requestAnimationFrame(drawBg);
+}
+
+resizeBg();
+initBgParticles();
+drawBg();
+window.addEventListener("resize", () => { resizeBg(); initBgParticles(); });
+
+// ============================================================
+// D3 FORCE GRAPH
+// ============================================================
+const width = window.innerWidth;
+const height = window.innerHeight;
+const svg = d3.select("#graph-svg");
+
+const defs = svg.append("defs");
+
+// Glow filter
+const glowFilter = defs.append("filter").attr("id", "glow");
+glowFilter.append("feGaussianBlur").attr("stdDeviation", "6").attr("result", "blur");
+const glowMerge = glowFilter.append("feMerge");
+glowMerge.append("feMergeNode").attr("in", "blur");
+glowMerge.append("feMergeNode").attr("in", "SourceGraphic");
+
+// Strong glow for hover
+const glowStrong = defs.append("filter").attr("id", "glow-strong");
+glowStrong.append("feGaussianBlur").attr("stdDeviation", "12").attr("result", "blur");
+const glowStrongMerge = glowStrong.append("feMerge");
+glowStrongMerge.append("feMergeNode").attr("in", "blur");
+glowStrongMerge.append("feMergeNode").attr("in", "SourceGraphic");
+
+// Arrow marker
+defs.append("marker")
+  .attr("id", "arrowhead")
+  .attr("viewBox", "0 -5 10 10")
+  .attr("refX", 20)
+  .attr("refY", 0)
+  .attr("markerWidth", 6)
+  .attr("markerHeight", 6)
+  .attr("orient", "auto")
+  .append("path")
+  .attr("d", "M0,-4L10,0L0,4")
+  .attr("fill", "#94a3b8");
+
+const g = svg.append("g");
+
+const zoom = d3.zoom()
+  .scaleExtent([0.2, 4])
+  .on("zoom", (event) => g.attr("transform", event.transform));
+
+svg.call(zoom);
+
+// Center initially
+svg.call(zoom.transform, d3.zoomIdentity.translate(width / 2, height / 2).scale(0.6));
+
+const nodes = GRAPH_DATA.nodes.map(d => ({ ...d }));
+const links = GRAPH_DATA.links.map(d => ({ ...d }));
+
+const simulation = d3.forceSimulation(nodes)
+  .force("link", d3.forceLink(links).id(d => d.id).distance(d => {
+    if (d.type === "contains") return 140;
+    if (d.type === "primary") return 320;
+    return 240;
+  }).strength(d => d.type === "contains" ? 0.5 : 0.15))
+  .force("charge", d3.forceManyBody().strength(d => d.level === 1 ? -1200 : d.level === 2 ? -500 : -250))
+  .force("center", d3.forceCenter(0, 0))
+  .force("collision", d3.forceCollide().radius(d => LEVEL_RADIUS[d.level] + 30))
+  .alphaDecay(0.015);
+
+// Links
+const linkGroup = g.append("g").attr("class", "links");
+
+const linkLines = linkGroup.selectAll("line")
+  .data(links)
+  .join("line")
+  .attr("class", "link-line")
+  .attr("stroke", d => {
+    if (d.type === "primary") return "#94a3b8";
+    if (d.type === "contains") return "#cbd5e0";
+    return "#a0aec0";
+  })
+  .attr("stroke-width", d => d.type === "primary" ? 2.5 : d.type === "contains" ? 1.5 : 1.2)
+  .attr("stroke-dasharray", d => d.type === "relation" ? "6,4" : "none")
+  .attr("marker-end", d => d.type === "primary" ? "url(#arrowhead)" : "");
+
+const linkLabels = linkGroup.selectAll("text")
+  .data(links.filter(d => d.label))
+  .join("text")
+  .attr("class", "link-label")
+  .text(d => d.label);
+
+// Particle system on primary links
+const particleCanvas = document.createElement("canvas");
+particleCanvas.style.cssText = "position:fixed;top:0;left:0;z-index:2;pointer-events:none;";
+document.body.appendChild(particleCanvas);
+const pCtx = particleCanvas.getContext("2d");
+particleCanvas.width = width;
+particleCanvas.height = height;
+
+let linkParticles = [];
+const primaryLinks = links.filter(d => d.type === "primary");
+
+function spawnLinkParticle() {
+  for (const link of primaryLinks) {
+    if (Math.random() > 0.03) continue;
+    const s = link.source, t = link.target;
+    if (!s.x || !t.x) continue;
+    linkParticles.push({
+      x: s.x, y: s.y,
+      tx: t.x, ty: t.y,
+      progress: 0,
+      speed: 0.008 + Math.random() * 0.008,
+      color: GROUP_COLORS[s.group]?.main || "#fff",
+    });
+  }
+}
+
+function drawLinkParticles() {
+  const transform = d3.zoomTransform(svg.node());
+  pCtx.clearRect(0, 0, particleCanvas.width, particleCanvas.height);
+  pCtx.save();
+  pCtx.translate(transform.x, transform.y);
+  pCtx.scale(transform.k, transform.k);
+
+  spawnLinkParticle();
+
+  linkParticles = linkParticles.filter(p => p.progress < 1);
+  for (const p of linkParticles) {
+    p.progress += p.speed;
+    const x = p.x + (p.tx - p.x) * p.progress;
+    const y = p.y + (p.ty - p.y) * p.progress;
+    const alpha = Math.sin(p.progress * Math.PI) * 0.8;
+    pCtx.beginPath();
+    pCtx.arc(x, y, 2, 0, Math.PI * 2);
+    const r = parseInt(p.color.slice(1,3), 16);
+    const gg = parseInt(p.color.slice(3,5), 16);
+    const b = parseInt(p.color.slice(5,7), 16);
+    pCtx.fillStyle = `rgba(${r},${gg},${b},${alpha})`;
+    pCtx.shadowColor = p.color;
+    pCtx.shadowBlur = 8;
+    pCtx.fill();
+    pCtx.shadowBlur = 0;
+  }
+  pCtx.restore();
+  requestAnimationFrame(drawLinkParticles);
+}
+
+drawLinkParticles();
+
+window.addEventListener("resize", () => {
+  particleCanvas.width = window.innerWidth;
+  particleCanvas.height = window.innerHeight;
+});
+
+// Nodes
+const nodeGroup = g.append("g").attr("class", "nodes");
+
+const nodeGs = nodeGroup.selectAll("g")
+  .data(nodes)
+  .join("g")
+  .attr("cursor", "pointer")
+  .call(d3.drag()
+    .on("start", dragstarted)
+    .on("drag", dragged)
+    .on("end", dragended));
+
+// Outer glow circle
+nodeGs.append("circle")
+  .attr("class", "node-glow")
+  .attr("r", d => LEVEL_RADIUS[d.level] + 8)
+  .attr("fill", d => GROUP_COLORS[d.group]?.glow || "#ffffff30")
+  .attr("opacity", 0.3);
+
+// Main circle
+nodeGs.append("circle")
+  .attr("class", "node-circle")
+  .attr("r", d => LEVEL_RADIUS[d.level])
+  .attr("fill", d => {
+    const c = GROUP_COLORS[d.group]?.main || "#888";
+    if (d.level === 1) return c;
+    if (d.level === 2) return "#fff";
+    return "#fafbfc";
+  })
+  .attr("stroke", d => GROUP_COLORS[d.group]?.main || "#888")
+  .attr("filter", d => d.level === 1 ? "url(#glow)" : "none");
+
+// Label
+nodeGs.append("text")
+  .attr("class", "node-label")
+  .attr("dy", d => LEVEL_RADIUS[d.level] + 16)
+  .attr("font-size", d => d.level === 1 ? 13 : d.level === 2 ? 11 : 9)
+  .text(d => d.label);
+
+// Hover & click
+nodeGs.on("mouseenter", function(event, d) {
+  d3.select(this).select(".node-circle")
+    .transition().duration(200)
+    .attr("r", LEVEL_RADIUS[d.level] * 1.3)
+    .attr("filter", "url(#glow-strong)");
+  d3.select(this).select(".node-glow")
+    .transition().duration(200)
+    .attr("r", LEVEL_RADIUS[d.level] * 1.3 + 12)
+    .attr("opacity", 0.6);
+
+  // Dim unconnected
+  const connected = new Set();
+  connected.add(d.id);
+  links.forEach(l => {
+    const sid = typeof l.source === "object" ? l.source.id : l.source;
+    const tid = typeof l.target === "object" ? l.target.id : l.target;
+    if (sid === d.id) connected.add(tid);
+    if (tid === d.id) connected.add(sid);
+  });
+  nodeGs.transition().duration(200).attr("opacity", n => connected.has(n.id) ? 1 : 0.2);
+  linkLines.transition().duration(200).attr("opacity", l => {
+    const sid = typeof l.source === "object" ? l.source.id : l.source;
+    const tid = typeof l.target === "object" ? l.target.id : l.target;
+    return (sid === d.id || tid === d.id) ? 0.8 : 0.06;
+  });
+});
+
+nodeGs.on("mouseleave", function(event, d) {
+  d3.select(this).select(".node-circle")
+    .transition().duration(300)
+    .attr("r", LEVEL_RADIUS[d.level])
+    .attr("filter", d.level === 1 ? "url(#glow)" : "none");
+  d3.select(this).select(".node-glow")
+    .transition().duration(300)
+    .attr("r", LEVEL_RADIUS[d.level] + 8)
+    .attr("opacity", 0.3);
+  nodeGs.transition().duration(300).attr("opacity", 1);
+  linkLines.transition().duration(300).attr("opacity", 1);
+});
+
+nodeGs.on("click", (event, d) => {
+  event.stopPropagation();
+  openPanel(d);
+});
+
+svg.on("click", () => closePanel());
+
+// Simulation tick
+simulation.on("tick", () => {
+  linkLines
+    .attr("x1", d => d.source.x)
+    .attr("y1", d => d.source.y)
+    .attr("x2", d => d.target.x)
+    .attr("y2", d => d.target.y);
+
+  linkLabels
+    .attr("x", d => (d.source.x + d.target.x) / 2)
+    .attr("y", d => (d.source.y + d.target.y) / 2);
+
+  nodeGs.attr("transform", d => `translate(${d.x},${d.y})`);
+
+  // Update particle targets
+  for (const p of linkParticles) {
+    const link = primaryLinks.find(l =>
+      (l.source.id || l.source) === (p.sourceId) &&
+      (l.target.id || l.target) === (p.targetId)
+    );
+  }
+});
+
+function dragstarted(event, d) {
+  if (!event.active) simulation.alphaTarget(0.3).restart();
+  d.fx = d.x;
+  d.fy = d.y;
+}
+
+function dragged(event, d) {
+  d.fx = event.x;
+  d.fy = event.y;
+}
+
+function dragended(event, d) {
+  if (!event.active) simulation.alphaTarget(0);
+  if (!event.sourceEvent.shiftKey) {
+    d.fx = null;
+    d.fy = null;
+  }
+}
+
+// ============================================================
+// DETAIL PANEL
+// ============================================================
+function openPanel(d) {
+  const panel = document.getElementById("detail-panel");
+  const color = GROUP_COLORS[d.group]?.main || "#888";
+  const statusColor = STATUS_COLORS[d.status] || "#888";
+
+  document.getElementById("panel-group").textContent = d.group;
+  document.getElementById("panel-group").style.color = color;
+  document.getElementById("panel-title").textContent = d.label;
+  document.getElementById("panel-title").style.color = color;
+
+  const statusEl = document.getElementById("panel-status");
+  statusEl.textContent = d.status;
+  statusEl.style.background = statusColor + "20";
+  statusEl.style.color = statusColor;
+
+  let bodyHTML = "";
+
+  if (d.detail) {
+    if (d.detail.summary) {
+      bodyHTML += `<div class="detail-text" style="margin-top:16px;">${d.detail.summary}</div>`;
+    }
+    if (d.detail.points && d.detail.points.length) {
+      bodyHTML += `<h3>要点</h3><ul>`;
+      for (const p of d.detail.points) {
+        bodyHTML += `<li style="color:${color}">${p}</li>`;
+      }
+      bodyHTML += `</ul>`;
+    }
+    if (d.detail.tags && d.detail.tags.length) {
+      bodyHTML += `<h3>标签</h3><div style="margin-top:8px;">`;
+      for (const t of d.detail.tags) {
+        bodyHTML += `<span class="tag" style="border:1px solid ${color}30; color:${color}">${t}</span>`;
+      }
+      bodyHTML += `</div>`;
+    }
+  }
+
+  // Show connections
+  const connections = [];
+  links.forEach(l => {
+    const sid = typeof l.source === "object" ? l.source.id : l.source;
+    const tid = typeof l.target === "object" ? l.target.id : l.target;
+    if (sid === d.id) {
+      const target = nodes.find(n => n.id === tid);
+      if (target && l.label) connections.push({ label: l.label, node: target.label, dir: "→" });
+    }
+    if (tid === d.id) {
+      const source = nodes.find(n => n.id === sid);
+      if (source && l.label) connections.push({ label: l.label, node: source.label, dir: "←" });
+    }
+  });
+
+  if (connections.length) {
+    bodyHTML += `<h3>关联</h3><ul>`;
+    for (const c of connections) {
+      bodyHTML += `<li style="color:#888">${c.dir} ${c.node} <span style="opacity:0.5">(${c.label})</span></li>`;
+    }
+    bodyHTML += `</ul>`;
+  }
+
+  document.getElementById("panel-body").innerHTML = bodyHTML;
+  panel.classList.add("open");
+}
+
+function closePanel() {
+  document.getElementById("detail-panel").classList.remove("open");
+}
+
+// ============================================================
+// FILTER BUTTONS
+// ============================================================
+document.querySelectorAll("#filters button").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#filters button").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    const filter = btn.dataset.filter;
+
+    nodeGs.transition().duration(400).attr("opacity", d => {
+      if (filter === "all") return 1;
+      return d.group === filter ? 1 : 0.08;
+    });
+
+    linkLines.transition().duration(400).attr("opacity", l => {
+      if (filter === "all") return 1;
+      const sid = typeof l.source === "object" ? l.source.id : l.source;
+      const tid = typeof l.target === "object" ? l.target.id : l.target;
+      const sNode = nodes.find(n => n.id === sid);
+      const tNode = nodes.find(n => n.id === tid);
+      return (sNode?.group === filter || tNode?.group === filter) ? 0.5 : 0.02;
+    });
+  });
+});
+
+// Keyboard shortcut
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closePanel();
+});
+</script>
+</body>
+</html>
