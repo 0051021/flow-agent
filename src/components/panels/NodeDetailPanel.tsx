@@ -1,18 +1,110 @@
 "use client";
 
+import { useState } from "react";
+import { toast } from "sonner";
 import { useFlowAgentStore } from "@/lib/store";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Button } from "@/components/ui/button";
 import type { FlowNodeData, FlowNodeInput, FlowNodeOutput, NodeExecutionMode } from "@/lib/types";
 import {
   FileText, RotateCcw, UserCheck, SkipForward,
   OctagonX, Settings, X, Bot, User as UserIcon,
-  Plus, Trash2, Pencil,
+  Plus, Trash2, Pencil, Search, Puzzle,
 } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
+import { MOCK_MARKET_SKILLS } from "@/lib/mock-console";
+
+function SkillBinder({ value, disabled, onChange, onClear }: {
+  value?: string;
+  disabled: boolean;
+  onChange: (name: string) => void;
+  onClear: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+
+  const filtered = MOCK_MARKET_SKILLS.filter((s) =>
+    s.status === "available" && (
+      s.name.toLowerCase().includes(query.toLowerCase()) ||
+      s.description.toLowerCase().includes(query.toLowerCase())
+    )
+  );
+
+  if (value) {
+    return (
+      <div>
+        <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider mb-1.5">绑定 Skill</p>
+        <div className="flex items-center justify-between p-2.5 rounded-lg border border-blue-200 bg-blue-50">
+          <div className="flex items-center gap-2">
+            <Puzzle className="w-3.5 h-3.5 text-blue-500" />
+            <span className="text-xs font-medium text-blue-700">{value}</span>
+          </div>
+          {!disabled && (
+            <button onClick={onClear} className="text-blue-400 hover:text-blue-600">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider mb-1.5">绑定 Skill</p>
+      {!open ? (
+        <button
+          onClick={() => !disabled && setOpen(true)}
+          className={`flex items-center gap-2 w-full p-2.5 rounded-lg border border-dashed border-zinc-300 text-xs text-zinc-400 transition-colors ${
+            disabled ? "cursor-default opacity-60" : "hover:border-blue-300 hover:text-blue-500 cursor-pointer"
+          }`}
+        >
+          <Search className="w-3.5 h-3.5" />
+          搜索并绑定 Skill...
+        </button>
+      ) : (
+        <div className="rounded-lg border border-zinc-200 overflow-hidden">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400" />
+            <input
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="搜索技能名称..."
+              className="w-full pl-8 pr-8 py-2 text-xs border-b border-zinc-100 outline-none"
+            />
+            <button onClick={() => { setOpen(false); setQuery(""); }} className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <div className="max-h-[160px] overflow-y-auto">
+            {filtered.length === 0 ? (
+              <p className="text-xs text-zinc-400 p-3 text-center">无匹配结果</p>
+            ) : (
+              filtered.map((s) => (
+                <button
+                  key={s.id}
+                  onClick={() => { onChange(s.name); setOpen(false); setQuery(""); }}
+                  className="w-full text-left px-3 py-2 hover:bg-zinc-50 transition-colors border-b border-zinc-50 last:border-0"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-zinc-700">{s.name}</span>
+                    <Badge className="text-[9px] h-3.5 border-0 bg-zinc-100 text-zinc-500">{s.category === "general" ? "通用" : "行业"}</Badge>
+                  </div>
+                  <p className="text-[10px] text-zinc-400 mt-0.5 line-clamp-1">{s.description}</p>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 const ERROR_STRATEGY_CONFIG = {
   retry: { label: "自动重试", icon: RotateCcw, description: "失败后自动重试" },
@@ -379,13 +471,25 @@ export default function NodeDetailPanel() {
                     ))}
                   </div>
                 </div>
-                <div>
-                  <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider mb-1.5">绑定 Skill</p>
-                  <div className="flex items-center gap-2 p-2 rounded-lg border border-dashed border-zinc-300 text-xs text-zinc-400">
-                    <FileText className="w-3.5 h-3.5" />
-                    {data.techConfig.boundSkill || "从知识中心搜索并绑定..."}
-                  </div>
-                </div>
+                <SkillBinder
+                  value={data.techConfig.boundSkill}
+                  disabled={!isTech}
+                  onChange={(skillName) => {
+                    if (selectedNodeId) {
+                      updateNodeData(selectedNodeId, {
+                        techConfig: { ...data.techConfig, boundSkill: skillName },
+                      });
+                      toast.success(`已绑定 Skill：${skillName}`);
+                    }
+                  }}
+                  onClear={() => {
+                    if (selectedNodeId) {
+                      updateNodeData(selectedNodeId, {
+                        techConfig: { ...data.techConfig, boundSkill: undefined },
+                      });
+                    }
+                  }}
+                />
                 <div>
                   <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider mb-1.5">可行性评估</p>
                   <div className="flex gap-2">

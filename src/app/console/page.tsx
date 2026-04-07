@@ -26,23 +26,26 @@ export default function ConsoleDashboard() {
         <p className="text-sm text-zinc-400 mt-1">平台运营概览</p>
 
         {/* Stats */}
-        <div className="grid grid-cols-4 gap-4 mt-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
           <StatCard
             label="活跃 Agent"
             value={CONSOLE_STATS.activeAgents}
             icon={<Bot className="w-4 h-4 text-blue-500" />}
             trend="+1"
+            sparkline={[2, 3, 3, 4, 3, 4, 4]}
           />
           <StatCard
             label="本月任务量"
             value={CONSOLE_STATS.monthlyTasks}
             icon={<ListChecks className="w-4 h-4 text-violet-500" />}
             trend="+12.4%"
+            sparkline={[380, 420, 460, 440, 490, 510, 517]}
           />
           <StatCard
             label="成功率"
             value={`${CONSOLE_STATS.successRate}%`}
             icon={<CheckCircle2 className="w-4 h-4 text-green-500" />}
+            ring={CONSOLE_STATS.successRate}
           />
           <StatCard
             label="待处理"
@@ -106,8 +109,8 @@ export default function ConsoleDashboard() {
               查看全部 <ArrowRight className="w-3 h-3" />
             </Link>
           </div>
-          <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
-            <table className="w-full text-sm">
+          <div className="bg-white rounded-xl border border-zinc-200 overflow-x-auto">
+            <table className="w-full text-sm min-w-[640px]">
               <thead>
                 <tr className="border-b border-zinc-100 text-xs text-zinc-400">
                   <th className="text-left px-4 py-2.5 font-medium">任务</th>
@@ -164,7 +167,7 @@ export default function ConsoleDashboard() {
               查看全部 <ArrowRight className="w-3 h-3" />
             </Link>
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {MOCK_AGENTS.filter((a) => a.status === "running").slice(0, 3).map((agent) => (
               <div key={agent.id} className="bg-white rounded-xl border border-zinc-200 p-4">
                 <div className="flex items-center gap-2">
@@ -193,12 +196,14 @@ export default function ConsoleDashboard() {
   );
 }
 
-function StatCard({ label, value, icon, trend, highlight }: {
+function StatCard({ label, value, icon, trend, highlight, sparkline, ring }: {
   label: string;
   value: string | number;
   icon: React.ReactNode;
   trend?: string;
   highlight?: boolean;
+  sparkline?: number[];
+  ring?: number;
 }) {
   return (
     <div className={`rounded-xl border p-4 ${highlight ? "bg-amber-50 border-amber-200" : "bg-white border-zinc-200"}`}>
@@ -207,9 +212,65 @@ function StatCard({ label, value, icon, trend, highlight }: {
         {icon}
       </div>
       <div className="mt-2 flex items-end gap-2">
-        <span className={`text-2xl font-bold ${highlight ? "text-amber-700" : "text-zinc-900"}`}>{value}</span>
+        {ring != null ? (
+          <div className="flex items-center gap-3">
+            <SuccessRing value={ring} />
+            <span className={`text-2xl font-bold animate-count-up ${highlight ? "text-amber-700" : "text-zinc-900"}`}>{value}</span>
+          </div>
+        ) : (
+          <span className={`text-2xl font-bold animate-count-up ${highlight ? "text-amber-700" : "text-zinc-900"}`}>{value}</span>
+        )}
         {trend && <span className="text-xs text-green-600 mb-0.5">{trend}</span>}
       </div>
+      {sparkline && <Sparkline data={sparkline} className="mt-2" />}
     </div>
+  );
+}
+
+function Sparkline({ data, className }: { data: number[]; className?: string }) {
+  const max = Math.max(...data);
+  const min = Math.min(...data);
+  const range = max - min || 1;
+  const h = 24;
+  const w = 80;
+  const step = w / (data.length - 1);
+
+  const points = data.map((v, i) => `${i * step},${h - ((v - min) / range) * (h - 4) - 2}`).join(" ");
+
+  return (
+    <svg width={w} height={h} className={className} viewBox={`0 0 ${w} ${h}`}>
+      <polyline
+        points={points}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="text-blue-400"
+      />
+    </svg>
+  );
+}
+
+function SuccessRing({ value }: { value: number }) {
+  const r = 14;
+  const circumference = 2 * Math.PI * r;
+  const offset = circumference - (value / 100) * circumference;
+
+  return (
+    <svg width="36" height="36" viewBox="0 0 36 36">
+      <circle cx="18" cy="18" r={r} fill="none" stroke="#e4e4e7" strokeWidth="3" />
+      <circle
+        cx="18" cy="18" r={r}
+        fill="none"
+        stroke="#22c55e"
+        strokeWidth="3"
+        strokeLinecap="round"
+        strokeDasharray={circumference}
+        strokeDashoffset={offset}
+        transform="rotate(-90 18 18)"
+        className="transition-all duration-1000"
+      />
+    </svg>
   );
 }

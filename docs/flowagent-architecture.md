@@ -1,6 +1,6 @@
 # FlowAgent 平台架构与逻辑文档
 
-> 最后更新：2026-04-03（v3）
+> 最后更新：2026-04-03（v6）
 
 ## 一、产品定位
 
@@ -12,18 +12,23 @@ FlowAgent 的所有架构决策遵循以下原则（详见 `flowagent-product.md
 2. **方案必须体现人机分工**：每个方案明确标注 Agent 步骤和人工确认节点
 3. **以工作流步骤为协作单元**：节点级批注、节点级确认、节点级人工介入
 4. **输出是方案蓝图，不是可运行成品**：技术方参考蓝图搭建，而非一键部署
+5. **产品即知识容器**：每次使用都在沉淀企业私有的结构化业务知识，这是产品壁垒
+
+### 1.0.1 当前阶段：技术方工具
+
+当前处于阶段一（详见 `flowagent-product.md` 第 1.2 节），核心用户是**技术方**。业务方口述需求 → 技术方在 FlowAgent 上生成并修正方案 → 确认后参考蓝图搭建。确认后的方案自动沉淀为知识容器的一部分。
 
 FlowAgent 平台包含两个核心产品：
 
-### 1.1 FlowAgent — 业务翻译工具
+### 1.1 FlowAgent — 业务翻译工具 + 知识容器
 
 将业务人员的自然语言描述转化为结构化的方案蓝图。支持三种任务类型：
 
 - **Workflow（工作流）**：类似 COT（思维链），有明确步骤顺序的确定性流程，追求每步准确。输出为可视化流程图
 - **Agentic（智能体）**：类似 ReAct，目标导向的智能规划任务，追求目标达成。输出为 Agent 任务配置（目标/技能/约束/评估器）
-- **混合型（Hybrid）**（规划中）：Workflow 中部分节点为 Agentic 节点，共享整个任务执行上下文
+- **混合型（Hybrid）**：Workflow 中部分节点为 Agentic 节点，共享整个任务执行上下文。分类已支持识别，前端暂降级为 workflow 渲染
 
-业务方通过 FlowAgent 了解哪些场景可以做，技术方通过业务方留在上面的内容进行技术确认，然后参考方案蓝图在 Dify/LangGraph 等平台搭建。
+技术方通过 FlowAgent 生成并修正方案，确认后参考蓝图在 Dify/LangGraph 等平台搭建。同时，每次确认都在沉淀知识（见 `flowagent-product.md` 第五章）。
 
 ### 1.2 角色体系
 
@@ -70,8 +75,8 @@ AI翻译（参考已确认历史方案）            │
 编辑器 (/editor)  ←── 角色切换 ──→  编辑器 (/editor?role=tech)
     │                                    │
     ▼                                    ▼
-"提交至管控后台"                     "评审通过" / "打回修改"
-（生成方案蓝图JSON）                  （添加批注 + 归因标注）
+"确认方案"（v4 diff摘要）           "评审通过" / "打回修改"
+（confirmed + 知识沉淀）             （添加批注 + 归因标注）
     │                                    │
     │                                    ▼
     │                              技术方参考蓝图在Dify/LangGraph搭建
@@ -107,7 +112,7 @@ AI翻译（参考已确认历史方案）            │
 | `/` | `src/app/page.tsx` | 业务方首页：输入框 + 示例场景卡片，header 含技术方入口和管控后台链接 |
 | `/tech` | `src/app/tech/page.tsx` | 技术方落地页：评审列表（4 个 Mock 场景）+ 统计卡片，链接到 `/editor?reviewId=xxx&role=tech` |
 | `/editor` | `src/app/editor/page.tsx` | 主工作台：支持 `?q=`（AI 生成）和 `?reviewId=`（Mock 直接加载）两种模式 |
-| `POST /api/generate-flow` | `src/app/api/generate-flow/route.ts` | LLM API：支持 classify / draft / draft_agentic / refine_node / refine / refine_agentic 六种 action |
+| `POST /api/generate-flow` | `src/app/api/generate-flow/route.ts` | LLM API：8 种 action（原 6 种 + v3 新增 unified_draft / refine_batch） |
 
 ### 管控后台（SaaS）
 
@@ -138,7 +143,9 @@ AI翻译（参考已确认历史方案）            │
 - 不触发任何 AI API 调用
 - 自动设置 `isReviewMode = true`，聊天框发消息只返回提示，不调 AI
 
-### 4.2 FlowAgent AI 生成流程（路径 A）
+### 4.2 FlowAgent AI 生成流程（路径 A）— v3 优化后
+
+> v3 将 classify+draft 合并为一次 `unified_draft` 调用，将逐节点 refine_node 合并为一次 `refine_batch` 调用。
 
 ```
 用户在首页输入业务描述
@@ -156,44 +163,49 @@ EditorContent 读取 ?q 参数
 ChatPanel 检测到 initQuery + idle 状态
     │
     ▼
-triggerClassify(prompt)                    ← 新增：AI 分类
+triggerUnifiedDraft(prompt)                ← v3: 一次调用完成分类+生成
     ├── chatPhase → "classifying"
-    ├── POST /api/generate-flow { action: "classify", prompt }
+    ├── POST /api/generate-flow { action: "unified_draft", prompt }
     │        │
     │        ▼
-    │   LLM 返回 { taskType, reason, confidence }
+    │   LLM 返回 { taskType, classifyReason, flow?, agenticConfig?, nodeConfidence? }
     │
     └── 根据 taskType 分流
          │
-         ├── taskType === "workflow"
+         ├── taskType === "workflow" | "hybrid"
          │        │
          │        ▼
-         │   triggerDraft(prompt)           ← 原有 Workflow 流程
-         │        ├── chatPhase → "drafting"
-         │        ├── POST { action: "draft", prompt }
+         │   handleWorkflowResult(result)
          │        ├── parseLLMResponse → { nodes, edges }
          │        ├── loadGeneratedFlow
-         │        └── 判断是否有需确认节点
-         │             ├── 有 → "questioning" → 逐节点确认
+         │        └── 判断是否有需确认节点 (nodeConfidence)
+         │             ├── 有 → "questioning" → 分页展示所有待确认节点
+         │             │        用户逐页确认 → 答案暂存 collectedAnswers
+         │             │        全部完成后 → handleBatchSubmit()
+         │             │            ├── POST { action: "refine_batch", nodeAnswers }
+         │             │            └── 一次性优化所有节点 → "ready"
          │             └── 无 → "ready"
          │
          └── taskType === "agentic"
                   │
                   ▼
-             triggerAgenticDraft(prompt)    ← 新增 Agentic 流程
+             handleAgenticResult(result)
                   ├── chatPhase → "drafting_agentic"
                   ├── POST { action: "draft_agentic", prompt }
-                  │        │
-                  │        ▼
-                  │   LLM 返回 { config, confirmItems }
-                  │
-                  ├── setAgenticConfig(config)
-                  ├── setAgenticConfirmItems(confirmItems)
+                  ├── setAgenticConfig / setAgenticConfirmItems
                   │
                   └── 判断是否有 confirmItems
                        ├── 有 → "confirming_agentic" → 逐模块确认
                        └── 无 → "agentic_ready"
 ```
+
+**v3 前后对比（4 个待确认节点场景）**：
+
+| | 旧版 | v3 |
+|---|---|---|
+| 分类+生成 | classify(1次) → draft(1次) = 2次调用 | unified_draft(1次) |
+| 节点确认 | 每确认一个 → refine_node(1次) × 4 = 4次调用 | 全部收集完 → refine_batch(1次) |
+| **总计** | **6 次 LLM 调用** | **2 次 LLM 调用** |
 
 ### 4.3 Agentic 确认流程
 
@@ -306,19 +318,19 @@ AgenticConfigPanel → "提交至管控后台" 按钮（仅业务方可见）
 
 ### 5.2 状态说明
 
-| 状态 | 含义 | 用户可操作 |
-|------|------|-----------|
-| `idle` | 初始状态，无任务 | 输入业务描述 |
-| `classifying` | AI 正在判断任务类型 | 等待 |
-| `drafting` | 正在生成 Workflow 草稿 | 等待 |
-| `questioning` | Workflow 逐节点确认阶段 | 确认/跳过/打字补充 |
-| `refining_node` | 正在根据单节点确认结果优化 | 等待 |
-| `ready` | Workflow 流程图已就绪 | 自由对话修改、画布编辑 |
-| `refining` | 正在根据自由对话修改 Workflow | 等待 |
-| `drafting_agentic` | 正在生成 Agentic 任务配置 | 等待 |
-| `confirming_agentic` | Agentic 逐模块确认阶段 | 确认/跳过/跳过全部 |
-| `agentic_ready` | Agentic 配置已就绪 | 自由对话修改、编辑配置、部署 |
-| `refining_agentic` | 正在根据反馈修改 Agentic 配置 | 等待 |
+| 状态 | 含义 | 用户可操作 | v3 变化 |
+|------|------|-----------|---------|
+| `idle` | 初始状态，无任务 | 输入业务描述 | — |
+| `classifying` | AI 正在分类+生成（unified_draft） | 等待 | 现在同时完成分类和生成 |
+| `drafting` | 正在生成 Workflow 草稿 | 等待 | 保留兼容，unified_draft 下不经过 |
+| `questioning` | 分页展示所有待确认节点 | 确认/跳过/翻页/全部提交 | 改为批量收集，不再逐个调 API |
+| `refining_node` | 正在根据批量确认结果优化 | 等待 | 改为一次 refine_batch 调用 |
+| `ready` | Workflow 流程图已就绪 | 自由对话修改、画布编辑 | — |
+| `refining` | 正在根据自由对话修改 Workflow | 等待 | — |
+| `drafting_agentic` | 正在生成 Agentic 任务配置 | 等待 | — |
+| `confirming_agentic` | Agentic 逐模块确认阶段 | 确认/跳过/跳过全部 | — |
+| `agentic_ready` | Agentic 配置已就绪 | 自由对话修改、编辑配置、部署 | — |
+| `refining_agentic` | 正在根据反馈修改 Agentic 配置 | 等待 | — |
 
 ### 5.3 持久化恢复策略
 
@@ -329,7 +341,9 @@ AgenticConfigPanel → "提交至管控后台" 按钮（仅业务方可见）
 - 已有流程图节点 → `ready`
 - 否则 → `idle`
 
-同时清空 `agenticConfirmItems` 和 `agenticConfirmIdx`，防止 `confirming_agentic` 阶段刷新后确认数据丢失导致 UI 卡死。
+同时清空 `agenticConfirmItems`、`agenticConfirmIdx` 和 `collectedAnswers`，防止中间态数据残留导致 UI 卡死。
+
+注意：`annotations` 不再 persist 到 localStorage（v3 修复批注泄露问题）。
 
 ---
 
@@ -342,17 +356,21 @@ AgenticConfigPanel → "提交至管控后台" 按钮（仅业务方可见）
 ```typescript
 {
   prompt?: string;           // 原始业务描述
-  action: "classify" | "draft" | "draft_agentic" | "refine_node" | "refine" | "refine_agentic";
+  action: "classify" | "draft" | "draft_agentic" | "refine_node" | "refine" | "refine_agentic"
+        | "unified_draft" | "refine_batch";  // v3 新增
   currentFlow?: object;      // 当前画布序列化后的 JSON（Workflow）
   currentConfig?: object;    // 当前 Agentic 配置 JSON
   feedback?: string;         // 修改意见
   nodeId?: string;           // 目标节点 ID
   nodeLabel?: string;        // 目标节点标签
   answers?: { question: string; answer: string }[];  // 节点确认回答
+  nodeAnswers?: { nodeId: string; nodeLabel: string; answers: { question: string; answer: string }[] }[];  // 批量确认（v3）
 }
 ```
 
-### 六种 Action
+### Action 一览
+
+#### 旧版（保留兼容，前端已不主动调用 classify/draft/refine_node）
 
 | Action | 触发时机 | 输入 | 输出 |
 |--------|---------|------|------|
@@ -362,6 +380,19 @@ AgenticConfigPanel → "提交至管控后台" 按钮（仅业务方可见）
 | `refine_node` | Workflow 单节点确认后 | `currentFlow` + `nodeId` + `answers` | 完整流程图 JSON |
 | `refine` | Workflow 自由对话修改 | `currentFlow` + `feedback` | 完整流程图 JSON |
 | `refine_agentic` | Agentic 自由对话修改 | `currentConfig` + `feedback` | `{ config, projectName }` |
+
+#### v3 新增（合并调用，减少 LLM round-trip）
+
+| Action | 触发时机 | 输入 | 输出 | 说明 |
+|--------|---------|------|------|------|
+| `unified_draft` | 用户首次输入 | `prompt` | `{ taskType, classifyReason, flow?, agenticConfig?, nodeConfidence? }` | 合并 classify+draft 为一次 LLM 调用 |
+| `refine_batch` | 所有节点确认收集完毕后 | `currentFlow` + `nodeAnswers[]` | 完整流程图 JSON | 合并多个 refine_node 为一次 LLM 调用 |
+
+**性能对比**：
+
+| 场景（4 个需确认节点） | 旧版 LLM 调用次数 | v3 LLM 调用次数 | 节省 |
+|----------------------|-------------------|----------------|------|
+| 完整流程（分类→生成→逐个确认） | 2 + 4 = 6 次 | 1 + 1 = 2 次 | ~13 秒 |
 
 ### Workflow 流程图 JSON Schema
 
@@ -441,12 +472,13 @@ AgenticConfigPanel → "提交至管控后台" 按钮（仅业务方可见）
 ```
 EditorPage (Suspense)
 └── EditorContent
-    ├── TopBar                          # 顶栏：导航、项目状态、角色标签+切换链接、面板互斥切换、评审操作
+    ├── TopBar                          # 顶栏：导航、项目状态、角色标签+切换、面板切换、确认方案（v4）+ diff 摘要弹窗
     │
     ├── ChatPanel                       # 左侧对话面板（340px）
     │   ├── 消息列表 (renderMessage)
-    │   ├── NodeQuestionCard            # Workflow 逐节点确认卡片
-    │   ├── AgenticConfirmCard          # Agentic 逐模块确认卡片（新增）
+    │   ├── NodeQuestionPage            # Workflow 分页确认（v3 重构，每页 ≤3 节点，批量提交）
+    │   │   └── SingleNodeBlock         # 单个节点问题块（v4 新增"暂缓"按钮）
+    │   ├── AgenticConfirmCard          # Agentic 逐模块确认卡片
     │   ├── CompletionCard              # 确认完成提示
     │   └── 输入区域
     │
@@ -455,7 +487,7 @@ EditorPage (Suspense)
     │   ├── [taskType === "workflow"]
     │   │   ├── FlowCanvas              # React Flow 画布
     │   │   │   ├── CanvasToolbar       # 悬浮工具条（加/复制/删节点）
-    │   │   │   └── FlowCardNode        # 自定义节点组件
+    │   │   │   └── FlowCardNode        # 自定义节点（v4 新增 confidence 黄/红点 + 暂缓"待确认"标签）
     │   │   └── NodeDetailPanel         # 选中节点时的底部详情面板
     │   │
     │   └── [taskType === "agentic"]
@@ -700,10 +732,10 @@ interface MarketSkill {
 ```typescript
 type ChatPhase =
   | "idle"
-  | "classifying"
-  | "drafting"
-  | "questioning"
-  | "refining_node"
+  | "classifying"       // v3: 现在同时完成分类+生成（unified_draft）
+  | "drafting"          // 保留兼容
+  | "questioning"       // v3: 改为分页展示，答案暂存 collectedAnswers
+  | "refining_node"     // v3: 改为一次 refine_batch 调用
   | "ready"
   | "refining"
   | "drafting_agentic"
@@ -725,6 +757,14 @@ interface NodeQuestion {
   defaultSuggestion: string;
   options?: string[];
 }
+
+// v3: 批量收集节点确认答案（key 为 nodeId）
+collectedAnswers: Record<string, { question: string; answer: string }[]>;
+
+// v4 新增
+initialSnapshot: { nodes: Node<FlowNodeData>[]; edges: Edge[] } | null;  // AI 初始版本快照，confirm 时 diff
+allNodeConfidence: NodeConfidence[];  // 完整 confidence 数据，供 FlowCardNode 展示
+deferredNodeIds: string[];            // 暂缓确认的节点 ID 列表
 ```
 
 ---
@@ -777,7 +817,8 @@ interface NodeQuestion {
 ### 9.3 协作流程（ProjectStatus 状态机）
 
 ```
-draft → business_editing → tech_reviewing → confirmed
+draft → business_editing → confirmed          ← 阶段一：技术方直接确认
+                         → tech_reviewing → confirmed   ← 阶段二：提交评审后确认
                                 ↓
                           needs_revision
                                 ↓
@@ -786,11 +827,59 @@ draft → business_editing → tech_reviewing → confirmed
                           tech_reviewing（重新提交）
 ```
 
-- **业务方**可以：编辑流程图/配置、提交至管控后台（生成配置 JSON）、提交技术评审
-- **技术方**可以：评审通过、打回修改、添加批注/回复、标记批注已解决
+- **阶段一**：技术方生成方案后直接"确认方案"（business_editing → confirmed），不经过 tech_reviewing
+- **阶段二**：业务方提交后技术方评审（business_editing → tech_reviewing → confirmed）
 - 角色通过 URL 参数（`?role=tech`）确定，TopBar 显示当前角色标签 + 切换链接
 - 面板互斥：知识面板和批注面板同时只能打开一个
 - Mock 评审模式（`?reviewId=`）下聊天框不触发 AI，仅返回提示
+
+### 9.3.1 确认方案流程（v4 新增）
+
+```
+技术方在编辑器中修改方案至满意
+    │
+    ▼
+TopBar "确认方案" 按钮（Workflow ready 状态下显示）
+    │
+    ▼
+弹出确认摘要弹窗
+    ├── 方案名称 / 类型 / 节点数
+    ├── 人机分工统计（AI 自动 vs 人工确认）
+    ├── 暂缓节点数量提醒
+    └── diff 列表：最终版 vs AI 初始版（initialSnapshot）
+         ├── executionMode 变更
+         ├── 描述变更
+         ├── 预估耗时变更
+         └── 节点新增/删除
+    │
+    ▼
+技术方点击「确认」→ projectStatus = "confirmed"
+    │
+    ▼
+[Phase 2] diff 数据作为"关键决策"沉淀到知识库
+```
+
+### 9.3.2 反问"暂缓"机制（v4 新增）
+
+```
+AI 生成方案 + 反问问题
+    │
+    ▼
+NodeQuestionPage 展示分页问题卡片
+    │
+    ├── 回答 → 答案存入 collected
+    ├── 跳过 → 用 AI 默认建议
+    └── 暂缓 → nodeId 加入 deferredNodeIds
+                └── 该节点从 pendingNodes 移除
+                └── 流程图上显示橙色"待确认"标签
+                └── 方案用默认值，但标记为待补充
+    │
+    ▼
+所有节点处理完 → refine_batch 或直接进 ready
+    │
+    ▼
+下次打开方案时，暂缓的节点仍显示"待确认"
+```
 
 ### 9.4 FlowCanvas 双向同步
 
@@ -900,7 +989,7 @@ src/
 │   │   └── page.tsx                  # 编辑器（支持 ?q= AI生成 和 ?reviewId= Mock加载）
 │   ├── api/
 │   │   └── generate-flow/
-│   │       └── route.ts              # LLM API（6 种 action）
+│   │       └── route.ts              # LLM API（8 种 action，含 v3 unified_draft / refine_batch）
 │   └── console/
 │       ├── layout.tsx                # 管控后台布局（侧边栏 + 主区域）
 │       ├── page.tsx                  # 仪表盘
@@ -919,8 +1008,8 @@ src/
 │   │   ├── CanvasToolbar.tsx          # 画布工具条
 │   │   └── NodeEditDialog.tsx         # 节点编辑弹窗
 │   ├── panels/
-│   │   ├── ChatPanel.tsx             # 对话面板（分类 + 双流程 + 评审模式拦截）
-│   │   ├── QuestionCard.tsx          # Workflow 节点确认卡片
+│   │   ├── ChatPanel.tsx             # 对话面板（unified_draft + refine_batch + 评审模式拦截）
+│   │   ├── QuestionCard.tsx          # Workflow 分页确认（NodeQuestionPage + SingleNodeBlock）
 │   │   ├── AgenticConfirmCard.tsx    # Agentic 模块确认卡片
 │   │   ├── AgenticConfigPanel.tsx    # Agentic 配置面板（4 Tab + 提交/配置JSON预览）
 │   │   ├── NodeDetailPanel.tsx       # 节点详情面板
@@ -935,7 +1024,7 @@ src/
 │       ├── scroll-area.tsx
 │       └── badge.tsx
 └── lib/
-    ├── store.ts                      # Zustand 全局状态（含 isReviewMode + v2 迁移 + rehydrate 修复）
+    ├── store.ts                      # Zustand 全局状态（含 collectedAnswers + isReviewMode + rehydrate 修复）
     ├── types.ts                      # TypeScript 类型定义（Workflow + Agentic + Console）
     ├── flow-parser.ts                # LLM 响应解析 + 画布序列化
     ├── mock-data.ts                  # Workflow Mock + 批注 Mock + 知识文件 Mock
@@ -1039,7 +1128,9 @@ Workflow 节点的 `executionMode` 字段已有三种模式：
 | 对外发布/不可逆操作 | `human_confirm` | 不可回滚 |
 | 格式转换/定时执行 | `ai_auto` | 纯确定性操作 |
 
-### 13.4 知识体系架构
+### 13.4 知识容器架构（核心壁垒）
+
+> 详见 `flowagent-product.md` 第五章。知识容器是产品从"工具"变为"平台"的关键。
 
 **双层知识模型**（参考 CogTwin 的 DKR/DIKG 架构）：
 
@@ -1070,6 +1161,16 @@ Workflow 节点的 `executionMode` 字段已有三种模式：
 └─────────────────────────────────────────┘
 ```
 
+**知识容器存储的五种数据**（详见 `flowagent-product.md` 第 5.2 节）：
+
+| 数据类型 | 来源 | 用途 |
+|----------|------|------|
+| 已验证方案模板 | 技术方 confirmed 后自动提取 | AI 翻译时 few-shot 参考 |
+| 人机分工规则 | 从多个方案中归纳（可带行业/企业标签） | 优化 AI 生成时的 executionMode 选择 |
+| 企业特化约束 | 技术方手动配置或从评审批注中提取 | 限制 AI 生成范围（如"只用内部模型"） |
+| 失败记录 | 系统自动采集 + 技术方归因标注 | 避免重复犯错 |
+| 企业 Skill 库 | Skill 平台 API（见 13.6 节） | AI 翻译时匹配可用 Skill，提高方案可执行性 |
+
 **已确认方案沉淀格式**：
 
 ```json
@@ -1094,7 +1195,150 @@ Workflow 节点的 `executionMode` 字段已有三种模式：
 }
 ```
 
-### 13.5 执行层架构（Phase 2）
+**知识检索流程（Phase 2 实现）**：
+
+```
+新需求输入
+  ↓
+向量化 / 关键词检索 → 匹配已确认方案
+  ↓
+取 Top-K 方案的 skeleton + key_decisions
+  ↓
+注入 unified_draft prompt 作为 few-shot 参考
+  ↓
+AI 生成时同时输出 "参考了哪个历史方案"
+  ↓
+技术方审核时可对比 "AI 生成 vs 历史参考"
+```
+
+### 13.5 待确认问题集（扩展批注系统）
+
+> 详见 `flowagent-product.md` 第 1.1.3 节。待确认问题集不是新系统，而是批注系统的适用范围扩展。
+
+**数据模型扩展**：
+
+```typescript
+interface Annotation {
+  // ...现有字段...
+  source: "tech_manual" | "ai_deferred" | "business_reply";  // 来源
+  status: "open" | "resolved";                                // 状态（Phase 2）
+  assignee?: "tech" | "business";                             // 指派（Phase 2）
+  relatedDeferredNodeId?: string;                             // 关联的暂缓节点 ID
+}
+```
+
+**阶段一组件设计**：
+
+```
+FlowCardNode（已有"待确认"标签）
+    │
+    ▼
+AnnotationPanel（已有批注列表）
+    ├── 来源标记：🤖 AI 暂缓 / 👤 技术方手动
+    ├── 关联节点高亮
+    └── "全部复制"按钮 → 复制所有 open 状态的批注文本
+         └── 粘贴到飞书/钉钉发给业务方
+```
+
+**向阶段二的过渡**：
+
+```
+阶段一（纯前端）              阶段二（有后端）
+批注存 localStorage    →    批注存数据库
+"全部复制"手动发送     →    平台内通知 + 业务方可直接回复
+无状态追踪            →    open/resolved 状态机
+无指派                →    指派给业务方/技术方
+```
+
+**与暂缓机制的联动**：
+
+```
+AI 生成方案 + 反问
+    │
+    ├── 用户点击"暂缓"
+    │     ├── nodeId → deferredNodeIds（已实现）
+    │     ├── FlowCardNode 显示"待确认"标签（已实现）
+    │     └── [新增] 自动创建一条 source="ai_deferred" 的批注
+    │           └── 内容 = AI 的原始问题 + 默认建议
+    │
+    └── 技术方手动添加批注
+          └── source="tech_manual"，正常批注流程
+```
+
+### 13.6 Skill 平台集成架构（独立产品）
+
+> 详见 `flowagent-product.md` 第六章。Skill 平台是独立产品，此处仅记录 FlowAgent 侧的集成架构。
+
+**FlowAgent 与 Skill 平台的集成接口**：
+
+```
+FlowAgent                              Skill 平台
+    │                                      │
+    ├── GET /skills/search                 │
+    │   { query, enterprise_id,            │
+    │     visibility: ["public",           │
+    │       "community", "private"] }      │
+    │   → 返回匹配的 Skill 列表            │
+    │                                      │
+    ├── GET /skills/{id}/schema            │
+    │   → 返回 Skill 的完整 I/O schema     │
+    │                                      │
+    ├── POST /flows/try-run                │
+    │   { flow_definition, test_data }     │
+    │   → 返回试运行结果                    │
+    │                                      │
+    └── GET /skills/enterprise/{id}        │
+        → 返回企业私有 Skill 列表           │
+```
+
+**Skill 可见性模型**：
+
+```
+┌─────────────────────────────────────────────┐
+│              Skill 平台                      │
+│                                             │
+│  ┌──────────────┐  ┌──────────────┐         │
+│  │  平台通用     │  │  社区共享     │         │
+│  │  (平台维护)   │  │  (企业上传)   │         │
+│  │  免费         │  │  免费/付费    │         │
+│  └──────┬───────┘  └──────┬───────┘         │
+│         │                  │                 │
+│         └────────┬─────────┘                 │
+│                  │ 公开可见                    │
+│                  ▼                            │
+│         ┌──────────────┐                     │
+│         │  企业 A 视角  │                     │
+│         │  可见范围:    │                     │
+│         │  通用 + 社区  │                     │
+│         │  + A 的私有   │                     │
+│         └──────────────┘                     │
+│                                             │
+│  ┌──────────────┐  ┌──────────────┐         │
+│  │  企业 A 私有  │  │  企业 B 私有  │         │
+│  │  (仅 A 可见)  │  │  (仅 B 可见)  │         │
+│  └──────────────┘  └──────────────┘         │
+└─────────────────────────────────────────────┘
+```
+
+**AI 翻译时的 Skill 匹配流程（Phase 2+）**：
+
+```
+用户输入业务描述
+    │
+    ▼
+unified_draft prompt 中注入可用 Skill 列表
+    ├── 来源: Skill 平台 API（通用 + 社区 + 企业私有）
+    ├── 格式: Skill 名称 + 描述 + I/O schema 摘要
+    └── 数量: Top-K 相关 Skill（避免 prompt 过长）
+    │
+    ▼
+AI 生成方案时为每个节点推荐匹配的 Skill
+    ├── 有精确匹配 → 节点关联 Skill ID + 自动填充 I/O
+    ├── 有近似匹配 → 节点标注"建议使用 XX Skill，需确认"
+    └── 无匹配 → 节点标注"需要新建 Skill 或手动实现"
+```
+
+### 13.7 执行层架构（Phase 2）
 
 **三层架构**：FlowAgent 做编排层，执行下沉到成熟引擎。
 
@@ -1121,7 +1365,7 @@ Workflow 节点的 `executionMode` 字段已有三种模式：
 └──────────────────────────────────┘
 ```
 
-**Skill 标准化是自动化程度的关键变量**：
+**Skill 标准化是自动化程度的关键变量**（Skill 平台详见 13.6 节和 `flowagent-product.md` 第六章）：
 
 | Skill 标准化程度 | Workflow 自动化 | Agentic 自动化 |
 |-----------------|----------------|---------------|
@@ -1129,7 +1373,7 @@ Workflow 节点的 `executionMode` 字段已有三种模式：
 | 有 API schema（输入/输出/错误处理） | FlowAgent 生成 Dify JSON → 技术方审核导入 | 仍需技术方配置 Agent 参数 |
 | 完整标准化（含测试用例/版本管理） | 接近全自动 | 半自动（planning 部分仍需人工调优） |
 
-### 13.6 SOP 文档提取（Phase 3）
+### 13.8 SOP 文档提取（Phase 3）
 
 ```
 用户上传 SOP 文档 (Word/PDF/飞书)

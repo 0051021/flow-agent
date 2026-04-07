@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { toast } from "sonner";
 import { useFlowAgentStore } from "@/lib/store";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
@@ -57,6 +58,7 @@ export default function AnnotationPanel() {
     };
     addAnnotation(annotation);
     setNewContent("");
+    toast.success("批注已添加");
   };
 
   const handleReply = (annotationId: string) => {

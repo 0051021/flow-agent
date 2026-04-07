@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, Suspense } from "react";
+import { useEffect, useRef, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import TopBar from "@/components/layout/TopBar";
@@ -164,12 +164,24 @@ function EditorContent() {
   }, [project.status]);
 
   const isAgentic = taskType === "agentic";
+  const [chatOpen, setChatOpen] = useState(true);
 
   return (
     <div className="h-screen flex flex-col bg-zinc-50">
       <TopBar />
-      <div className="flex-1 flex overflow-hidden">
-        <ChatPanel />
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* Mobile chat toggle */}
+        <button
+          onClick={() => setChatOpen(!chatOpen)}
+          className="lg:hidden fixed bottom-4 left-4 z-30 w-12 h-12 rounded-full bg-zinc-900 text-white shadow-lg flex items-center justify-center"
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d={chatOpen ? "M6 18L18 6M6 6l12 12" : "M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"} />
+          </svg>
+        </button>
+        <div className={`${chatOpen ? "block" : "hidden"} lg:block absolute lg:relative inset-0 lg:inset-auto z-20 lg:z-auto`}>
+          <ChatPanel />
+        </div>
         {isAgentic ? (
           <AgenticConfigPanel />
         ) : (

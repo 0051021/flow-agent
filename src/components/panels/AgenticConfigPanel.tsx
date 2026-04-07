@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { useFlowAgentStore } from "@/lib/store";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -95,6 +96,7 @@ export default function AgenticConfigPanel() {
       setSubmitted(true);
       setShowJson(true);
       useFlowAgentStore.getState().setProjectStatus("tech_reviewing");
+      toast.success("已提交至管控后台");
     }, 1500);
   };
 

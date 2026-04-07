@@ -21,6 +21,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import FlowCardNode from "./FlowCardNode";
 import CanvasToolbar from "./CanvasToolbar";
+import { EmptyState } from "@/components/ui/empty-state";
 import { useFlowAgentStore } from "@/lib/store";
 import type { FlowNodeData } from "@/lib/types";
 
@@ -128,9 +129,21 @@ export default function FlowCanvas() {
     [setSelectedNodeId, setEditingNodeId]
   );
 
+  const isEmpty = nodes.length === 0;
+
   return (
     <div className="w-full h-full relative">
       <CanvasToolbar />
+      {isEmpty && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
+          <EmptyState
+            icon={<svg className="w-6 h-6 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6z" /></svg>}
+            title="还没有流程图"
+            description="在左侧对话框输入业务描述，AI 会自动生成方案流程图"
+            className="bg-white/80 rounded-2xl px-8 py-10 shadow-sm border border-zinc-100"
+          />
+        </div>
+      )}
       <ReactFlow
         nodes={nodes}
         edges={edges}

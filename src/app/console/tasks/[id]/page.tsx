@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useState } from "react";
+import { toast } from "sonner";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -58,17 +59,25 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
   const handleApprove = () => {
     setActionDone("approved");
     setShowRejectForm(false);
+    toast.success("已确认通过，任务将继续执行");
   };
 
   const handleReject = () => {
     if (!rejectReason.trim()) return;
     setActionDone("rejected");
     setShowRejectForm(false);
+    toast.info("已驳回，任务暂停等待处理");
   };
 
   const handleErrorAction = (action: string) => {
     setActionDone(action);
     setShowErrorActions(false);
+    const labels: Record<string, string> = {
+      retry: "已重试，从当前节点重新执行",
+      takeover: "已通知相关人员接管",
+      skip: "已跳过当前节点，继续执行",
+    };
+    toast.success(labels[action] || "操作已执行");
   };
 
   return (

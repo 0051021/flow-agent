@@ -1,15 +1,20 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   Workflow, Code2, ArrowRight, LayoutDashboard,
   Clock, AlertTriangle, CheckCircle2, FileText,
-  ArrowUpRight, Eye,
+  ArrowUpRight, Eye, Search, TrendingUp,
 } from "lucide-react";
 import { MOCK_REVIEWS } from "@/lib/mock-reviews";
 
-const STATUS_CONFIG = {
+type ReviewStatus = "pending" | "reviewed" | "confirmed";
+
+const STATUS_CONFIG: Record<ReviewStatus, { label: string; className: string; icon: React.ComponentType<{ className?: string }> }> = {
   pending: { label: "待评审", className: "bg-amber-50 text-amber-700 border-amber-200", icon: Clock },
   reviewed: { label: "已评审", className: "bg-blue-50 text-blue-700 border-blue-200", icon: Eye },
   confirmed: { label: "双方确认", className: "bg-green-50 text-green-700 border-green-200", icon: CheckCircle2 },
@@ -20,8 +25,31 @@ const TYPE_BADGE = {
   agentic: { label: "智能体", className: "bg-violet-50 text-violet-600 border-violet-200" },
 };
 
+const FILTER_TABS: { id: string; label: string; filter: (s: ReviewStatus) => boolean }[] = [
+  { id: "all", label: "全部", filter: () => true },
+  { id: "pending", label: "待评审", filter: (s) => s === "pending" },
+  { id: "reviewed", label: "已评审", filter: (s) => s === "reviewed" },
+  { id: "confirmed", label: "已确认", filter: (s) => s === "confirmed" },
+];
+
 export default function TechLandingPage() {
+  const [search, setSearch] = useState("");
+  const [activeFilter, setActiveFilter] = useState("all");
+
+  const currentFilter = FILTER_TABS.find((t) => t.id === activeFilter) || FILTER_TABS[0];
+
+  const filteredReviews = MOCK_REVIEWS.filter((item) => {
+    if (!currentFilter.filter(item.status as ReviewStatus)) return false;
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      return item.title.toLowerCase().includes(q) || item.description.toLowerCase().includes(q);
+    }
+    return true;
+  });
+
   const pendingCount = MOCK_REVIEWS.filter((i) => i.status === "pending").length;
+  const reviewedCount = MOCK_REVIEWS.filter((i) => i.status === "reviewed").length;
+  const confirmedCount = MOCK_REVIEWS.filter((i) => i.status === "confirmed").length;
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col">
@@ -72,80 +100,122 @@ export default function TechLandingPage() {
               <AlertTriangle className="w-4 h-4 text-amber-500" />
             </div>
             <p className="text-2xl font-bold text-white mt-1">{pendingCount}</p>
+            <p className="text-[10px] text-slate-500 mt-1 flex items-center gap-1">
+              <TrendingUp className="w-3 h-3 text-amber-400" /> 本周新增 {pendingCount}
+            </p>
           </div>
           <div className="rounded-xl bg-slate-900 border border-slate-800 p-4">
             <div className="flex items-center justify-between">
               <span className="text-xs text-slate-500">已评审</span>
               <Eye className="w-4 h-4 text-blue-400" />
             </div>
-            <p className="text-2xl font-bold text-white mt-1">
-              {MOCK_REVIEWS.filter((i) => i.status === "reviewed").length}
-            </p>
+            <p className="text-2xl font-bold text-white mt-1">{reviewedCount}</p>
+            <p className="text-[10px] text-slate-500 mt-1">等待业务方确认</p>
           </div>
           <div className="rounded-xl bg-slate-900 border border-slate-800 p-4">
             <div className="flex items-center justify-between">
               <span className="text-xs text-slate-500">双方确认</span>
               <CheckCircle2 className="w-4 h-4 text-green-400" />
             </div>
-            <p className="text-2xl font-bold text-white mt-1">
-              {MOCK_REVIEWS.filter((i) => i.status === "confirmed").length}
-            </p>
+            <p className="text-2xl font-bold text-white mt-1">{confirmedCount}</p>
+            <p className="text-[10px] text-slate-500 mt-1">已沉淀为知识库</p>
+          </div>
+        </div>
+
+        {/* Search + Filter */}
+        <div className="flex items-center gap-4 mb-4">
+          <div className="relative flex-1 max-w-xs">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+            <Input
+              placeholder="搜索场景名称..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9 h-9 text-sm bg-slate-900 border-slate-700 text-white placeholder:text-slate-500 focus:border-slate-500"
+            />
+          </div>
+          <div className="flex gap-1 p-1 bg-slate-900 rounded-lg border border-slate-800">
+            {FILTER_TABS.map((tab) => {
+              const count = MOCK_REVIEWS.filter((i) => tab.filter(i.status as ReviewStatus)).length;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveFilter(tab.id)}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                    activeFilter === tab.id
+                      ? "bg-slate-700 text-white"
+                      : "text-slate-500 hover:text-slate-300"
+                  }`}
+                >
+                  {tab.label}
+                  <span className="ml-1 text-slate-600">{count}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
         {/* Review list */}
         <div>
           <h2 className="text-sm font-semibold text-slate-300 mb-4">评审列表</h2>
-          <div className="space-y-3">
-            {MOCK_REVIEWS.map((item) => {
-              const sc = STATUS_CONFIG[item.status];
-              const StatusIcon = sc.icon;
-              const typeBadge = TYPE_BADGE[item.type];
-              return (
-                <Link
-                  key={item.id}
-                  href={`/editor?reviewId=${item.id}&role=tech`}
-                  className="block rounded-xl bg-slate-900 border border-slate-800 p-5 hover:border-slate-600 hover:bg-slate-900/80 transition-all group"
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2.5">
-                        <h3 className="text-sm font-bold text-white">{item.title}</h3>
-                        <Badge variant="outline" className={`text-[10px] h-5 ${typeBadge.className}`}>
-                          {typeBadge.label}
-                        </Badge>
-                        <Badge variant="outline" className={`text-[10px] h-5 ${sc.className}`}>
-                          <StatusIcon className="w-3 h-3 mr-0.5" />
-                          {sc.label}
-                        </Badge>
+          {filteredReviews.length === 0 ? (
+            <EmptyState
+              icon={<FileText className="w-6 h-6 text-slate-500" />}
+              title="没有匹配的评审项"
+              description={search ? "试试调整搜索关键词" : "当前筛选条件下没有评审项"}
+              className="py-16 [&_h3]:text-slate-400 [&_p]:text-slate-600"
+            />
+          ) : (
+            <div className="space-y-3">
+              {filteredReviews.map((item) => {
+                const sc = STATUS_CONFIG[item.status as ReviewStatus];
+                const StatusIcon = sc.icon;
+                const typeBadge = TYPE_BADGE[item.type as keyof typeof TYPE_BADGE];
+                return (
+                  <Link
+                    key={item.id}
+                    href={`/editor?reviewId=${item.id}&role=tech`}
+                    className="block rounded-xl bg-slate-900 border border-slate-800 p-5 hover:border-slate-600 hover:bg-slate-900/80 transition-all group"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2.5">
+                          <h3 className="text-sm font-bold text-white">{item.title}</h3>
+                          <Badge variant="outline" className={`text-[10px] h-5 ${typeBadge.className}`}>
+                            {typeBadge.label}
+                          </Badge>
+                          <Badge variant="outline" className={`text-[10px] h-5 ${sc.className}`}>
+                            <StatusIcon className="w-3 h-3 mr-0.5" />
+                            {sc.label}
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-2 leading-relaxed">{item.description}</p>
+                        <div className="flex items-center gap-4 mt-3 text-[11px] text-slate-500">
+                          <span className="flex items-center gap-1">
+                            <FileText className="w-3 h-3" />
+                            {item.nodeCount} 个节点
+                          </span>
+                          <span>提交人：{item.submittedBy}</span>
+                          <span>{item.submittedAt}</span>
+                        </div>
                       </div>
-                      <p className="text-xs text-slate-400 mt-2 leading-relaxed">{item.description}</p>
-                      <div className="flex items-center gap-4 mt-3 text-[11px] text-slate-500">
-                        <span className="flex items-center gap-1">
-                          <FileText className="w-3 h-3" />
-                          {item.nodeCount} 个节点
-                        </span>
-                        <span>提交人：{item.submittedBy}</span>
-                        <span>{item.submittedAt}</span>
+                      <div className="flex items-center gap-2 shrink-0 ml-4">
+                        {item.status === "pending" && (
+                          <span className="px-3 py-1.5 rounded-lg bg-purple-600 text-white text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                            开始评审 <ArrowRight className="w-3 h-3" />
+                          </span>
+                        )}
+                        {item.status !== "pending" && (
+                          <span className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                            查看详情 <ArrowRight className="w-3 h-3" />
+                          </span>
+                        )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0 ml-4">
-                      {item.status === "pending" && (
-                        <span className="px-3 py-1.5 rounded-lg bg-purple-600 text-white text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
-                          开始评审 <ArrowRight className="w-3 h-3" />
-                        </span>
-                      )}
-                      {item.status !== "pending" && (
-                        <span className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
-                          查看详情 <ArrowRight className="w-3 h-3" />
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
         </div>
       </main>
     </div>

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LayoutDashboard, Bot, ListChecks, Workflow, ChevronLeft } from "lucide-react";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 const NAV_ITEMS = [
   { href: "/console", label: "仪表盘", icon: LayoutDashboard },
@@ -44,6 +45,9 @@ export default function ConsoleLayout({ children }: { children: React.ReactNode 
             );
           })}
         </nav>
+        <div className="px-3 py-3 border-t border-zinc-100">
+          <ThemeToggle className="w-full justify-start gap-2 text-xs text-zinc-500" />
+        </div>
       </aside>
 
       {/* Main */}

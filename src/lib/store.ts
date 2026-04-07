@@ -74,6 +74,9 @@ interface FlowAgentState {
   agenticConfirmIdx: number;
   isReviewMode: boolean;
   collectedAnswers: Record<string, { question: string; answer: string }[]>;
+  initialSnapshot: { nodes: Node<FlowNodeData>[]; edges: Edge[] } | null;
+  allNodeConfidence: NodeConfidence[];
+  deferredNodeIds: string[];
 
   setCurrentRole: (role: UserRole) => void;
   setViewMode: (mode: ViewMode) => void;
@@ -111,6 +114,11 @@ interface FlowAgentState {
   setIsReviewMode: (v: boolean) => void;
   setCollectedAnswers: (answers: Record<string, { question: string; answer: string }[]>) => void;
   addCollectedAnswer: (nodeId: string, answers: { question: string; answer: string }[]) => void;
+  setInitialSnapshot: (snapshot: { nodes: Node<FlowNodeData>[]; edges: Edge[] } | null) => void;
+  setAllNodeConfidence: (conf: NodeConfidence[]) => void;
+  setDeferredNodeIds: (ids: string[]) => void;
+  addDeferredNodeId: (id: string) => void;
+  removeDeferredNodeId: (id: string) => void;
   updateAgenticGoal: (goal: string) => void;
   updateAgenticBackground: (background: string) => void;
   addAgenticSkill: (skill: AgenticSkill) => void;
@@ -162,6 +170,9 @@ const initialState = {
   agenticConfirmIdx: 0,
   isReviewMode: false,
   collectedAnswers: {} as Record<string, { question: string; answer: string }[]>,
+  initialSnapshot: null as { nodes: Node<FlowNodeData>[]; edges: Edge[] } | null,
+  allNodeConfidence: [] as NodeConfidence[],
+  deferredNodeIds: [] as string[],
 };
 
 export const useFlowAgentStore = create<FlowAgentState>()(
@@ -243,6 +254,19 @@ export const useFlowAgentStore = create<FlowAgentState>()(
       addCollectedAnswer: (nodeId, answers) =>
         set((state) => ({
           collectedAnswers: { ...state.collectedAnswers, [nodeId]: answers },
+        })),
+      setInitialSnapshot: (snapshot) => set({ initialSnapshot: snapshot }),
+      setAllNodeConfidence: (conf) => set({ allNodeConfidence: conf }),
+      setDeferredNodeIds: (ids) => set({ deferredNodeIds: ids }),
+      addDeferredNodeId: (id) =>
+        set((state) => ({
+          deferredNodeIds: state.deferredNodeIds.includes(id)
+            ? state.deferredNodeIds
+            : [...state.deferredNodeIds, id],
+        })),
+      removeDeferredNodeId: (id) =>
+        set((state) => ({
+          deferredNodeIds: state.deferredNodeIds.filter((d) => d !== id),
         })),
       updateAgenticGoal: (goal) =>
         set((state) => ({
@@ -352,6 +376,8 @@ export const useFlowAgentStore = create<FlowAgentState>()(
             chatPhase: recovered,
             agenticConfirmItems: [],
             agenticConfirmIdx: 0,
+            collectedAnswers: {},
+            deferredNodeIds: [],
           });
         }
       },

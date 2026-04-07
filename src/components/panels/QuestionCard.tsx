@@ -10,6 +10,7 @@ import {
   SkipForward,
   Sparkles,
   ArrowRight,
+  Clock,
 } from "lucide-react";
 import type { NodeConfidence } from "@/lib/store";
 
@@ -28,6 +29,7 @@ function SingleNodeBlock({
   onSelectAnswer,
   onToggleCustom,
   onCustomTextChange,
+  onDefer,
   disabled,
 }: {
   nodeConf: NodeConfidence;
@@ -38,6 +40,7 @@ function SingleNodeBlock({
   onSelectAnswer: (qId: string, value: string) => void;
   onToggleCustom: (qId: string) => void;
   onCustomTextChange: (qId: string, value: string) => void;
+  onDefer?: () => void;
   disabled?: boolean;
 }) {
   const { questions, confidence, reason } = nodeConf;
@@ -58,10 +61,21 @@ function SingleNodeBlock({
     <div className="border border-zinc-150 rounded-lg overflow-hidden">
       <div className="px-3 pt-2 pb-1.5 bg-zinc-50/80 border-b border-zinc-100">
         <div className="flex items-center gap-2 mb-0.5">
-          <p className="text-xs font-semibold text-zinc-800">{nodeLabel}</p>
+          <p className="text-xs font-semibold text-zinc-800 flex-1">{nodeLabel}</p>
           <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${confidenceColor}`}>
             {confidenceLabel}
           </span>
+          {onDefer && (
+            <button
+              className="flex items-center gap-0.5 text-[10px] text-orange-500 hover:text-orange-600 transition-colors px-1.5 py-0.5 rounded hover:bg-orange-50"
+              onClick={onDefer}
+              disabled={disabled}
+              title="暂缓确认，下次再补充"
+            >
+              <Clock className="w-2.5 h-2.5" />
+              暂缓
+            </button>
+          )}
         </div>
         <p className="text-[10px] text-zinc-400">{reason}</p>
       </div>
@@ -179,6 +193,7 @@ interface NodeQuestionPageProps {
   nodeLabelMap: Record<string, string>;
   onSubmitAll: (collected: Record<string, { question: string; answer: string }[]>) => void;
   onSkipAll: () => void;
+  onDeferNode?: (nodeId: string) => void;
   disabled?: boolean;
 }
 
@@ -187,6 +202,7 @@ export default function NodeQuestionPage({
   nodeLabelMap,
   onSubmitAll,
   onSkipAll,
+  onDeferNode,
   disabled,
 }: NodeQuestionPageProps) {
   const [pageIdx, setPageIdx] = useState(0);
@@ -316,6 +332,7 @@ export default function NodeQuestionPage({
             onSelectAnswer={handleSelectAnswer}
             onToggleCustom={handleToggleCustom}
             onCustomTextChange={handleCustomTextChange}
+            onDefer={onDeferNode ? () => onDeferNode(nc.nodeId) : undefined}
             disabled={disabled}
           />
         ))}

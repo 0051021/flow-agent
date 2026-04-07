@@ -31,7 +31,7 @@ const DEFAULT_TECH_CONFIG = {
 
 function FlowCardNode({ data, id }: NodeProps) {
   const nodeData = data as unknown as FlowNodeData;
-  const { viewMode, currentRole, selectedNodeId, setSelectedNodeId, setShowAnnotationPanel, annotations } = useFlowAgentStore();
+  const { viewMode, currentRole, selectedNodeId, setSelectedNodeId, setShowAnnotationPanel, annotations, allNodeConfidence, deferredNodeIds } = useFlowAgentStore();
   const IconComponent = ICON_MAP[nodeData.icon] || BarChart3;
   const execConfig = EXEC_MODE_CONFIG[nodeData.executionMode] || EXEC_MODE_CONFIG.ai_auto;
   const ExecIcon = execConfig.icon;
@@ -39,6 +39,8 @@ function FlowCardNode({ data, id }: NodeProps) {
   const nodeAnnotations = annotations.filter((a) => a.nodeId === id);
   const unresolvedCount = nodeAnnotations.filter((a) => a.status !== "resolved").length;
   const isSelected = selectedNodeId === id;
+  const nodeConf = allNodeConfidence.find((nc) => nc.nodeId === id);
+  const isDeferred = deferredNodeIds.includes(id);
 
   const feasibilityBorder = {
     confirmed: "border-l-green-500",
@@ -72,6 +74,23 @@ function FlowCardNode({ data, id }: NodeProps) {
           </div>
         </div>
         <div className="flex items-center gap-1.5">
+          {isDeferred && (
+            <span
+              className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-orange-50 text-orange-500 text-[10px] border border-orange-200"
+              title="待确认：信息待补充"
+            >
+              <Clock className="w-2.5 h-2.5" />
+              待确认
+            </span>
+          )}
+          {nodeConf && nodeConf.confidence !== "high" && !isDeferred && (
+            <span
+              className={`w-2.5 h-2.5 rounded-full shrink-0 cursor-help ${
+                nodeConf.confidence === "medium" ? "bg-amber-400" : "bg-red-400"
+              }`}
+              title={`AI ${nodeConf.confidence === "medium" ? "不太确定" : "需要补充"}：${nodeConf.reason}`}
+            />
+          )}
           {currentRole === "tech" && unresolvedCount > 0 && (
             <button
               className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-600 text-xs hover:bg-amber-100 transition-colors"

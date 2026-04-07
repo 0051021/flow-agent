@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { toast } from "sonner";
 import { useFlowAgentStore, type ChatMessage, type ChatPhase } from "@/lib/store";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { Bot, Send, User, Sparkles, Loader2 } from "lucide-react";
+import { Bot, Send, User, Sparkles, Loader2, RotateCcw } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
 import { parseLLMResponse, serializeFlowForLLM } from "@/lib/flow-parser";
 import NodeQuestionPage, { CompletionCard } from "./QuestionCard";
@@ -25,6 +26,7 @@ export default function ChatPanel() {
     agenticConfirmItems, setAgenticConfirmItems,
     agenticConfirmIdx, setAgenticConfirmIdx,
     setCollectedAnswers,
+    setInitialSnapshot, setAllNodeConfidence, setDeferredNodeIds,
   } = useFlowAgentStore();
   const [input, setInput] = useState("");
   const [showCompletion, setShowCompletion] = useState(false);
@@ -67,6 +69,9 @@ export default function ChatPanel() {
     setCurrentNodeIdx(0);
     setShowCompletion(false);
     setCollectedAnswers({});
+    setInitialSnapshot(null);
+    setAllNodeConfidence([]);
+    setDeferredNodeIds([]);
 
     try {
       const res = await fetch("/api/generate-flow", {
@@ -115,6 +120,7 @@ export default function ChatPanel() {
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "网络错误";
+      toast.error("生成失败", { description: msg });
       addChatMessage({
         id: uuidv4(),
         role: "assistant",
@@ -123,7 +129,7 @@ export default function ChatPanel() {
       });
       setPhase("idle");
     }
-  }, [addChatMessage, setPhase, setOriginalPrompt, setTaskType, setPendingNodes, setCurrentNodeIdx, setCollectedAnswers]);
+  }, [addChatMessage, setPhase, setOriginalPrompt, setTaskType, setPendingNodes, setCurrentNodeIdx, setCollectedAnswers, setInitialSnapshot, setAllNodeConfidence, setDeferredNodeIds]);
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const handleWorkflowResult = useCallback((result: Record<string, any>) => {
@@ -134,6 +140,7 @@ export default function ChatPanel() {
       parseLLMResponse(data);
 
     loadGeneratedFlow(parsedNodes, parsedEdges);
+    setInitialSnapshot({ nodes: parsedNodes, edges: parsedEdges });
     useFlowAgentStore.setState((s) => ({
       project: { ...s.project, name: projectName },
     }));
@@ -145,6 +152,7 @@ export default function ChatPanel() {
     setNodeLabelMap(labelMap);
 
     const allNodeConf: NodeConfidence[] = (result.nodeConfidence as NodeConfidence[]) || [];
+    setAllNodeConfidence(allNodeConf);
     const needConfirm = allNodeConf.filter(
       (nc) => nc.confidence !== "high" && nc.questions.length > 0
     );
@@ -176,7 +184,7 @@ export default function ChatPanel() {
         timestamp: new Date().toISOString(),
       });
     }
-  }, [addChatMessage, loadGeneratedFlow, setPhase, setNodeLabelMap]);
+  }, [addChatMessage, loadGeneratedFlow, setPhase, setNodeLabelMap, setInitialSnapshot, setAllNodeConfidence]);
 
   const handleAgenticResult = useCallback((result: Record<string, any>, prompt: string) => {
     const data = result.data;
@@ -313,6 +321,7 @@ export default function ChatPanel() {
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "网络错误";
+        toast.error("优化失败", { description: msg });
         addChatMessage({
           id: uuidv4(),
           role: "assistant",
@@ -327,6 +336,18 @@ export default function ChatPanel() {
     },
     [addChatMessage, loadGeneratedFlow, setPhase, setNodeLabelMap]
   );
+
+  const handleDeferNode = useCallback((nodeId: string) => {
+    const store = useFlowAgentStore.getState();
+    store.addDeferredNodeId(nodeId);
+    const remaining = store.pendingNodes.filter((n) => n.nodeId !== nodeId);
+    setPendingNodes(remaining);
+    if (remaining.length === 0) {
+      setShowCompletion(true);
+      setPhase("ready");
+      useFlowAgentStore.setState({ currentNodeIdx: 0 });
+    }
+  }, [setPendingNodes, setPhase]);
 
   const handleSkipAll = useCallback(() => {
     addChatMessage({
@@ -542,6 +563,7 @@ export default function ChatPanel() {
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "网络错误";
+      toast.error("请求失败", { description: msg });
       addChatMessage({
         id: uuidv4(),
         role: "assistant",
@@ -562,10 +584,53 @@ export default function ChatPanel() {
   // Render
   // ============================================================
 
+  const [lastFailedPrompt, setLastFailedPrompt] = useState<string | null>(null);
+
+  const renderMarkdown = (text: string, msgId: string) => {
+    return text.split("\n").map((line, i) => {
+      const isBlockquote = line.startsWith("> ");
+      const isListItem = /^\d+\.\s/.test(line) || line.startsWith("- ");
+      const content = isBlockquote ? line.slice(2) : line;
+
+      const renderInline = (str: string) =>
+        str.split(/(\*\*[^*]+\*\*|`[^`]+`)/).map((part, j) => {
+          if (part.startsWith("**") && part.endsWith("**"))
+            return <strong key={`${msgId}-b${i}-${j}`}>{part.slice(2, -2)}</strong>;
+          if (part.startsWith("`") && part.endsWith("`"))
+            return <code key={`${msgId}-c${i}-${j}`} className="px-1 py-0.5 bg-zinc-200/60 rounded text-[12px] font-mono">{part.slice(1, -1)}</code>;
+          return <span key={`${msgId}-t${i}-${j}`}>{part}</span>;
+        });
+
+      if (isBlockquote) {
+        return (
+          <span key={`${msgId}-l${i}`} className="block border-l-2 border-zinc-300 pl-2 my-1 text-zinc-500 italic text-xs">
+            {renderInline(content)}
+          </span>
+        );
+      }
+      if (isListItem) {
+        return (
+          <span key={`${msgId}-l${i}`} className="block pl-2">
+            {renderInline(line)}
+          </span>
+        );
+      }
+      return (
+        <span key={`${msgId}-l${i}`}>
+          {renderInline(content)}
+          {i < text.split("\n").length - 1 && <br />}
+        </span>
+      );
+    });
+  };
+
+  const isErrorMessage = (content: string) =>
+    content.startsWith("请求出错：") || content.startsWith("生成失败：") || content.startsWith("修改失败：") || content.startsWith("优化请求出错：") || content.startsWith("批量优化失败：");
+
   const renderMessage = (msg: ChatMessage) => (
     <div
       key={msg.id}
-      className={`flex gap-2.5 ${msg.role === "user" ? "flex-row-reverse" : ""}`}
+      className={`flex gap-2.5 animate-slide-up ${msg.role === "user" ? "flex-row-reverse" : ""}`}
     >
       <div
         className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0
@@ -577,24 +642,21 @@ export default function ChatPanel() {
           <User className="w-3.5 h-3.5 text-white" />
         )}
       </div>
-      <div
-        className={`max-w-[270px] rounded-xl px-3 py-2.5 text-sm leading-relaxed
-        ${msg.role === "assistant" ? "bg-zinc-50 text-zinc-700" : "bg-blue-500 text-white"}`}
-      >
-        {msg.content.split("\n").map((line, i) => (
-          <span key={`${msg.id}-l${i}`}>
-            {line.split(/(\*\*[^*]+\*\*)/).map((part, j) => {
-              if (part.startsWith("**") && part.endsWith("**"))
-                return (
-                  <strong key={`${msg.id}-b${i}-${j}`}>
-                    {part.slice(2, -2)}
-                  </strong>
-                );
-              return <span key={`${msg.id}-t${i}-${j}`}>{part}</span>;
-            })}
-            {i < msg.content.split("\n").length - 1 && <br />}
-          </span>
-        ))}
+      <div className="max-w-[270px]">
+        <div
+          className={`rounded-xl px-3 py-2.5 text-sm leading-relaxed
+          ${msg.role === "assistant" ? "bg-zinc-50 text-zinc-700" : "bg-blue-500 text-white"}`}
+        >
+          {renderMarkdown(msg.content, msg.id)}
+        </div>
+        {msg.role === "assistant" && isErrorMessage(msg.content) && originalPrompt && (
+          <button
+            onClick={() => triggerUnifiedDraft(originalPrompt)}
+            className="flex items-center gap-1 mt-1.5 text-[11px] text-red-500 hover:text-red-700 transition-colors"
+          >
+            <RotateCcw className="w-3 h-3" /> 重试
+          </button>
+        )}
       </div>
     </div>
   );
@@ -691,6 +753,7 @@ export default function ChatPanel() {
                 nodeLabelMap={nodeLabelMap}
                 onSubmitAll={handleBatchSubmit}
                 onSkipAll={handleSkipAll}
+                onDeferNode={handleDeferNode}
                 disabled={isLoading}
               />
             </div>
@@ -723,8 +786,12 @@ export default function ChatPanel() {
                 <Bot className="w-3.5 h-3.5 text-white" />
               </div>
               <div className="bg-zinc-50 rounded-xl px-4 py-3">
-                <div className="flex items-center gap-2 text-xs text-zinc-500">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <div className="flex items-center gap-3 text-xs text-zinc-500">
+                  <span className="flex gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 animate-bounce" style={{ animationDelay: "0ms" }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 animate-bounce" style={{ animationDelay: "150ms" }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 animate-bounce" style={{ animationDelay: "300ms" }} />
+                  </span>
                   <span>{phaseLabel[phase]}</span>
                 </div>
               </div>
