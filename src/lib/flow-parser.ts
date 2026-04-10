@@ -22,9 +22,14 @@ interface LLMNode {
     icon: string;
     description: string;
   }[];
+  executionRules?: {
+    rule: string;
+    detail: string;
+    source: "ai_inferred" | "user_confirmed";
+  }[];
   isCondition?: boolean;
   conditionBranches?: { label: string; icon: string; targetLabel: string }[] | null;
-  executionType: "deterministic" | "intelligent";
+  executionType?: "deterministic" | "intelligent";
 }
 
 interface LLMEdge {
@@ -120,9 +125,10 @@ function computeDAGLayout(
   }
 
   // Handle nodes not reached (cycles) — place them at the end
+  const maxExistingLayer = layers.size > 0 ? Math.max(...layers.values()) : -1;
   for (const id of nodeIds) {
     if (!layers.has(id)) {
-      layers.set(id, (Math.max(...layers.values()) || 0) + 1);
+      layers.set(id, maxExistingLayer + 1);
     }
   }
 
@@ -133,8 +139,16 @@ function computeDAGLayout(
     layerGroups.get(layer)!.push(id);
   }
 
-  // Sort nodes within each layer by barycenter of their parents to reduce crossings
   const sortedLayers = [...layerGroups.keys()].sort((a, b) => a - b);
+
+  const maxLayerSize = Math.max(...[...layerGroups.values()].map((g) => g.length));
+  if (sortedLayers.length <= 2 && maxLayerSize > 3 && nodeIds.length > 3) {
+    const CENTER_X = 0;
+    nodeIds.forEach((id, idx) => {
+      positions.set(id, { x: CENTER_X, y: idx * (NODE_HEIGHT + Y_GAP) });
+    });
+    return positions;
+  }
 
   for (const layer of sortedLayers) {
     const nodesInLayer = layerGroups.get(layer)!;
@@ -206,6 +220,11 @@ export function parseLLMResponse(data: LLMFlowData): {
         flowsTo: [],
         dataType: undefined,
       })),
+      executionRules: (n.executionRules || []).map((r) => ({
+        rule: r.rule,
+        detail: r.detail,
+        source: r.source || "ai_inferred",
+      })),
       errorHandling: [
         { strategy: "retry" as const, enabled: true, config: { maxRetries: 3, retryInterval: 30 } },
         { strategy: "human_fallback" as const, enabled: true, config: { notifyRole: "负责人" } },
@@ -213,7 +232,7 @@ export function parseLLMResponse(data: LLMFlowData): {
         { strategy: "abort" as const, enabled: false },
       ],
       techConfig: {
-        executionType: n.executionType,
+        executionType: n.executionType || "deterministic",
         feasibility: "pending" as const,
       },
       isCondition: n.isCondition || false,
@@ -221,16 +240,52 @@ export function parseLLMResponse(data: LLMFlowData): {
     },
   }));
 
-  const validEdges = data.edges.filter(
-    (e) => nodeIds.has(e.source) && nodeIds.has(e.target)
-  );
+  const resolveNodeId = (raw: string): string | null => {
+    if (nodeIds.has(raw)) return raw;
+    const prefixed = raw.startsWith("node-") ? raw : `node-${raw}`;
+    if (nodeIds.has(prefixed)) return prefixed;
+    const stripped = raw.replace(/^node-/, "");
+    for (const id of nodeIds) {
+      if (id.replace(/^node-/, "") === stripped) return id;
+    }
+    return null;
+  };
+
+  let validEdges = (data.edges || []).reduce<LLMEdge[]>((acc, e) => {
+    if (!e) return acc;
+    const src = resolveNodeId(e.source);
+    const tgt = resolveNodeId(e.target);
+    if (src && tgt) {
+      acc.push({ ...e, source: src, target: tgt });
+    }
+    return acc;
+  }, []);
+
+  if (validEdges.length === 0 && data.nodes.length > 1) {
+    console.warn("[FlowAgent] No valid edges from AI, generating sequential fallback edges");
+    validEdges = data.nodes.slice(0, -1).map((n, i) => ({
+      source: n.id,
+      target: data.nodes[i + 1].id,
+      label: "",
+      style: "normal" as const,
+    }));
+  }
+
+  const nodeIndexMap = new Map<string, number>();
+  data.nodes.forEach((n, i) => nodeIndexMap.set(n.id, i));
 
   const edges: Edge[] = validEdges.map((e) => {
     const s = EDGE_STYLE_MAP[e.style] || EDGE_STYLE_MAP.normal;
+    const srcIdx = nodeIndexMap.get(e.source) ?? 0;
+    const tgtIdx = nodeIndexMap.get(e.target) ?? 0;
+    const isBackEdge = tgtIdx <= srcIdx;
+
     return {
       id: `e-${uuidv4()}`,
       source: e.source,
       target: e.target,
+      sourceHandle: isBackEdge ? "right-out" : "bottom-out",
+      targetHandle: isBackEdge ? "left-in" : "top-in",
       label: e.label,
       type: "smoothstep",
       animated: e.style !== "loop",
@@ -277,6 +332,11 @@ export function serializeFlowForLLM(
           name: out.name,
           icon: out.icon,
           description: out.description,
+        })),
+        executionRules: (d.executionRules || []).map((r) => ({
+          rule: r.rule,
+          detail: r.detail,
+          source: r.source,
         })),
         isCondition: d.isCondition,
         conditionBranches: d.conditionBranches || null,
@@ -329,6 +389,15 @@ export function serializeFlowForLLM(
       }
     }
 
+    const rules = d.executionRules || [];
+    if (rules.length > 0) {
+      lines.push(`- 执行规则:`);
+      for (const r of rules) {
+        const src = r.source === "user_confirmed" ? "✅用户确认" : "🤖AI推断";
+        lines.push(`  - [${src}] ${r.rule}: ${r.detail}`);
+      }
+    }
+
     if (d.isCondition && d.conditionBranches) {
       lines.push(`- 条件分支:`);
       for (const b of d.conditionBranches) {
@@ -376,4 +445,79 @@ function findConvergenceNodes(nodes: Node[], edges: Edge[]): Node[] {
     inCount.set(e.target, (inCount.get(e.target) || 0) + 1);
   }
   return nodes.filter((n) => (inCount.get(n.id) || 0) > 1);
+}
+
+interface WorkflowTechNodeConfig {
+  id: string;
+  executionType?: "deterministic" | "intelligent";
+  executionRules?: { rule: string; detail: string; source: string }[];
+  errorHandling?: { strategy: string; enabled: boolean; config?: Record<string, unknown> }[];
+  techConfig?: {
+    executionType?: string;
+    boundSkill?: string;
+    evaluator?: string;
+    timeout?: number;
+  };
+  inputDataTypes?: Record<string, string>;
+  outputDataTypes?: Record<string, string>;
+}
+
+export function mergeWorkflowTechConfig(
+  nodes: Node<FlowNodeData>[],
+  techNodes: WorkflowTechNodeConfig[]
+): Node<FlowNodeData>[] {
+  const techMap = new Map(techNodes.map((tn) => [tn.id, tn]));
+
+  return nodes.map((node) => {
+    const tech = techMap.get(node.id);
+    if (!tech) return node;
+
+    const d = node.data as FlowNodeData;
+    const mergedRules = tech.executionRules?.length
+      ? tech.executionRules.map((r) => ({
+          rule: r.rule,
+          detail: r.detail,
+          source: (r.source || "ai_inferred") as "ai_inferred" | "user_confirmed",
+        }))
+      : d.executionRules;
+
+    const mergedErrorHandling = tech.errorHandling?.length
+      ? tech.errorHandling.map((eh) => ({
+          strategy: eh.strategy as "retry" | "human_fallback" | "skip" | "abort",
+          enabled: eh.enabled,
+          config: eh.config,
+        }))
+      : d.errorHandling;
+
+    const execType = tech.executionType || tech.techConfig?.executionType || d.techConfig?.executionType || "deterministic";
+    const mergedTechConfig = {
+      ...d.techConfig,
+      executionType: execType as "deterministic" | "intelligent",
+      boundSkill: tech.techConfig?.boundSkill || d.techConfig?.boundSkill,
+      evaluator: tech.techConfig?.evaluator || d.techConfig?.evaluator,
+      timeout: tech.techConfig?.timeout || d.techConfig?.timeout,
+    };
+
+    const mergedInputs = d.inputs.map((inp) => ({
+      ...inp,
+      dataType: tech.inputDataTypes?.[inp.name] || inp.dataType,
+    }));
+
+    const mergedOutputs = d.outputs.map((out) => ({
+      ...out,
+      dataType: tech.outputDataTypes?.[out.name] || out.dataType,
+    }));
+
+    return {
+      ...node,
+      data: {
+        ...d,
+        executionRules: mergedRules,
+        errorHandling: mergedErrorHandling,
+        techConfig: mergedTechConfig,
+        inputs: mergedInputs,
+        outputs: mergedOutputs,
+      },
+    };
+  });
 }

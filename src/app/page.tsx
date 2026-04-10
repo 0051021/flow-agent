@@ -17,11 +17,11 @@ const EXAMPLES = [
   {
     icon: "📱",
     title: "小红书账号运营",
-    description: "分析账号 → 制定策略 → 生成内容 → 发布监控",
+    description: "每日3条图文 · 美妆/穿搭/互动 · 数据驱动优化",
     type: "agentic" as const,
-    steps: 7,
+    steps: 4,
     time: "约 15 分钟",
-    prompt: "我想做小红书账号运营，先分析账号现状和竞品，然后制定内容策略，每天生成3条图文内容，内容需要经过合规审查，审查通过后定时发布，发布后监控互动数据，每周根据数据调整策略。目标是3个月涨粉5万",
+    prompt: "我们市场部要做小红书账号运营，目标是3个月从1万涨到5万粉丝。我们的运营方法是：每天发3条图文，内容以美妆测评为主（60%），穿搭教程（30%），互动话题（10%）。发布时间是早8点、中午12点、晚8点。合规红线：不提竞品品牌名、不做功效承诺、图片必须原创。每月预算不超过5000元。需要Agent按这个策略执行，每周给我数据报告，数据不好的时候给调整建议，但改方向需要我批准。",
   },
   {
     icon: "💰",
@@ -33,13 +33,49 @@ const EXAMPLES = [
     prompt: "我想自动化财务报销流程，员工提交报销申请后，系统自动校验发票和金额，然后按审批规则流转给对应审批人，审批通过后自动发起打款，最后归档记录",
   },
   {
+    icon: "📋",
+    title: "App 改版项目管理",
+    description: "需求→开发→测试→上线 · 自动跟进和催办",
+    type: "agentic" as const,
+    steps: 4,
+    time: "约 10 分钟",
+    prompt: "我们要做 App 2.0 改版，涉及3个前端+2个后端+1个设计师+1个测试，总周期35天。需要Agent帮我管项目：跟进每个人的任务进度（从飞书项目拉数据），每天早上给我站会摘要，识别延期风险自动催办，每周五出周报。需求变更和上线需要我审批。",
+  },
+  {
+    icon: "🎧",
+    title: "智能客服系统",
+    description: "FAQ→复杂问题 · 能力递进 · 降低人工介入",
+    type: "agentic" as const,
+    steps: 4,
+    time: "约 12 分钟",
+    prompt: "我们客服部每天处理约500个咨询，其中60%是重复性问题（退换货政策、物流查询、账号问题）。想用Agent来处理这些，先从简单的FAQ开始，逐步扩展到能处理复杂投诉。人工客服目前8人，希望3个月后能减少到4人。Agent回复前需要经过质检，投诉类必须转人工。",
+  },
+  {
+    icon: "👥",
+    title: "校招批量招聘",
+    description: "JD发布→简历筛选→面试→Offer · 50人招聘",
+    type: "agentic" as const,
+    steps: 4,
+    time: "约 10 分钟",
+    prompt: "秋招要招50个应届生（20个开发、15个产品、10个运营、5个设计），简历预计收到3000+份。需要Agent帮忙：自动发布JD到各平台，按条件初筛简历，安排面试时间（协调面试官日历），面试后汇总评价生成排名，Offer审批后自动发送。简历筛选标准和Offer薪资需要我确认。",
+  },
+  {
     icon: "📊",
     title: "竞品分析报告",
-    description: "数据采集 → 分析对比 → 生成报告",
+    description: "5个竞品 · 4个维度 · 每周结构化报告",
     type: "agentic" as const,
     steps: 4,
     time: "约 8 分钟",
-    prompt: "我想做竞品分析，先从多个渠道采集竞品数据，然后从产品功能、用户评价、市场份额等维度进行对比分析，最后生成一份结构化的竞品分析报告",
+    prompt: "我们产品部需要定期做竞品分析。目标竞品是：飞书、钉钉、企业微信、Slack、Teams。分析维度固定为：产品功能更新、定价变化、用户评价趋势、市场份额变化。每周一出一份报告，格式要统一（摘要+各维度详情+结论建议）。数据来源限定为官网、应用商店评价、36氪/虎嗅等科技媒体。报告终稿需要我确认后才能发给团队。",
+  },
+  {
+    icon: "🌐",
+    title: "TikTok 矩阵账号运营",
+    description: "200个号 · 批量养号 · 数据分级 · 资源动态调度",
+    type: "agentic" as const,
+    steps: 4,
+    time: "约 15 分钟",
+    prompt: "我们海外营销部要做TikTok矩阵运营，计划开200个号，目标是3个月矩阵总粉丝达到100万。运营方法：先批量养号，每个号每天发1-2条短视频，内容覆盖好物推荐、开箱测评、使用教程三个方向。2周后根据数据筛选出高潜力号，对高潜号加大投入，弱号降频。每个号开号时间不同，所以同一时间不同号处于不同阶段。合规红线：不搬运、不涉政、不虚假宣传。需要Agent帮我管这个矩阵。策略大方向调整需要我批准。",
   },
   {
     icon: "📦",
@@ -55,7 +91,6 @@ const EXAMPLES = [
 const TYPE_BADGE = {
   workflow: { label: "工作流", icon: GitBranch, className: "bg-blue-50 text-blue-600 border-blue-200" },
   agentic: { label: "智能体", icon: Bot, className: "bg-violet-50 text-violet-600 border-violet-200" },
-  hybrid: { label: "混合型", icon: GitBranch, className: "bg-emerald-50 text-emerald-600 border-emerald-200" },
 };
 
 const FEATURES = [
@@ -72,7 +107,7 @@ export default function HomePage() {
   const handleStart = (prompt?: string) => {
     const q = prompt || input;
     if (!q.trim()) return;
-    router.push(`/editor?q=${encodeURIComponent(q.trim())}`);
+    router.push(`/editor?q=${encodeURIComponent(q.trim())}&t=${Date.now()}`);
   };
 
   return (
@@ -137,9 +172,28 @@ export default function HomePage() {
             />
             <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-zinc-100">
               <p className="w-full text-[11px] text-zinc-400 mb-1">💡 试试描述清楚这几点，AI 翻译更准确：</p>
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-zinc-50 text-zinc-500 border border-zinc-100">你要解决什么问题？</span>
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-zinc-50 text-zinc-500 border border-zinc-100">现在是怎么做的？</span>
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-zinc-50 text-zinc-500 border border-zinc-100">期望的结果是什么？</span>
+              {[
+                { label: "🎯 你要解决什么问题？", hint: "我想自动化" },
+                { label: "📋 现在是怎么做的？", hint: "目前是人工" },
+                { label: "✅ 期望的结果是什么？", hint: "希望能够" },
+                { label: "👥 涉及哪些角色？", hint: "涉及的角色有" },
+              ].map((tag) => (
+                <button
+                  key={tag.label}
+                  className="text-[11px] px-2 py-0.5 rounded-full bg-zinc-50 text-zinc-500 border border-zinc-100 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition-colors cursor-pointer"
+                  onClick={() => {
+                    if (!input.trim()) {
+                      setInput(tag.hint);
+                    } else if (!input.endsWith("，") && !input.endsWith("。") && !input.endsWith(" ")) {
+                      setInput(input + "，" + tag.hint);
+                    } else {
+                      setInput(input + tag.hint);
+                    }
+                  }}
+                >
+                  {tag.label}
+                </button>
+              ))}
             </div>
             <div className="flex justify-between items-center mt-3">
               <p className="text-xs text-zinc-400">AI 自动判断任务类型并标注人机分工</p>
@@ -180,7 +234,7 @@ export default function HomePage() {
                   <p className="text-xs text-zinc-500 mt-1.5 leading-relaxed">{ex.description}</p>
                   <div className="flex items-center justify-between mt-4 pt-3 border-t border-zinc-100">
                     <div className="flex items-center gap-3 text-[11px] text-zinc-400">
-                      <span>{ex.steps} 步</span>
+                      <span>{ex.steps} {ex.type === "agentic" ? "阶段" : "步"}</span>
                       <span className="w-px h-3 bg-zinc-200" />
                       <span>{ex.time}</span>
                     </div>
@@ -191,6 +245,169 @@ export default function HomePage() {
                 </button>
               );
             })}
+          </div>
+        </div>
+
+        {/* Pre-built demo schemes */}
+        <div className="w-full max-w-2xl mt-10">
+          <p className="text-sm font-medium text-zinc-400 mb-4 text-center">或者直接查看完整示例方案</p>
+          <div className="grid grid-cols-2 gap-4">
+            <Link
+              href="/editor?reviewId=review-3&role=business"
+              className="bg-white rounded-2xl border border-zinc-200/80 p-5 hover:border-blue-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-xl">
+                  💰
+                </div>
+                <div>
+                  <Badge variant="outline" className="text-[10px] h-5 gap-1 bg-blue-50 text-blue-600 border-blue-200 mb-1">
+                    <GitBranch className="w-3 h-3" />
+                    工作流示例
+                  </Badge>
+                  <h3 className="text-sm font-bold text-zinc-900">财务报销审批</h3>
+                </div>
+              </div>
+              <p className="text-xs text-zinc-500 mt-3 leading-relaxed">
+                完整的 5 节点流程图，包含人机分工标注、技术评审批注。
+              </p>
+              <div className="flex items-center justify-between mt-3 pt-3 border-t border-zinc-100">
+                <span className="text-[11px] text-zinc-400">5 个节点 · 含批注</span>
+                <span className="text-xs font-medium text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
+                  查看方案 <ArrowUpRight className="w-3 h-3" />
+                </span>
+              </div>
+            </Link>
+            <Link
+              href="/editor?reviewId=review-1&role=business"
+              className="bg-white rounded-2xl border border-zinc-200/80 p-5 hover:border-violet-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-violet-50 border border-violet-100 flex items-center justify-center text-xl">
+                  📱
+                </div>
+                <div>
+                  <Badge variant="outline" className="text-[10px] h-5 gap-1 bg-violet-50 text-violet-600 border-violet-200 mb-1">
+                    <Bot className="w-3 h-3" />
+                    内容运营
+                  </Badge>
+                  <h3 className="text-sm font-bold text-zinc-900">小红书账号运营</h3>
+                </div>
+              </div>
+              <p className="text-xs text-zinc-500 mt-3 leading-relaxed">
+                4 个阶段（冷启动→策略验证→规模化→增长冲刺），含追问和审批点。
+              </p>
+              <div className="flex items-center justify-between mt-3 pt-3 border-t border-zinc-100">
+                <span className="text-[11px] text-zinc-400">4 阶段 · 90天</span>
+                <span className="text-xs font-medium text-violet-500 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
+                  查看方案 <ArrowUpRight className="w-3 h-3" />
+                </span>
+              </div>
+            </Link>
+            <Link
+              href="/editor?reviewId=review-5&role=business"
+              className="bg-white rounded-2xl border border-zinc-200/80 p-5 hover:border-violet-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-violet-50 border border-violet-100 flex items-center justify-center text-xl">
+                  📋
+                </div>
+                <div>
+                  <Badge variant="outline" className="text-[10px] h-5 gap-1 bg-violet-50 text-violet-600 border-violet-200 mb-1">
+                    <Bot className="w-3 h-3" />
+                    项目管理
+                  </Badge>
+                  <h3 className="text-sm font-bold text-zinc-900">App 改版项目管理</h3>
+                </div>
+              </div>
+              <p className="text-xs text-zinc-500 mt-3 leading-relaxed">
+                4 个阶段（需求对齐→开发跟进→测试验收→发布上线）。
+              </p>
+              <div className="flex items-center justify-between mt-3 pt-3 border-t border-zinc-100">
+                <span className="text-[11px] text-zinc-400">4 阶段 · 35天</span>
+                <span className="text-xs font-medium text-violet-500 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
+                  查看方案 <ArrowUpRight className="w-3 h-3" />
+                </span>
+              </div>
+            </Link>
+            <Link
+              href="/editor?reviewId=review-6&role=business"
+              className="bg-white rounded-2xl border border-zinc-200/80 p-5 hover:border-violet-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-violet-50 border border-violet-100 flex items-center justify-center text-xl">
+                  🎧
+                </div>
+                <div>
+                  <Badge variant="outline" className="text-[10px] h-5 gap-1 bg-violet-50 text-violet-600 border-violet-200 mb-1">
+                    <Bot className="w-3 h-3" />
+                    智能客服
+                  </Badge>
+                  <h3 className="text-sm font-bold text-zinc-900">智能客服系统</h3>
+                </div>
+              </div>
+              <p className="text-xs text-zinc-500 mt-3 leading-relaxed">
+                4 个阶段（知识库构建→FAQ试运行→复杂场景扩展→稳定运营）。
+              </p>
+              <div className="flex items-center justify-between mt-3 pt-3 border-t border-zinc-100">
+                <span className="text-[11px] text-zinc-400">4 阶段 · 90天</span>
+                <span className="text-xs font-medium text-violet-500 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
+                  查看方案 <ArrowUpRight className="w-3 h-3" />
+                </span>
+              </div>
+            </Link>
+            <Link
+              href="/editor?reviewId=review-7&role=business"
+              className="bg-white rounded-2xl border border-zinc-200/80 p-5 hover:border-violet-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-violet-50 border border-violet-100 flex items-center justify-center text-xl">
+                  👥
+                </div>
+                <div>
+                  <Badge variant="outline" className="text-[10px] h-5 gap-1 bg-violet-50 text-violet-600 border-violet-200 mb-1">
+                    <Bot className="w-3 h-3" />
+                    批量招聘
+                  </Badge>
+                  <h3 className="text-sm font-bold text-zinc-900">校招批量招聘</h3>
+                </div>
+                <p className="text-xs text-zinc-500 ml-auto leading-relaxed">
+                  4 个阶段（岗位发布→笔试初面→终面评估→Offer发放）
+                </p>
+              </div>
+              <div className="flex items-center justify-between mt-3 pt-3 border-t border-zinc-100">
+                <span className="text-[11px] text-zinc-400">4 阶段 · 45天 · 50人招聘</span>
+                <span className="text-xs font-medium text-violet-500 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
+                  查看方案 <ArrowUpRight className="w-3 h-3" />
+                </span>
+              </div>
+            </Link>
+            <Link
+              href="/editor?reviewId=review-8&role=business"
+              className="bg-white rounded-2xl border border-zinc-200/80 p-5 hover:border-violet-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-violet-50 border border-violet-100 flex items-center justify-center text-xl">
+                  🌐
+                </div>
+                <div>
+                  <Badge variant="outline" className="text-[10px] h-5 gap-1 bg-violet-50 text-violet-600 border-violet-200 mb-1">
+                    <Bot className="w-3 h-3" />
+                    矩阵运营
+                  </Badge>
+                  <h3 className="text-sm font-bold text-zinc-900">TikTok 矩阵账号运营</h3>
+                </div>
+                <p className="text-xs text-zinc-500 ml-auto leading-relaxed">
+                  4 个阶段（批量冷启动→数据分级→加速优化→稳态冲刺）
+                </p>
+              </div>
+              <div className="flex items-center justify-between mt-3 pt-3 border-t border-zinc-100">
+                <span className="text-[11px] text-zinc-400">4 阶段 · 90天 · 200个账号</span>
+                <span className="text-xs font-medium text-violet-500 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
+                  查看方案 <ArrowUpRight className="w-3 h-3" />
+                </span>
+              </div>
+            </Link>
           </div>
         </div>
 

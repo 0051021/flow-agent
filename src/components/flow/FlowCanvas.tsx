@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useEffect, useRef } from "react";
+import { useCallback, useMemo, useEffect, useRef, useState } from "react";
 import {
   ReactFlow,
   Background,
@@ -9,6 +9,7 @@ import {
   useNodesState,
   useEdgesState,
   addEdge,
+  reconnectEdge,
   applyNodeChanges,
   applyEdgeChanges,
   type Connection,
@@ -16,10 +17,12 @@ import {
   type Node,
   type NodeChange,
   type EdgeChange,
+  type ReactFlowInstance,
   BackgroundVariant,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import FlowCardNode from "./FlowCardNode";
+import EditableEdge from "./EditableEdge";
 import CanvasToolbar from "./CanvasToolbar";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useFlowAgentStore } from "@/lib/store";
@@ -41,16 +44,26 @@ export default function FlowCanvas() {
   const [edges, setEdges] = useEdgesState(storeEdges);
 
   const nodeTypes = useMemo(() => ({ flowCard: FlowCardNode }), []);
+  const edgeTypes = useMemo(() => ({ editable: EditableEdge }), []);
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rfInstanceRef = useRef<ReactFlowInstance<any, any> | null>(null);
   const prevStoreNodesRef = useRef(storeNodes);
   const prevStoreEdgesRef = useRef(storeEdges);
+  const prevNodeCountRef = useRef(storeNodes.length);
 
   useEffect(() => {
     if (storeNodes !== prevStoreNodesRef.current || storeEdges !== prevStoreEdgesRef.current) {
+      const wasEmpty = prevNodeCountRef.current === 0;
       setNodes(storeNodes as FlowNode[]);
       setEdges(storeEdges);
       prevStoreNodesRef.current = storeNodes;
       prevStoreEdgesRef.current = storeEdges;
+      prevNodeCountRef.current = storeNodes.length;
+
+      if (wasEmpty && storeNodes.length > 0 && rfInstanceRef.current) {
+        requestAnimationFrame(() => rfInstanceRef.current?.fitView({ padding: 0.3, duration: 300 }));
+      }
     }
   }, [storeNodes, storeEdges, setNodes, setEdges]);
 
@@ -75,12 +88,13 @@ export default function FlowCanvas() {
         );
 
         if (hasStructural || hasDragEnd) {
-          if (syncTimerRef.current) {
-            clearTimeout(syncTimerRef.current);
+          if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+          const snapshot = updated as Node<FlowNodeData>[];
+          syncTimerRef.current = setTimeout(() => {
             syncTimerRef.current = null;
-          }
-          prevStoreNodesRef.current = updated as Node<FlowNodeData>[];
-          setStoreNodes(updated as Node<FlowNodeData>[]);
+            prevStoreNodesRef.current = snapshot;
+            setStoreNodes(snapshot);
+          }, 200);
         }
 
         return updated;
@@ -88,6 +102,9 @@ export default function FlowCanvas() {
     },
     [setNodes, setStoreNodes]
   );
+
+  const edgeSyncRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => { return () => { if (edgeSyncRef.current) clearTimeout(edgeSyncRef.current); }; }, []);
 
   const handleEdgesChange = useCallback(
     (changes: EdgeChange[]) => {
@@ -97,8 +114,12 @@ export default function FlowCanvas() {
           (c) => c.type === "remove" || c.type === "add" || c.type === "replace"
         );
         if (hasStructural) {
-          prevStoreEdgesRef.current = updated;
-          setStoreEdges(updated);
+          if (edgeSyncRef.current) clearTimeout(edgeSyncRef.current);
+          edgeSyncRef.current = setTimeout(() => {
+            edgeSyncRef.current = null;
+            prevStoreEdgesRef.current = updated;
+            setStoreEdges(updated);
+          }, 200);
         }
         return updated;
       });
@@ -114,8 +135,20 @@ export default function FlowCanvas() {
           eds
         );
         prevStoreEdgesRef.current = newEdges;
-        setStoreEdges(newEdges);
+        setTimeout(() => setStoreEdges(newEdges), 0);
         return newEdges;
+      });
+    },
+    [setEdges, setStoreEdges]
+  );
+
+  const onReconnect = useCallback(
+    (oldEdge: Edge, newConnection: Connection) => {
+      setEdges((eds) => {
+        const updated = reconnectEdge(oldEdge, newConnection, eds);
+        prevStoreEdgesRef.current = updated;
+        setTimeout(() => setStoreEdges(updated), 0);
+        return updated;
       });
     },
     [setEdges, setStoreEdges]
@@ -127,6 +160,11 @@ export default function FlowCanvas() {
       setEditingNodeId(node.id);
     },
     [setSelectedNodeId, setEditingNodeId]
+  );
+
+  const styledEdges = useMemo(
+    () => edges.map((e) => ({ ...e, type: "editable" })),
+    [edges]
   );
 
   const isEmpty = nodes.length === 0;
@@ -146,22 +184,26 @@ export default function FlowCanvas() {
       )}
       <ReactFlow
         nodes={nodes}
-        edges={edges}
+        edges={styledEdges}
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
         onConnect={onConnect}
+        onReconnect={onReconnect}
         onNodeDoubleClick={onNodeDoubleClick}
+        onInit={(instance) => { rfInstanceRef.current = instance; }}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         fitView
         fitViewOptions={{ padding: 0.3 }}
         minZoom={0.2}
         maxZoom={1.5}
         defaultEdgeOptions={{
-          type: "smoothstep",
+          type: "editable",
           animated: true,
         }}
         proOptions={{ hideAttribution: true }}
         deleteKeyCode="Backspace"
+        edgesReconnectable
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#e4e4e7" />
         <Controls className="!bg-white !border-zinc-200 !shadow-sm" />

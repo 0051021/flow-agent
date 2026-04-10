@@ -72,13 +72,13 @@ export const MOCK_AGENTS: ConsoleAgent[] = [
     sceneId: "O-001",
     sceneName: "账号运营涨粉",
     taskType: "agentic",
-    status: "draft",
-    successRate: 0,
-    taskCount: 0,
-    avgDuration: "-",
-    version: "v0.1.0",
+    status: "running",
+    successRate: 82.5,
+    taskCount: 63,
+    avgDuration: "持续运行",
+    version: "v1.2.0",
     department: "市场部",
-    lastActiveAt: "-",
+    lastActiveAt: "3 分钟前",
     description: "制定并执行账号运营策略，提升粉丝数和互动率",
   },
 ];
@@ -92,6 +92,7 @@ export const MOCK_TASKS: ConsoleTask[] = [
     currentNode: "海关编码归类",
     progress: 65,
     status: "running",
+    taskType: "workflow",
     startedAt: "2026-04-02 14:20",
     duration: "6 分钟",
     description: "报关单 BG-2026-0392 处理",
@@ -104,6 +105,7 @@ export const MOCK_TASKS: ConsoleTask[] = [
     currentNode: "人工确认 · 海关编码",
     progress: 80,
     status: "pending_confirm",
+    taskType: "workflow",
     startedAt: "2026-04-02 13:57",
     duration: "23 分钟",
     priority: "high",
@@ -117,6 +119,7 @@ export const MOCK_TASKS: ConsoleTask[] = [
     currentNode: "人工确认 · 风险条款",
     progress: 90,
     status: "pending_confirm",
+    taskType: "workflow",
     startedAt: "2026-04-02 13:32",
     duration: "48 分钟",
     priority: "urgent",
@@ -130,6 +133,7 @@ export const MOCK_TASKS: ConsoleTask[] = [
     currentNode: "-",
     progress: 100,
     status: "completed",
+    taskType: "workflow",
     startedAt: "2026-04-02 13:10",
     completedAt: "2026-04-02 13:23",
     duration: "13 分钟",
@@ -143,6 +147,7 @@ export const MOCK_TASKS: ConsoleTask[] = [
     currentNode: "数据采集",
     progress: 35,
     status: "running",
+    taskType: "agentic",
     startedAt: "2026-04-02 12:42",
     duration: "1 小时 38 分钟",
     description: "竞品分析 · Q1 市场份额追踪",
@@ -155,6 +160,7 @@ export const MOCK_TASKS: ConsoleTask[] = [
     currentNode: "-",
     progress: 100,
     status: "completed",
+    taskType: "workflow",
     startedAt: "2026-04-02 14:00",
     completedAt: "2026-04-02 14:02",
     duration: "2 分钟",
@@ -168,6 +174,7 @@ export const MOCK_TASKS: ConsoleTask[] = [
     currentNode: "人工确认 · 超额审批",
     progress: 75,
     status: "pending_confirm",
+    taskType: "workflow",
     startedAt: "2026-04-02 13:12",
     duration: "1 小时 8 分钟",
     description: "报销单 #6104 · 培训费 ¥12,800",
@@ -180,9 +187,37 @@ export const MOCK_TASKS: ConsoleTask[] = [
     currentNode: "单据审核",
     progress: 25,
     status: "error",
+    taskType: "workflow",
     startedAt: "2026-04-02 14:15",
     duration: "5 分钟",
     description: "报关单 BG-2026-0380 处理",
+  },
+  {
+    id: "T-8001",
+    agentId: "agent-5",
+    agentName: "小红书运营 Agent",
+    agentIcon: "📱",
+    currentNode: "内容生成 · 第3条",
+    progress: 31,
+    status: "running",
+    taskType: "agentic",
+    startedAt: "2026-03-01 09:00",
+    duration: "32 天",
+    description: "小红书涨粉计划 · 目标5万粉丝",
+  },
+  {
+    id: "T-8002",
+    agentId: "agent-5",
+    agentName: "小红书运营 Agent",
+    agentIcon: "📱",
+    currentNode: "策略调整建议",
+    progress: 31,
+    status: "pending_confirm",
+    taskType: "agentic",
+    startedAt: "2026-03-01 09:00",
+    duration: "32 天",
+    priority: "high",
+    description: "小红书涨粉计划 · 周策略复盘",
   },
 ];
 
@@ -279,6 +314,118 @@ export const MOCK_TASK_EVENTS: Record<string, TaskEvent[]> = {
         riskLevel: "high",
         riskCount: 3,
       },
+    },
+  ],
+  "T-8001": [
+    { id: "xhs-1", taskId: "T-8001", type: "system" as const, content: "小红书运营 Agent 启动，目标：3个月涨粉5万", timestamp: "2026-03-01 09:00:00" },
+    { id: "xhs-2", taskId: "T-8001", type: "node_complete" as const, nodeName: "策略初始化", content: "初始策略 v1 生成完成：测评60% + 教程30% + 话题10%，每天3条", timestamp: "2026-03-01 09:02:00" },
+    { id: "xhs-3", taskId: "T-8001", type: "node_complete" as const, nodeName: "内容生成", content: "生成内容 #1：「油皮亲测！这款粉底液真的绝了」（美妆测评）", timestamp: "2026-03-01 10:00:00" },
+    { id: "xhs-4", taskId: "T-8001", type: "node_complete" as const, nodeName: "合规扫描", content: "合规扫描通过，未发现违规内容", timestamp: "2026-03-01 10:01:00" },
+    { id: "xhs-5", taskId: "T-8001", type: "node_complete" as const, nodeName: "内容发布", content: "内容 #1 发布成功，帖子ID: xhs-post-20260301-001", timestamp: "2026-03-01 10:02:00" },
+    { id: "xhs-6", taskId: "T-8001", type: "data_report" as const, nodeName: "日报", content: "3月1日日报：发布3条，涨粉+128，互动率4.2%", timestamp: "2026-03-01 23:00:00" },
+    { id: "xhs-7", taskId: "T-8001", type: "data_report" as const, nodeName: "周报", content: "第1周周报：发布21条，涨粉+892，互动率4.5%，测评类内容表现最佳（平均赞320）", timestamp: "2026-03-07 23:00:00" },
+    { id: "xhs-8", taskId: "T-8001", type: "milestone" as const, nodeName: "里程碑", content: "累计涨粉突破 1,000！距离目标 50,000 还需 49,000", timestamp: "2026-03-09 15:30:00" },
+    { id: "xhs-9", taskId: "T-8001", type: "ai_suggestion" as const, nodeName: "AI 建议", content: "测评类内容互动率持续领先（5.8% vs 教程3.2%），建议将测评比例从60%提升到70%，减少话题类内容", timestamp: "2026-03-14 23:00:00", details: { suggestion: "调整内容比例", currentRatio: "测评60% 教程30% 话题10%", suggestedRatio: "测评70% 教程25% 话题5%", reason: "测评类互动率5.8%远高于其他类型" } },
+    { id: "xhs-10", taskId: "T-8001", type: "human_confirm" as const, nodeName: "策略调整确认", content: "AI 建议调整内容方向比例，需要您确认是否采纳", timestamp: "2026-03-15 09:00:00", details: { type: "strategy_change", impact: "预计互动率提升15%" } },
+    { id: "xhs-11", taskId: "T-8001", type: "system" as const, content: "策略已更新至 v2：测评70% + 教程25% + 话题5%", timestamp: "2026-03-15 09:30:00" },
+    { id: "xhs-12", taskId: "T-8001", type: "milestone" as const, nodeName: "里程碑", content: "累计涨粉突破 5,000！增速提升中", timestamp: "2026-03-18 12:00:00" },
+    { id: "xhs-13", taskId: "T-8001", type: "data_report" as const, nodeName: "周报", content: "第3周周报：发布21条，涨粉+2,100，互动率5.3%（环比+18%），策略调整效果显著", timestamp: "2026-03-21 23:00:00" },
+    { id: "xhs-14", taskId: "T-8001", type: "node_error" as const, nodeName: "内容发布", content: "内容 #67 发布失败：平台限流，已自动重试", timestamp: "2026-03-25 12:05:00" },
+    { id: "xhs-15", taskId: "T-8001", type: "node_complete" as const, nodeName: "内容发布", content: "内容 #67 重试发布成功", timestamp: "2026-03-25 12:10:00" },
+    { id: "xhs-16", taskId: "T-8001", type: "ai_suggestion" as const, nodeName: "AI 建议", content: "发现视频内容在平台获得更多推荐流量，建议尝试增加短视频内容（当前全部为图文）", timestamp: "2026-03-28 23:00:00", details: { suggestion: "增加短视频", reason: "平台算法偏向视频内容，竞品视频平均播放量是图文的3倍" } },
+    { id: "xhs-17", taskId: "T-8001", type: "milestone" as const, nodeName: "里程碑", content: "累计涨粉突破 15,000！目标完成 30%", timestamp: "2026-03-31 18:00:00" },
+    { id: "xhs-18", taskId: "T-8001", type: "node_complete" as const, nodeName: "内容生成", content: "生成内容 #94：「5分钟通勤妆容教程」（穿搭教程）", timestamp: "2026-04-02 08:00:00" },
+    { id: "xhs-19", taskId: "T-8001", type: "node_complete" as const, nodeName: "合规扫描", content: "合规扫描通过", timestamp: "2026-04-02 08:01:00" },
+    { id: "xhs-20", taskId: "T-8001", type: "node_complete" as const, nodeName: "内容发布", content: "内容 #94 发布成功", timestamp: "2026-04-02 08:02:00" },
+  ],
+  "T-8002": [
+    { id: "xhs-r1", taskId: "T-8002", type: "data_report" as const, nodeName: "周报", content: "第4周周报摘要：\n涨粉+3,200（累计15,500/50,000）\n互动率5.1%\n测评类最佳（平均赞380）\n教程类次之（平均赞210）", timestamp: "2026-03-28 23:00:00" },
+    { id: "xhs-r2", taskId: "T-8002", type: "ai_suggestion" as const, nodeName: "AI 建议", content: "建议增加短视频内容类型，预计可提升30%曝光量。需要新增「短视频生成」Skill。", timestamp: "2026-03-29 09:00:00", details: { suggestion: "增加短视频Skill", impact: "预计曝光量+30%", cost: "需要新增Skill授权" } },
+    { id: "xhs-r3", taskId: "T-8002", type: "human_confirm" as const, nodeName: "策略调整确认", content: "AI 建议进行策略大调整（增加视频内容），需要您确认：\n1. 是否授权新增「短视频生成」Skill\n2. 是否将内容比例调整为：测评50% + 教程20% + 视频30%", timestamp: "2026-03-29 09:05:00", details: { type: "major_strategy_change" } },
+  ],
+};
+
+// Agentic dashboard mock data
+export interface AgenticDashboardData {
+  followerTrend: { date: string; count: number }[];
+  contentPerformance: { type: string; avgLikes: number; avgComments: number; count: number; rating: number }[];
+  weeklyGrowth: { week: string; followers: number; engagement: number }[];
+  goalProgress: { current: number; target: number; percentage: number };
+  weeklySummary: string;
+  aiSuggestions: { id: string; content: string; impact: string; status: "pending" | "accepted" | "rejected" }[];
+}
+
+export const MOCK_AGENTIC_DASHBOARD: Record<string, AgenticDashboardData> = {
+  "T-8001": {
+    followerTrend: [
+      { date: "3/1", count: 10000 }, { date: "3/5", count: 10450 },
+      { date: "3/10", count: 11200 }, { date: "3/15", count: 12500 },
+      { date: "3/20", count: 14100 }, { date: "3/25", count: 16800 },
+      { date: "3/30", count: 20200 }, { date: "4/2", count: 25500 },
+    ],
+    contentPerformance: [
+      { type: "美妆测评", avgLikes: 380, avgComments: 45, count: 42, rating: 4 },
+      { type: "穿搭教程", avgLikes: 210, avgComments: 28, count: 18, rating: 3 },
+      { type: "互动话题", avgLikes: 95, avgComments: 62, count: 6, rating: 2 },
+    ],
+    weeklyGrowth: [
+      { week: "第1周", followers: 892, engagement: 4.5 },
+      { week: "第2周", followers: 1350, engagement: 4.8 },
+      { week: "第3周", followers: 2100, engagement: 5.3 },
+      { week: "第4周", followers: 3200, engagement: 5.1 },
+      { week: "第5周(至今)", followers: 2958, engagement: 5.6 },
+    ],
+    goalProgress: { current: 15500, target: 50000, percentage: 31 },
+    weeklySummary: "本周涨粉+3,200，累计15,500/50,000（31%）。测评类内容持续表现最佳，策略调整后互动率环比提升18%。建议关注视频内容机会。",
+    aiSuggestions: [
+      { id: "sug-1", content: "增加短视频内容，预计曝光量提升30%", impact: "高", status: "pending" },
+      { id: "sug-2", content: "周三和周五发布效果最好，建议增加这两天的发布量", impact: "中", status: "accepted" },
+      { id: "sug-3", content: "话题类内容互动率低，建议降低比例至5%", impact: "中", status: "accepted" },
+    ],
+  },
+  "T-8002": {
+    followerTrend: [],
+    contentPerformance: [],
+    weeklyGrowth: [],
+    goalProgress: { current: 15500, target: 50000, percentage: 31 },
+    weeklySummary: "第4周复盘：涨粉+3,200，策略调整效果显著。AI建议增加视频内容，待确认。",
+    aiSuggestions: [
+      { id: "sug-4", content: "新增「短视频生成」Skill，开启视频内容线", impact: "高", status: "pending" },
+    ],
+  },
+};
+
+// Strategy evolution mock data
+export interface StrategyVersion {
+  version: string;
+  date: string;
+  summary: string;
+  changes: string[];
+  trigger: string;
+}
+
+export const MOCK_STRATEGY_EVOLUTION: Record<string, StrategyVersion[]> = {
+  "T-8001": [
+    {
+      version: "v1",
+      date: "3月1日",
+      summary: "初始方案",
+      changes: ["内容方向：测评60% + 教程30% + 话题10%", "发布节奏：每天3条", "目标：3个月涨粉5万"],
+      trigger: "用户创建",
+    },
+    {
+      version: "v2",
+      date: "3月15日",
+      summary: "调整内容比例",
+      changes: ["测评比例 60% → 70%", "话题比例 10% → 5%", "教程比例 30% → 25%"],
+      trigger: "数据驱动：测评类互动率5.8%远高于其他类型",
+    },
+    {
+      version: "v3(待确认)",
+      date: "3月29日",
+      summary: "增加视频内容",
+      changes: ["新增短视频内容线（30%）", "测评比例 70% → 50%", "新增「短视频生成」Skill"],
+      trigger: "AI建议：平台算法偏向视频，竞品视频播放量是图文3倍",
     },
   ],
 };

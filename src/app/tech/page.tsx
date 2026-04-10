@@ -10,7 +10,7 @@ import {
   Clock, AlertTriangle, CheckCircle2, FileText,
   ArrowUpRight, Eye, Search, TrendingUp,
 } from "lucide-react";
-import { MOCK_REVIEWS } from "@/lib/mock-reviews";
+import { getAllReviews } from "@/lib/mock-reviews";
 
 type ReviewStatus = "pending" | "reviewed" | "confirmed";
 
@@ -36,9 +36,10 @@ export default function TechLandingPage() {
   const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState("all");
 
+  const allReviews = getAllReviews();
   const currentFilter = FILTER_TABS.find((t) => t.id === activeFilter) || FILTER_TABS[0];
 
-  const filteredReviews = MOCK_REVIEWS.filter((item) => {
+  const filteredReviews = allReviews.filter((item) => {
     if (!currentFilter.filter(item.status as ReviewStatus)) return false;
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -47,9 +48,9 @@ export default function TechLandingPage() {
     return true;
   });
 
-  const pendingCount = MOCK_REVIEWS.filter((i) => i.status === "pending").length;
-  const reviewedCount = MOCK_REVIEWS.filter((i) => i.status === "reviewed").length;
-  const confirmedCount = MOCK_REVIEWS.filter((i) => i.status === "confirmed").length;
+  const pendingCount = allReviews.filter((i) => i.status === "pending").length;
+  const reviewedCount = allReviews.filter((i) => i.status === "reviewed").length;
+  const confirmedCount = allReviews.filter((i) => i.status === "confirmed").length;
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col">
@@ -135,7 +136,7 @@ export default function TechLandingPage() {
           </div>
           <div className="flex gap-1 p-1 bg-slate-900 rounded-lg border border-slate-800">
             {FILTER_TABS.map((tab) => {
-              const count = MOCK_REVIEWS.filter((i) => tab.filter(i.status as ReviewStatus)).length;
+              const count = allReviews.filter((i) => tab.filter(i.status as ReviewStatus)).length;
               return (
                 <button
                   key={tab.id}
@@ -167,9 +168,9 @@ export default function TechLandingPage() {
           ) : (
             <div className="space-y-3">
               {filteredReviews.map((item) => {
-                const sc = STATUS_CONFIG[item.status as ReviewStatus];
+                const sc = STATUS_CONFIG[item.status as ReviewStatus] ?? STATUS_CONFIG.pending;
                 const StatusIcon = sc.icon;
-                const typeBadge = TYPE_BADGE[item.type as keyof typeof TYPE_BADGE];
+                const typeBadge = TYPE_BADGE[item.type as keyof typeof TYPE_BADGE] ?? TYPE_BADGE.workflow;
                 return (
                   <Link
                     key={item.id}

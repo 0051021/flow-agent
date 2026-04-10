@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { toast } from "sonner";
 import { useFlowAgentStore } from "@/lib/store";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
-import type { FlowNodeData, FlowNodeInput, FlowNodeOutput, NodeExecutionMode } from "@/lib/types";
+import type { FlowNodeData, FlowNodeInput, FlowNodeOutput, NodeExecutionMode, ConfirmStrategy, ConfirmStrategyConfig, ExecutionRule } from "@/lib/types";
 import {
   FileText, RotateCcw, UserCheck, SkipForward,
   OctagonX, Settings, X, Bot, User as UserIcon,
@@ -119,8 +119,161 @@ const EXEC_MODES: { value: NodeExecutionMode; label: string; icon: React.Compone
   { value: "human_manual", label: "人工操作", icon: UserIcon },
 ];
 
+const CONFIRM_STRATEGIES: { value: ConfirmStrategy; label: string; desc: string; icon: string }[] = [
+  { value: "always", label: "每次确认", desc: "所有执行都需人工确认", icon: "🔒" },
+  { value: "threshold", label: "置信度", desc: "AI 置信度低于阈值时确认", icon: "📊" },
+  { value: "sampling", label: "抽检", desc: "按比例随机抽检", icon: "🎲" },
+  { value: "rule_based", label: "规则触发", desc: "满足特定条件时确认", icon: "📋" },
+  { value: "combined", label: "组合策略", desc: "多种策略组合使用", icon: "🔗" },
+];
+
+function ConfirmStrategyPanel({ config, editable, onChange }: {
+  config: ConfirmStrategyConfig;
+  editable: boolean;
+  onChange: (cfg: ConfirmStrategyConfig) => void;
+}) {
+  const activeStrategy = CONFIRM_STRATEGIES.find((s) => s.value === config.strategy) || CONFIRM_STRATEGIES[0];
+
+  return (
+    <div className="pt-2 border-t border-dashed border-zinc-200">
+      <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider mb-1.5">确认策略</p>
+      {editable ? (
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-1">
+            {CONFIRM_STRATEGIES.map((s) => (
+              <button
+                key={s.value}
+                onClick={() => onChange({ ...config, strategy: s.value })}
+                className={`flex items-center gap-1 px-2 py-1 rounded-md border text-[10px] transition-all ${
+                  config.strategy === s.value
+                    ? "border-amber-400 bg-amber-50 text-amber-700"
+                    : "border-zinc-200 text-zinc-500 hover:border-zinc-300"
+                }`}
+              >
+                <span>{s.icon}</span>
+                {s.label}
+              </button>
+            ))}
+          </div>
+
+          {config.strategy === "threshold" && (
+            <div className="flex items-center gap-2 pl-1">
+              <span className="text-[10px] text-zinc-500">置信度 &lt;</span>
+              <Input
+                type="number"
+                value={config.threshold ?? 95}
+                onChange={(e) => onChange({ ...config, threshold: Number(e.target.value) })}
+                className="text-xs h-6 w-16"
+                min={0}
+                max={100}
+              />
+              <span className="text-[10px] text-zinc-500">% 时需确认</span>
+            </div>
+          )}
+
+          {config.strategy === "sampling" && (
+            <div className="flex items-center gap-2 pl-1">
+              <span className="text-[10px] text-zinc-500">每</span>
+              <Input
+                type="number"
+                value={config.samplingRate ? Math.round(1 / config.samplingRate) : 20}
+                onChange={(e) => onChange({ ...config, samplingRate: 1 / Math.max(1, Number(e.target.value)) })}
+                className="text-xs h-6 w-14"
+                min={1}
+              />
+              <span className="text-[10px] text-zinc-500">份抽检 1 份</span>
+            </div>
+          )}
+
+          {config.strategy === "rule_based" && (
+            <div className="pl-1 space-y-1">
+              <p className="text-[10px] text-zinc-500">触发规则：</p>
+              {(config.rules || ["VIP 客户", "金额 > 10万"]).map((rule, i) => (
+                <div key={i} className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-amber-500">•</span>
+                  <span className="text-[10px] text-zinc-600">{rule}</span>
+                </div>
+              ))}
+              <button className="text-[10px] text-blue-500 hover:text-blue-600">+ 添加规则</button>
+            </div>
+          )}
+
+          {config.strategy === "combined" && (
+            <div className="pl-1 space-y-1 text-[10px] text-zinc-500">
+              <div className="flex items-center gap-1.5">
+                <span className="text-amber-500">•</span>
+                <span>置信度 &lt; {config.threshold ?? 95}% → 确认</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-amber-500">•</span>
+                <span>VIP 客户 → 确认</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-amber-500">•</span>
+                <span>其余按 {config.samplingRate ? `${Math.round(config.samplingRate * 100)}%` : "5%"} 抽检</span>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs">{activeStrategy.icon}</span>
+          <span className="text-xs text-zinc-700">{activeStrategy.label}</span>
+          <span className="text-[10px] text-zinc-400">— {activeStrategy.desc}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const MIN_HEIGHT = 180;
+const DEFAULT_HEIGHT = 300;
+const MAX_HEIGHT_RATIO = 0.75;
+
 export default function NodeDetailPanel() {
   const { selectedNodeId, nodes, viewMode, currentRole, setSelectedNodeId, updateNodeData, setEditingNodeId } = useFlowAgentStore();
+
+  const [panelHeight, setPanelHeight] = useState(DEFAULT_HEIGHT);
+  const isDragging = useRef(false);
+  const startY = useRef(0);
+  const startH = useRef(0);
+
+  const onDragStart = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    isDragging.current = true;
+    const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
+    startY.current = clientY;
+    startH.current = panelHeight;
+    document.body.style.cursor = "row-resize";
+    document.body.style.userSelect = "none";
+  }, [panelHeight]);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent | TouchEvent) => {
+      if (!isDragging.current) return;
+      const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
+      const delta = startY.current - clientY;
+      const maxH = window.innerHeight * MAX_HEIGHT_RATIO;
+      const next = Math.min(maxH, Math.max(MIN_HEIGHT, startH.current + delta));
+      setPanelHeight(next);
+    };
+    const onUp = () => {
+      if (!isDragging.current) return;
+      isDragging.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    window.addEventListener("touchmove", onMove, { passive: false });
+    window.addEventListener("touchend", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("touchmove", onMove);
+      window.removeEventListener("touchend", onUp);
+    };
+  }, []);
 
   if (!selectedNodeId) return null;
 
@@ -182,7 +335,15 @@ export default function NodeDetailPanel() {
   };
 
   return (
-    <div className="border-t border-zinc-200 bg-white">
+    <div className="border-t border-zinc-200 bg-white flex flex-col" style={{ height: panelHeight, minHeight: MIN_HEIGHT }}>
+      {/* Drag handle */}
+      <div
+        onMouseDown={onDragStart}
+        onTouchStart={onDragStart}
+        className="flex items-center justify-center h-3 cursor-row-resize group hover:bg-zinc-100 transition-colors shrink-0"
+      >
+        <div className="w-8 h-1 rounded-full bg-zinc-300 group-hover:bg-zinc-400 transition-colors" />
+      </div>
       <div className="flex items-center justify-between px-4 py-2 border-b border-zinc-100">
         <div className="flex items-center gap-2">
           <span className="text-sm">📌</span>
@@ -217,7 +378,7 @@ export default function NodeDetailPanel() {
         </div>
       </div>
 
-      <Tabs defaultValue="basic" className="w-full">
+      <Tabs defaultValue="basic" className="w-full flex-1 flex flex-col min-h-0">
         <TabsList className="w-full justify-start px-4 h-9 bg-zinc-50 rounded-none border-b border-zinc-100">
           <TabsTrigger value="basic" className="text-xs h-7">📝 基本信息</TabsTrigger>
           <TabsTrigger value="io" className="text-xs h-7">📥 输入输出</TabsTrigger>
@@ -227,7 +388,7 @@ export default function NodeDetailPanel() {
           )}
         </TabsList>
 
-        <ScrollArea className="h-[220px]">
+        <ScrollArea className="flex-1 min-h-0">
           {/* === 基本信息 === */}
           <TabsContent value="basic" className="px-4 py-3 mt-0 space-y-3">
             <div>
@@ -289,6 +450,100 @@ export default function NodeDetailPanel() {
                 )}
               </div>
             </div>
+
+            {/* 执行规则 */}
+            {((data.executionRules && data.executionRules.length > 0) || canEditBusiness) && (
+              <div className="pt-2 border-t border-dashed border-zinc-200">
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider">执行规则</p>
+                  {canEditBusiness && (
+                    <button
+                      onClick={() => {
+                        const newRules: ExecutionRule[] = [
+                          ...(data.executionRules || []),
+                          { rule: "", detail: "", source: "user_confirmed" },
+                        ];
+                        updateField("executionRules", newRules);
+                      }}
+                      className="flex items-center gap-1 text-[10px] text-blue-600 hover:text-blue-700"
+                    >
+                      <Plus className="w-3 h-3" /> 添加
+                    </button>
+                  )}
+                </div>
+                {(!data.executionRules || data.executionRules.length === 0) ? (
+                  <p className="text-[11px] text-zinc-400 text-center py-2 bg-zinc-50 rounded-lg">
+                    暂无执行规则{canEditBusiness ? "，点击上方「添加」" : ""}
+                  </p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {data.executionRules.map((r, idx) => (
+                      <div key={idx} className="p-2 rounded-lg border border-zinc-100 bg-zinc-50 group">
+                        <div className="flex items-start gap-2">
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 mt-0.5 ${
+                            r.source === "user_confirmed"
+                              ? "bg-green-50 text-green-600 border border-green-200"
+                              : "bg-blue-50 text-blue-500 border border-blue-200"
+                          }`}>
+                            {r.source === "user_confirmed" ? "用户确认" : "AI 推断"}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            {canEditBusiness ? (
+                              <div className="space-y-1">
+                                <Input
+                                  value={r.rule}
+                                  onChange={(e) => {
+                                    const newRules = [...(data.executionRules || [])];
+                                    newRules[idx] = { ...newRules[idx], rule: e.target.value };
+                                    updateField("executionRules", newRules);
+                                  }}
+                                  className="text-xs h-6 bg-white font-medium"
+                                  placeholder="规则名称（如：文件名容错）"
+                                />
+                                <Input
+                                  value={r.detail}
+                                  onChange={(e) => {
+                                    const newRules = [...(data.executionRules || [])];
+                                    newRules[idx] = { ...newRules[idx], detail: e.target.value };
+                                    updateField("executionRules", newRules);
+                                  }}
+                                  className="text-xs h-6 bg-white"
+                                  placeholder="具体处理方式"
+                                />
+                              </div>
+                            ) : (
+                              <>
+                                <p className="text-xs font-medium text-zinc-700">{r.rule}</p>
+                                <p className="text-[11px] text-zinc-500 mt-0.5">{r.detail}</p>
+                              </>
+                            )}
+                          </div>
+                          {canEditBusiness && (
+                            <button
+                              onClick={() => {
+                                const newRules = (data.executionRules || []).filter((_, i) => i !== idx);
+                                updateField("executionRules", newRules);
+                              }}
+                              className="p-0.5 text-zinc-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {data.executionMode === "human_confirm" && (
+              <ConfirmStrategyPanel
+                config={data.confirmStrategy || { strategy: "always" }}
+                editable={canEditBusiness}
+                onChange={(cfg) => updateField("confirmStrategy", cfg)}
+              />
+            )}
           </TabsContent>
 
           {/* === 输入输出 === */}

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Bot, Send, User, Sparkles, Loader2, RotateCcw } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
 import { parseLLMResponse, serializeFlowForLLM } from "@/lib/flow-parser";
+import { generateDemoFlow } from "@/lib/mock-data";
 import NodeQuestionPage, { CompletionCard } from "./QuestionCard";
 import AgenticConfirmCard from "./AgenticConfirmCard";
 import type { NodeConfidence } from "@/lib/store";
@@ -27,12 +28,14 @@ export default function ChatPanel() {
     agenticConfirmIdx, setAgenticConfirmIdx,
     setCollectedAnswers,
     setInitialSnapshot, setAllNodeConfidence, setDeferredNodeIds,
+    showNodeQuestions, selectedNodeId, allNodeConfidence,
   } = useFlowAgentStore();
   const [input, setInput] = useState("");
   const [showCompletion, setShowCompletion] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const initTriggered = useRef(false);
+  const inFlightRef = useRef(false);
 
   const hasFlow = nodes.length > 0;
   const hasAgenticConfig = agenticConfig !== null;
@@ -40,29 +43,41 @@ export default function ChatPanel() {
     "classifying", "drafting", "refining_node", "refining",
     "drafting_agentic", "refining_agentic",
   ].includes(phase);
-  const hasPendingQuestions = phase === "questioning" && pendingNodes.length > 0;
+  const hasPendingQuestions = pendingNodes.length > 0 && phase === "ready";
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [chatMessages.length, isLoading, hasPendingQuestions, showCompletion]);
+  }, [chatMessages.length, isLoading, hasPendingQuestions, showCompletion, showNodeQuestions]);
 
   useEffect(() => {
-    const { initQuery } = useFlowAgentStore.getState();
-    if (initQuery && !initTriggered.current && phase === "idle") {
-      initTriggered.current = true;
-      useFlowAgentStore.getState().setInitQuery(null);
-      triggerUnifiedDraft(initQuery);
-    }
+    const tryInit = () => {
+      const s = useFlowAgentStore.getState();
+      const q = s.initQuery;
+      if (q && !initTriggered.current && s.chatPhase === "idle") {
+        initTriggered.current = true;
+        s.setInitQuery(null);
+        triggerUnifiedDraft(q);
+      }
+    };
+    tryInit();
+    const unsub = useFlowAgentStore.subscribe((state) => {
+      if (state.initQuery && !initTriggered.current) {
+        tryInit();
+      }
+    });
+    return () => unsub();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatMessages.length]);
+  }, []);
 
   // ============================================================
   // Phase 0+1: Unified draft (classify + draft in one LLM call)
   // ============================================================
 
   const triggerUnifiedDraft = useCallback(async (prompt: string) => {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
     setPhase("drafting");
     setOriginalPrompt(prompt);
     setPendingNodes([]);
@@ -78,6 +93,7 @@ export default function ChatPanel() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt, action: "unified_draft" }),
+        signal: AbortSignal.timeout(180000),
       });
       const result = await res.json();
 
@@ -92,52 +108,92 @@ export default function ChatPanel() {
         return;
       }
 
-      const rawType = result.taskType as "workflow" | "agentic" | "hybrid";
-      const isHybrid = rawType === "hybrid";
-      const effectiveType: "workflow" | "agentic" = rawType === "agentic" ? "agentic" : "workflow";
+      const rawType = result.taskType as string;
+      let effectiveType: "workflow" | "agentic" = rawType === "agentic" ? "agentic" : "workflow";
+
+      if (effectiveType === "workflow" && result.data && !result.data.nodes && result.data.phases) {
+        effectiveType = "agentic";
+      }
       setTaskType(effectiveType);
 
       const typeLabels: Record<string, string> = {
         workflow: "工作流（Workflow）",
         agentic: "智能体（Agentic）",
-        hybrid: "混合型（Hybrid）",
       };
-      const hybridNote = isHybrid
-        ? "\n\n> 检测到混合型场景，当前先以工作流模式呈现。"
-        : "";
 
       addChatMessage({
         id: uuidv4(),
         role: "assistant",
-        content: `判断为 **${typeLabels[rawType]}** 类型。${result.classifyReason || ""}${hybridNote}`,
+        content: `判断为 **${typeLabels[effectiveType]}** 类型。${result.classifyReason || ""}`,
         timestamp: new Date().toISOString(),
       });
 
-      if (effectiveType === "agentic") {
-        handleAgenticResult(result, prompt);
-      } else {
-        handleWorkflowResult(result);
+      try {
+        if (effectiveType === "agentic") {
+          handleAgenticResult(result, prompt);
+        } else {
+          handleWorkflowResult(result);
+        }
+      } catch (parseErr) {
+        console.error("Failed to parse AI result:", parseErr);
+        setPhase("idle");
+        addChatMessage({
+          id: uuidv4(),
+          role: "assistant",
+          content: `AI 返回了结果但解析失败，请重试。${parseErr instanceof Error ? parseErr.message : ""}`,
+          timestamp: new Date().toISOString(),
+        });
+        return;
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "网络错误";
-      toast.error("生成失败", { description: msg });
-      addChatMessage({
-        id: uuidv4(),
-        role: "assistant",
-        content: `请求出错：${msg}`,
-        timestamp: new Date().toISOString(),
-      });
-      setPhase("idle");
+      const raw = err instanceof Error ? err.message : "网络错误";
+      const isAbort = raw.includes("aborted") || raw.includes("AbortError");
+      const msg = isAbort ? "AI 生成超时，请稍后重试（复杂需求可能需要更长时间）" : raw;
+
+      const storeType = useFlowAgentStore.getState().taskType;
+      const hasAgConfig = useFlowAgentStore.getState().agenticConfig !== null;
+      if (storeType === "agentic" || hasAgConfig) {
+        toast.error("Agentic 方案生成失败", { description: msg });
+        addChatMessage({
+          id: uuidv4(),
+          role: "assistant",
+          content: `Agentic 方案生成出错（${msg}）。请重新描述你的需求，或者查看预置的示例方案。`,
+          timestamp: new Date().toISOString(),
+        });
+        setPhase("idle");
+      } else {
+        toast.error("生成失败，已加载离线演示数据", { description: msg });
+        const demo = generateDemoFlow();
+        loadGeneratedFlow(demo.nodes, demo.edges);
+        setInitialSnapshot({ nodes: demo.nodes, edges: demo.edges });
+        setTaskType("workflow");
+        useFlowAgentStore.setState((s) => ({
+          project: { ...s.project, name: "小红书账号运营（离线演示）" },
+        }));
+        addChatMessage({
+          id: uuidv4(),
+          role: "assistant",
+          content: `AI 服务暂时不可用（${msg}），已加载离线演示流程图。你可以在画布上查看和编辑。`,
+          timestamp: new Date().toISOString(),
+        });
+        setPhase("ready");
+      }
+    } finally {
+      inFlightRef.current = false;
     }
-  }, [addChatMessage, setPhase, setOriginalPrompt, setTaskType, setPendingNodes, setCurrentNodeIdx, setCollectedAnswers, setInitialSnapshot, setAllNodeConfidence, setDeferredNodeIds]);
+  }, [addChatMessage, loadGeneratedFlow, setPhase, setOriginalPrompt, setTaskType, setPendingNodes, setCurrentNodeIdx, setCollectedAnswers, setInitialSnapshot, setAllNodeConfidence, setDeferredNodeIds]);
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const handleWorkflowResult = useCallback((result: Record<string, any>) => {
     const data = result.data;
-    if (!data) { setPhase("idle"); return; }
+    if (!data || !data.nodes || !Array.isArray(data.nodes)) { setPhase("idle"); return; }
+
+    console.log("[FlowAgent] raw edges from API:", JSON.stringify(data.edges?.length ?? "missing"), data.edges?.slice?.(0, 2));
 
     const { projectName, nodes: parsedNodes, edges: parsedEdges } =
       parseLLMResponse(data);
+
+    console.log("[FlowAgent] parsed edges:", parsedEdges.length, "nodes:", parsedNodes.length);
 
     loadGeneratedFlow(parsedNodes, parsedEdges);
     setInitialSnapshot({ nodes: parsedNodes, edges: parsedEdges });
@@ -151,39 +207,46 @@ export default function ChatPanel() {
     }
     setNodeLabelMap(labelMap);
 
-    const allNodeConf: NodeConfidence[] = (result.nodeConfidence as NodeConfidence[]) || [];
+    const allNodeConf: NodeConfidence[] = ((result.nodeConfidence as NodeConfidence[]) || []).map((nc) => ({
+      ...nc,
+      questions: nc.questions || [],
+    }));
     setAllNodeConfidence(allNodeConf);
     const needConfirm = allNodeConf.filter(
       (nc) => nc.confidence !== "high" && nc.questions.length > 0
     );
-    const autoSkipped = allNodeConf.length - needConfirm.length;
+
+    useFlowAgentStore.setState({
+      pendingNodes: needConfirm,
+      currentNodeIdx: 0,
+    });
 
     if (needConfirm.length > 0) {
-      const skippedMsg = autoSkipped > 0
-        ? `（${autoSkipped} 个节点已自动确认）`
-        : "";
-
-      useFlowAgentStore.setState({
-        pendingNodes: needConfirm,
-        currentNodeIdx: 0,
-        chatPhase: "questioning",
-      });
+      const lowNodes = needConfirm.filter((nc) => nc.confidence === "low");
+      const medNodes = needConfirm.filter((nc) => nc.confidence === "medium");
+      const summaryParts: string[] = [];
+      if (lowNodes.length > 0) {
+        summaryParts.push(`🔴 ${lowNodes.length} 个节点信息不足（${lowNodes.map((n) => labelMap[n.nodeId] || n.nodeId).join("、")}）`);
+      }
+      if (medNodes.length > 0) {
+        summaryParts.push(`🟡 ${medNodes.length} 个节点需确认细节（${medNodes.map((n) => labelMap[n.nodeId] || n.nodeId).join("、")}）`);
+      }
 
       addChatMessage({
         id: uuidv4(),
         role: "assistant",
-        content: `已生成「${projectName}」草稿，共 ${allNodeConf.length} 个节点。${skippedMsg}\n\n有 ${needConfirm.length} 个节点需要确认细节：`,
+        content: `已生成「${projectName}」流程图，共 ${parsedNodes.length} 个节点。\n\n${summaryParts.join("\n")}\n\n> 画布上带标记的节点可以点击查看详情。你也可以直接告诉我需要修改的地方。`,
         timestamp: new Date().toISOString(),
       });
     } else {
-      setPhase("ready");
       addChatMessage({
         id: uuidv4(),
         role: "assistant",
-        content: `已生成「${projectName}」流程图，所有节点信息都比较完整。你可以在画布上调整，或告诉我哪里需要修改。`,
+        content: `已生成「${projectName}」流程图，共 ${parsedNodes.length} 个节点，所有节点信息都比较完整。你可以在画布上调整，或告诉我哪里需要修改。`,
         timestamp: new Date().toISOString(),
       });
     }
+    setPhase("ready");
   }, [addChatMessage, loadGeneratedFlow, setPhase, setNodeLabelMap, setInitialSnapshot, setAllNodeConfidence]);
 
   const handleAgenticResult = useCallback((result: Record<string, any>, prompt: string) => {
@@ -191,15 +254,43 @@ export default function ChatPanel() {
     /* eslint-enable @typescript-eslint/no-explicit-any */
     if (!data) { setPhase("idle"); return; }
 
+    const phases = (data.phases || []).map((p: Record<string, unknown>, i: number) => ({
+      id: (p.id as string) || `phase-${i + 1}`,
+      name: (p.name as string) || `阶段 ${i + 1}`,
+      dayRange: (p.dayRange as [number, number]) || [1, 7],
+      status: "pending" as const,
+      actions: (p.actions as string[]) || [],
+      successCriteria: (p.successCriteria as AgenticTaskConfig["phases"][0]["successCriteria"]) || { good: "", warning: "", bad: "" },
+      exitCondition: (p.exitCondition as string) || "",
+      requiresApproval: (p.requiresApproval as boolean) || false,
+      approvalDescription: (p.approvalDescription as string) || undefined,
+      questions: (p.questions as AgenticTaskConfig["phases"][0]["questions"]) || [],
+      requiredCapabilities: (p.requiredCapabilities as string[]) || [],
+    }));
+
     const config: AgenticTaskConfig = {
       goal: (data.goal as string) || "",
       background: (data.background as string) || "",
+      totalDays: (data.totalDays as number) || 90,
+      phases,
+      globalSuccessCriteria: (data.globalSuccessCriteria as string) || "",
+      approvalPoints: (data.approvalPoints as string[]) || [],
+      fallbacks: (data.fallbacks as AgenticTaskConfig["fallbacks"]) || [],
       constraints: (data.constraints as AgenticTaskConfig["constraints"]) || [],
       skills: (data.skills as AgenticTaskConfig["skills"]) || [],
       evaluators: (data.evaluators as AgenticTaskConfig["evaluators"]) || [],
       executionStrategy: (data.executionStrategy as AgenticTaskConfig["executionStrategy"]) || "adaptive",
       maxIterations: (data.maxIterations as number) || 5,
       humanCheckpoints: (data.humanCheckpoints as string[]) || [],
+      goalMetrics: data.goalMetrics || undefined,
+      executionRules: data.executionRules || undefined,
+      permissions: data.permissions || undefined,
+      reporting: data.reporting || undefined,
+      contentPreview: data.contentPreview || undefined,
+      estimatedDuration: data.estimatedDuration || undefined,
+      estimatedEfficiency: data.estimatedEfficiency || undefined,
+      executionOverview: data.executionOverview || undefined,
+      riskAssessment: data.riskAssessment || undefined,
     };
 
     setAgenticConfig(config);
@@ -211,31 +302,17 @@ export default function ChatPanel() {
       }));
     }
 
-    const skillNames = config.skills.map((s) => s.name).join("、");
-    const confirmItems: AgenticConfirmItem[] = (result.confirmItems as AgenticConfirmItem[]) || [];
+    const goalText = config.goalMetrics?.core || config.goal;
+    const phaseCount = phases.length;
+    const needQuestionCount = phases.filter((p: { questions?: unknown[] }) => p.questions && p.questions.length > 0).length;
 
-    if (confirmItems.length > 0) {
-      setAgenticConfirmItems(confirmItems);
-      setAgenticConfirmIdx(0);
-
-      addChatMessage({
-        id: uuidv4(),
-        role: "assistant",
-        content: `已生成「${pName || "Agent 任务"}」配置草稿：\n\n**目标**：${config.goal}\n**技能**：${skillNames}\n\n有 ${confirmItems.length} 个细节需要确认：`,
-        timestamp: new Date().toISOString(),
-      });
-
-      setPhase("confirming_agentic");
-    } else {
-      addChatMessage({
-        id: uuidv4(),
-        role: "assistant",
-        content: `已生成「${pName || "Agent 任务"}」配置方案：\n\n**目标**：${config.goal}\n**技能**：${skillNames}\n\n请在右侧面板查看详细配置。`,
-        timestamp: new Date().toISOString(),
-      });
-
-      setPhase("agentic_ready");
-    }
+    addChatMessage({
+      id: uuidv4(),
+      role: "assistant",
+      content: `已生成「${pName || "Agent 任务"}」阶段方案：\n\n**目标**：${goalText}\n**周期**：${config.totalDays} 天，${phaseCount} 个阶段\n\n${needQuestionCount > 0 ? `有 ${needQuestionCount} 个阶段包含追问，请在右侧画布逐阶段确认。` : "请在右侧画布查看阶段详情并确认。"}`,
+      timestamp: new Date().toISOString(),
+    });
+    setPhase("agentic_ready");
   }, [addChatMessage, setPhase, setAgenticConfig, setAgenticConfirmItems, setAgenticConfirmIdx]);
 
   // ============================================================
@@ -286,6 +363,7 @@ export default function ChatPanel() {
             currentFlow: canvasJson,
             nodeAnswers,
           }),
+          signal: AbortSignal.timeout(180000),
         });
         const result = await res.json();
 
@@ -305,6 +383,16 @@ export default function ChatPanel() {
           }
           setNodeLabelMap(newLabelMap);
 
+          const confirmedIds = new Set(Object.keys(collected));
+          const { allNodeConfidence: prevConf } = useFlowAgentStore.getState();
+          setAllNodeConfidence(
+            prevConf.map((nc) =>
+              confirmedIds.has(nc.nodeId)
+                ? { ...nc, confidence: "high" as const, questions: [] }
+                : nc
+            )
+          );
+
           addChatMessage({
             id: uuidv4(),
             role: "assistant",
@@ -319,20 +407,20 @@ export default function ChatPanel() {
             timestamp: new Date().toISOString(),
           });
         }
+        setShowCompletion(true);
+        setPhase("ready");
+        useFlowAgentStore.setState({ pendingNodes: [], currentNodeIdx: 0 });
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "网络错误";
         toast.error("优化失败", { description: msg });
         addChatMessage({
           id: uuidv4(),
           role: "assistant",
-          content: `优化请求出错：${msg}，流程图保持不变。`,
+          content: `优化请求出错：${msg}，流程图保持不变。你可以重新提交确认或继续编辑。`,
           timestamp: new Date().toISOString(),
         });
+        setPhase("ready");
       }
-
-      setShowCompletion(true);
-      setPhase("ready");
-      useFlowAgentStore.setState({ pendingNodes: [], currentNodeIdx: 0 });
     },
     [addChatMessage, loadGeneratedFlow, setPhase, setNodeLabelMap]
   );
@@ -386,7 +474,7 @@ export default function ChatPanel() {
   }, [addChatMessage, setPhase, setAgenticConfirmItems, setAgenticConfirmIdx]);
 
   const handleAgenticConfirm = useCallback((answer: string) => {
-    const { agenticConfirmItems: items, agenticConfirmIdx: idx } = useFlowAgentStore.getState();
+    const { agenticConfirmItems: items, agenticConfirmIdx: idx, agenticConfig: config } = useFlowAgentStore.getState();
     const item = items[idx];
     if (!item) return;
 
@@ -398,13 +486,61 @@ export default function ChatPanel() {
       timestamp: new Date().toISOString(),
     });
 
+    if (config) {
+      const updated = { ...config };
+      switch (item.section) {
+        case "goal":
+          updated.goal = `${config.goal}（用户补充：${answer}）`;
+          break;
+        case "skills": {
+          const skillIdx = config.skills.findIndex((s) =>
+            item.question.includes(s.name)
+          );
+          if (skillIdx >= 0) {
+            updated.skills = config.skills.map((s, i) =>
+              i === skillIdx ? { ...s, description: `${s.description}（${answer}）` } : s
+            );
+          }
+          break;
+        }
+        case "constraints": {
+          const cIdx = config.constraints.findIndex((c) =>
+            item.question.includes(c.description)
+          );
+          if (cIdx >= 0) {
+            updated.constraints = config.constraints.map((c, i) =>
+              i === cIdx ? { ...c, value: answer } : c
+            );
+          } else {
+            updated.constraints = [
+              ...config.constraints,
+              { id: `c-user-${Date.now()}`, type: "custom", description: answer },
+            ];
+          }
+          break;
+        }
+        case "evaluators": {
+          const eIdx = config.evaluators.findIndex((e) =>
+            item.question.includes(e.name)
+          );
+          if (eIdx >= 0) {
+            updated.evaluators = config.evaluators.map((e, i) =>
+              i === eIdx ? { ...e, description: `${e.description}（${answer}）` } : e
+            );
+          }
+          break;
+        }
+      }
+      setAgenticConfig(updated);
+    }
+
     const nextIdx = idx + 1;
     if (nextIdx < items.length) {
       setAgenticConfirmIdx(nextIdx);
     } else {
       finishAgenticConfirm();
     }
-  }, [addChatMessage, setAgenticConfirmIdx, finishAgenticConfirm]);
+  }, [addChatMessage, setAgenticConfirmIdx, setAgenticConfig, finishAgenticConfirm]);
 
   const handleAgenticSkipConfirm = useCallback(() => {
     const { agenticConfirmItems: items, agenticConfirmIdx: idx } = useFlowAgentStore.getState();
@@ -453,7 +589,7 @@ export default function ChatPanel() {
       }
 
       // Workflow refine
-      if (taskType === "workflow" && hasFlow && phase === "ready") {
+      if (taskType === "workflow" && hasFlow && (phase === "ready" || phase === "questioning")) {
         setPhase("refining");
         const { nodes: currentNodes, edges: currentEdges } =
           useFlowAgentStore.getState();
@@ -468,6 +604,7 @@ export default function ChatPanel() {
             currentFlow: canvasJson,
             feedback: userInput,
           }),
+          signal: AbortSignal.timeout(180000),
         });
         const result = await res.json();
 
@@ -522,19 +659,39 @@ export default function ChatPanel() {
             currentConfig: agenticConfig,
             feedback: userInput,
           }),
+          signal: AbortSignal.timeout(180000),
         });
         const result = await res.json();
 
         if (result.success && result.data) {
+          const prev = agenticConfig!;
           const newConfig: AgenticTaskConfig = {
-            goal: result.data.goal || agenticConfig!.goal,
-            background: result.data.background || agenticConfig!.background,
-            constraints: result.data.constraints || agenticConfig!.constraints,
-            skills: result.data.skills || agenticConfig!.skills,
-            evaluators: result.data.evaluators || agenticConfig!.evaluators,
-            executionStrategy: result.data.executionStrategy || agenticConfig!.executionStrategy,
-            maxIterations: result.data.maxIterations || agenticConfig!.maxIterations,
-            humanCheckpoints: result.data.humanCheckpoints || agenticConfig!.humanCheckpoints,
+            goal: result.data.goal || prev.goal,
+            background: result.data.background || prev.background,
+            totalDays: result.data.totalDays || prev.totalDays,
+            phases: result.data.phases || prev.phases,
+            globalSuccessCriteria: result.data.globalSuccessCriteria || prev.globalSuccessCriteria,
+            approvalPoints: result.data.approvalPoints || prev.approvalPoints,
+            fallbacks: result.data.fallbacks || prev.fallbacks,
+            constraints: result.data.constraints || prev.constraints,
+            skills: result.data.skills || prev.skills,
+            evaluators: result.data.evaluators || prev.evaluators,
+            executionStrategy: result.data.executionStrategy || prev.executionStrategy,
+            maxIterations: result.data.maxIterations || prev.maxIterations,
+            humanCheckpoints: result.data.humanCheckpoints || prev.humanCheckpoints,
+            goalMetrics: result.data.goalMetrics || prev.goalMetrics,
+            executionRules: result.data.executionRules || prev.executionRules,
+            permissions: result.data.permissions || prev.permissions,
+            reporting: result.data.reporting || prev.reporting,
+            contentPreview: result.data.contentPreview || prev.contentPreview,
+            estimatedDuration: result.data.estimatedDuration || prev.estimatedDuration,
+            estimatedEfficiency: result.data.estimatedEfficiency || prev.estimatedEfficiency,
+            executionOverview: result.data.executionOverview || prev.executionOverview,
+            riskAssessment: result.data.riskAssessment || prev.riskAssessment,
+            decisionLoop: result.data.decisionLoop || prev.decisionLoop,
+            skillOrchestration: result.data.skillOrchestration || prev.skillOrchestration,
+            contextArchitecture: result.data.contextArchitecture || prev.contextArchitecture,
+            schedule: result.data.schedule || prev.schedule,
           };
           setAgenticConfig(newConfig);
 
@@ -701,9 +858,9 @@ export default function ChatPanel() {
             <Loader2 className="w-3 h-3 animate-spin" /> {phaseLabel[phase]}
           </span>
         )}
-        {hasPendingQuestions && (
-          <span className="flex items-center gap-1 text-[10px] text-blue-600 ml-auto">
-            {pendingNodes.length} 个节点待确认
+        {hasPendingQuestions && !isLoading && (
+          <span className="flex items-center gap-1 text-[10px] text-amber-600 ml-auto">
+            {pendingNodes.length} 个节点可优化
           </span>
         )}
         {phase === "ready" && !showCompletion && (
@@ -743,19 +900,31 @@ export default function ChatPanel() {
 
           {chatMessages.map(renderMessage)}
 
-          {/* Paginated node questions (Workflow) */}
-          {hasPendingQuestions && (
-            <div className="ml-9">
-              <NodeQuestionPage
-                pendingNodes={pendingNodes}
-                nodeLabelMap={nodeLabelMap}
-                onSubmitAll={handleBatchSubmit}
-                onSkipAll={handleSkipAll}
-                onDeferNode={handleDeferNode}
-                disabled={isLoading}
-              />
-            </div>
-          )}
+          {/* On-demand node question (triggered by clicking confidence marker on canvas) */}
+          {showNodeQuestions && selectedNodeId && (() => {
+            const nodeConf = allNodeConfidence.find((nc) => nc.nodeId === selectedNodeId);
+            if (!nodeConf || nodeConf.confidence === "high" || nodeConf.questions.length === 0) return null;
+            return (
+              <div className="ml-9">
+                <NodeQuestionPage
+                  pendingNodes={[nodeConf]}
+                  nodeLabelMap={nodeLabelMap}
+                  onSubmitAll={(collected) => {
+                    useFlowAgentStore.setState({ showNodeQuestions: false });
+                    handleBatchSubmit(collected);
+                  }}
+                  onSkipAll={() => {
+                    useFlowAgentStore.setState({ showNodeQuestions: false });
+                  }}
+                  onDeferNode={(nodeId) => {
+                    useFlowAgentStore.setState({ showNodeQuestions: false });
+                    handleDeferNode(nodeId);
+                  }}
+                  disabled={isLoading}
+                />
+              </div>
+            );
+          })()}
 
           {showCompletion && (
             <div className="ml-9">

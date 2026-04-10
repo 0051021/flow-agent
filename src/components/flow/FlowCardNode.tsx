@@ -61,7 +61,10 @@ function FlowCardNode({ data, id }: NodeProps) {
         setSelectedNodeId(id);
       }}
     >
-      <Handle type="target" position={Position.Top} className="!w-3 !h-3 !bg-zinc-300 !border-2 !border-white" />
+      <Handle type="target" position={Position.Top} id="top-in" className="!w-3 !h-3 !bg-zinc-300 !border-2 !border-white hover:!bg-blue-400 hover:!scale-125 transition-all" />
+      <Handle type="source" position={Position.Top} id="top-out" className="!w-3 !h-3 !bg-zinc-300 !border-2 !border-white hover:!bg-blue-400 hover:!scale-125 transition-all" />
+      <Handle type="target" position={Position.Left} id="left-in" className="!w-3 !h-3 !bg-zinc-300 !border-2 !border-white hover:!bg-blue-400 hover:!scale-125 transition-all" style={{ top: "50%" }} />
+      <Handle type="source" position={Position.Left} id="left-out" className="!w-3 !h-3 !bg-zinc-300 !border-2 !border-white hover:!bg-blue-400 hover:!scale-125 transition-all" style={{ top: "50%" }} />
 
       {/* Header */}
       <div className="flex items-center justify-between px-4 pt-3 pb-2">
@@ -84,12 +87,23 @@ function FlowCardNode({ data, id }: NodeProps) {
             </span>
           )}
           {nodeConf && nodeConf.confidence !== "high" && !isDeferred && (
-            <span
-              className={`w-2.5 h-2.5 rounded-full shrink-0 cursor-help ${
-                nodeConf.confidence === "medium" ? "bg-amber-400" : "bg-red-400"
+            <button
+              className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] border transition-colors ${
+                nodeConf.confidence === "medium"
+                  ? "bg-amber-50 text-amber-600 border-amber-200 hover:bg-amber-100"
+                  : "bg-red-50 text-red-500 border-red-200 hover:bg-red-100"
               }`}
               title={`AI ${nodeConf.confidence === "medium" ? "不太确定" : "需要补充"}：${nodeConf.reason}`}
-            />
+              onClick={(e) => {
+                e.stopPropagation();
+                useFlowAgentStore.setState({ selectedNodeId: id, showNodeQuestions: true });
+              }}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${
+                nodeConf.confidence === "medium" ? "bg-amber-400" : "bg-red-400"
+              }`} />
+              {nodeConf.confidence === "medium" ? "待确认" : "需补充"}
+            </button>
           )}
           {currentRole === "tech" && unresolvedCount > 0 && (
             <button
@@ -206,7 +220,10 @@ function FlowCardNode({ data, id }: NodeProps) {
         </Badge>
       </div>
 
-      <Handle type="source" position={Position.Bottom} className="!w-3 !h-3 !bg-zinc-300 !border-2 !border-white" />
+      <Handle type="target" position={Position.Bottom} id="bottom-in" className="!w-3 !h-3 !bg-zinc-300 !border-2 !border-white hover:!bg-blue-400 hover:!scale-125 transition-all" />
+      <Handle type="source" position={Position.Bottom} id="bottom-out" className="!w-3 !h-3 !bg-zinc-300 !border-2 !border-white hover:!bg-blue-400 hover:!scale-125 transition-all" />
+      <Handle type="target" position={Position.Right} id="right-in" className="!w-3 !h-3 !bg-zinc-300 !border-2 !border-white hover:!bg-blue-400 hover:!scale-125 transition-all" style={{ top: "50%" }} />
+      <Handle type="source" position={Position.Right} id="right-out" className="!w-3 !h-3 !bg-zinc-300 !border-2 !border-white hover:!bg-blue-400 hover:!scale-125 transition-all" style={{ top: "50%" }} />
     </div>
   );
 }

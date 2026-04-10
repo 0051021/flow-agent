@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import TopBar from "@/components/layout/TopBar";
 import ChatPanel from "@/components/panels/ChatPanel";
 import AgenticConfigPanel from "@/components/panels/AgenticConfigPanel";
+import AgenticCanvas from "@/components/panels/AgenticCanvas";
 import AnnotationPanel from "@/components/panels/AnnotationPanel";
 import KnowledgePanel from "@/components/panels/KnowledgePanel";
 import NodeDetailPanel from "@/components/panels/NodeDetailPanel";
@@ -21,80 +22,88 @@ function EditorContent() {
   const q = searchParams.get("q");
   const roleParam = searchParams.get("role");
   const reviewId = searchParams.get("reviewId");
+  const timestamp = searchParams.get("t");
   const {
     project, showAnnotationPanel, showKnowledgePanel,
     selectedNodeId, editingNodeId, taskType,
     currentRole, setCurrentRole, setViewMode,
   } = useFlowAgentStore();
   const initDoneRef = useRef(false);
-  const roleSetRef = useRef(false);
+  const reviewLoadedRef = useRef(false);
 
   useEffect(() => {
-    if (roleSetRef.current) return;
-    roleSetRef.current = true;
-    const store = useFlowAgentStore.getState();
-    if (roleParam === "tech") {
-      store.setCurrentRole("tech");
-      store.setViewMode("tech");
+    if (reviewLoadedRef.current) return;
+    reviewLoadedRef.current = true;
+
+    if (reviewId) {
+      const review = getReviewById(reviewId);
+      if (!review) {
+        useFlowAgentStore.getState().resetAll();
+        return;
+      }
+
+      const statusMap = { pending: "tech_reviewing" as const, reviewed: "tech_reviewing" as const, confirmed: "confirmed" as const };
+      const resolvedRole = roleParam === "tech" ? "tech" as const : "business" as const;
+      const resolvedStatus = statusMap[review.status];
+
+      useFlowAgentStore.getState().resetAll();
+
+      const patch: Record<string, unknown> = {
+        isReviewMode: true,
+        currentRole: resolvedRole,
+        viewMode: resolvedRole,
+        originalPrompt: review.prompt,
+        taskType: review.type,
+        project: {
+          ...useFlowAgentStore.getState().project,
+          name: review.projectName,
+          status: resolvedStatus,
+        },
+        chatMessages: review.chatMessages,
+      };
+
+      if (review.type === "workflow" && review.nodes && review.edges) {
+        patch.nodes = review.nodes;
+        patch.edges = review.edges;
+        patch.chatPhase = "ready";
+      } else if (review.type === "agentic" && review.agenticConfig) {
+        patch.agenticConfig = review.agenticConfig;
+        patch.chatPhase = "agentic_ready";
+      }
+
+      useFlowAgentStore.setState(patch);
+
     } else {
-      store.setCurrentRole("business");
-      store.setViewMode("business");
+      const store = useFlowAgentStore.getState();
       store.setIsReviewMode(false);
+      if (roleParam === "tech") {
+        store.setCurrentRole("tech");
+        store.setViewMode("tech");
+      } else {
+        store.setCurrentRole("business");
+        store.setViewMode("business");
+      }
     }
-  }, [roleParam]);
-
-  // Load mock review data directly (no AI generation)
-  useEffect(() => {
-    if (!reviewId || initDoneRef.current) return;
-    const review = getReviewById(reviewId);
-    if (!review) return;
-    initDoneRef.current = true;
-
-    const store = useFlowAgentStore.getState();
-    store.resetAll();
-    store.setIsReviewMode(true);
-    store.setCurrentRole("tech");
-    store.setViewMode("tech");
-
-    const statusMap = { pending: "tech_reviewing" as const, reviewed: "tech_reviewing" as const, confirmed: "confirmed" as const };
-    store.setProjectStatus(statusMap[review.status]);
-
-    store.setOriginalPrompt(review.prompt);
-    store.setTaskType(review.type);
-
-    if (review.type === "workflow" && review.nodes && review.edges) {
-      store.loadGeneratedFlow(review.nodes, review.edges);
-      store.setProjectStatus(statusMap[review.status]);
-      store.setChatPhase("ready");
-    } else if (review.type === "agentic" && review.agenticConfig) {
-      store.setAgenticConfig(review.agenticConfig);
-      store.setChatPhase("agentic_ready");
-    }
-
-    const p = store.project;
-    store.setNodes(store.nodes);
-    useFlowAgentStore.setState({
-      project: { ...p, name: review.projectName, status: statusMap[review.status] },
-    });
-
-    review.chatMessages.forEach((msg) => store.addChatMessage(msg));
-  }, [reviewId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Load from ?q= param (AI generation flow)
   useEffect(() => {
     if (reviewId) return;
     if (!q || initDoneRef.current) return;
-    initDoneRef.current = true;
 
     const store = useFlowAgentStore.getState();
 
+    const isFreshRequest = !!timestamp;
     const wasReviewData = store.isReviewMode;
     const alreadyHasThisFlow =
+      !isFreshRequest &&
       !wasReviewData &&
       store.originalPrompt === q &&
       (store.nodes.length > 0 || store.agenticConfig !== null);
 
     if (alreadyHasThisFlow) {
+      initDoneRef.current = true;
       store.setIsReviewMode(false);
       if (roleParam !== "tech") {
         store.setCurrentRole("business");
@@ -119,7 +128,9 @@ function EditorContent() {
       useFlowAgentStore.getState().setViewMode("business");
     }
 
-    setTimeout(() => {
+    const timerId = setTimeout(() => {
+      if (initDoneRef.current) return;
+      initDoneRef.current = true;
       const s = useFlowAgentStore.getState();
       s.addChatMessage({
         id: "init-user",
@@ -129,6 +140,7 @@ function EditorContent() {
       });
       s.setInitQuery(q);
     }, 0);
+    return () => clearTimeout(timerId);
   }, [q, roleParam, reviewId]);
 
   // When tech role and flow/config is ready via AI, auto-set to tech_reviewing
@@ -163,7 +175,9 @@ function EditorContent() {
     }
   }, [project.status]);
 
+  const { chatPhase } = useFlowAgentStore();
   const isAgentic = taskType === "agentic";
+  const isGenerating = chatPhase === "drafting" || chatPhase === "classifying";
   const [chatOpen, setChatOpen] = useState(true);
 
   return (
@@ -190,7 +204,20 @@ function EditorContent() {
           <ChatPanel />
         </div>
         {isAgentic ? (
-          <AgenticConfigPanel />
+          currentRole === "tech" ? <AgenticConfigPanel /> : <AgenticCanvas />
+        ) : isGenerating ? (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center space-y-3">
+              <div className="w-10 h-10 mx-auto rounded-xl bg-zinc-100 flex items-center justify-center">
+                <svg className="w-5 h-5 text-zinc-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              </div>
+              <p className="text-sm font-medium text-zinc-500">AI 正在分析你的业务场景…</p>
+              <p className="text-xs text-zinc-400">正在判断任务类型并生成方案</p>
+            </div>
+          </div>
         ) : (
           <div className="flex-1 flex flex-col overflow-hidden">
             <div className="flex-1 overflow-hidden">
@@ -207,10 +234,16 @@ function EditorContent() {
   );
 }
 
+function EditorPageInner() {
+  const searchParams = useSearchParams();
+  const editorKey = `${searchParams.get("q") || ""}-${searchParams.get("reviewId") || ""}-${searchParams.get("role") || ""}-${searchParams.get("t") || ""}`;
+  return <EditorContent key={editorKey} />;
+}
+
 export default function EditorPage() {
   return (
     <Suspense fallback={<div className="h-screen flex items-center justify-center text-zinc-400">加载中...</div>}>
-      <EditorContent />
+      <EditorPageInner />
     </Suspense>
   );
 }

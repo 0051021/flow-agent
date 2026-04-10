@@ -15,6 +15,8 @@ import type {
   AgenticConstraint,
   AgenticEvaluator,
   AgenticConfirmItem,
+  AgenticPhase,
+  AgenticPhaseStatus,
 } from "./types";
 import type { Node, Edge } from "@xyflow/react";
 import { MOCK_KNOWLEDGE_FILES } from "./mock-data";
@@ -77,6 +79,7 @@ interface FlowAgentState {
   initialSnapshot: { nodes: Node<FlowNodeData>[]; edges: Edge[] } | null;
   allNodeConfidence: NodeConfidence[];
   deferredNodeIds: string[];
+  showNodeQuestions: boolean;
 
   setCurrentRole: (role: UserRole) => void;
   setViewMode: (mode: ViewMode) => void;
@@ -109,6 +112,7 @@ interface FlowAgentState {
 
   setTaskType: (type: TaskType) => void;
   setAgenticConfig: (config: AgenticTaskConfig | null) => void;
+  updateAgenticField: <K extends keyof AgenticTaskConfig>(field: K, value: AgenticTaskConfig[K]) => void;
   setAgenticConfirmItems: (items: AgenticConfirmItem[]) => void;
   setAgenticConfirmIdx: (idx: number) => void;
   setIsReviewMode: (v: boolean) => void;
@@ -119,6 +123,7 @@ interface FlowAgentState {
   setDeferredNodeIds: (ids: string[]) => void;
   addDeferredNodeId: (id: string) => void;
   removeDeferredNodeId: (id: string) => void;
+  setShowNodeQuestions: (show: boolean) => void;
   updateAgenticGoal: (goal: string) => void;
   updateAgenticBackground: (background: string) => void;
   addAgenticSkill: (skill: AgenticSkill) => void;
@@ -127,6 +132,15 @@ interface FlowAgentState {
   removeAgenticConstraint: (constraintId: string) => void;
   updateAgenticEvaluator: (evaluator: AgenticEvaluator) => void;
   removeAgenticEvaluator: (evaluatorId: string) => void;
+
+  // Phase management (v3)
+  updatePhase: (phaseId: string, patch: Partial<AgenticPhase>) => void;
+  confirmPhase: (phaseId: string) => void;
+  confirmAllPhases: () => void;
+  setPhaseStatus: (phaseId: string, status: AgenticPhaseStatus) => void;
+  answerPhaseQuestion: (phaseId: string, questionId: string, answer: string) => void;
+  addPhase: (phase: AgenticPhase) => void;
+  removePhase: (phaseId: string) => void;
 
   resetAll: () => void;
 }
@@ -173,6 +187,7 @@ const initialState = {
   initialSnapshot: null as { nodes: Node<FlowNodeData>[]; edges: Edge[] } | null,
   allNodeConfidence: [] as NodeConfidence[],
   deferredNodeIds: [] as string[],
+  showNodeQuestions: false,
 };
 
 export const useFlowAgentStore = create<FlowAgentState>()(
@@ -215,7 +230,7 @@ export const useFlowAgentStore = create<FlowAgentState>()(
           edges,
           project: {
             ...state.project,
-            status: "business_editing",
+            status: state.project.status === "draft" ? "business_editing" : state.project.status,
             updatedAt: new Date().toISOString(),
           },
         })),
@@ -247,6 +262,12 @@ export const useFlowAgentStore = create<FlowAgentState>()(
 
       setTaskType: (type) => set({ taskType: type }),
       setAgenticConfig: (config) => set({ agenticConfig: config }),
+      updateAgenticField: (field, value) =>
+        set((state) => ({
+          agenticConfig: state.agenticConfig
+            ? { ...state.agenticConfig, [field]: value }
+            : null,
+        })),
       setAgenticConfirmItems: (items) => set({ agenticConfirmItems: items }),
       setAgenticConfirmIdx: (idx) => set({ agenticConfirmIdx: idx }),
       setIsReviewMode: (v) => set({ isReviewMode: v }),
@@ -268,6 +289,7 @@ export const useFlowAgentStore = create<FlowAgentState>()(
         set((state) => ({
           deferredNodeIds: state.deferredNodeIds.filter((d) => d !== id),
         })),
+      setShowNodeQuestions: (show) => set({ showNodeQuestions: show }),
       updateAgenticGoal: (goal) =>
         set((state) => ({
           agenticConfig: state.agenticConfig
@@ -322,6 +344,79 @@ export const useFlowAgentStore = create<FlowAgentState>()(
             : null,
         })),
 
+      updatePhase: (phaseId, patch) =>
+        set((state) => ({
+          agenticConfig: state.agenticConfig
+            ? {
+                ...state.agenticConfig,
+                phases: state.agenticConfig.phases.map((p) =>
+                  p.id === phaseId ? { ...p, ...patch } : p
+                ),
+              }
+            : null,
+        })),
+      confirmPhase: (phaseId) =>
+        set((state) => ({
+          agenticConfig: state.agenticConfig
+            ? {
+                ...state.agenticConfig,
+                phases: state.agenticConfig.phases.map((p) =>
+                  p.id === phaseId ? { ...p, status: "confirmed" as const } : p
+                ),
+              }
+            : null,
+        })),
+      confirmAllPhases: () =>
+        set((state) => ({
+          agenticConfig: state.agenticConfig
+            ? {
+                ...state.agenticConfig,
+                phases: state.agenticConfig.phases.map((p) => ({ ...p, status: "confirmed" as const })),
+              }
+            : null,
+        })),
+      setPhaseStatus: (phaseId, status) =>
+        set((state) => ({
+          agenticConfig: state.agenticConfig
+            ? {
+                ...state.agenticConfig,
+                phases: state.agenticConfig.phases.map((p) =>
+                  p.id === phaseId ? { ...p, status } : p
+                ),
+              }
+            : null,
+        })),
+      answerPhaseQuestion: (phaseId, questionId, answer) =>
+        set((state) => ({
+          agenticConfig: state.agenticConfig
+            ? {
+                ...state.agenticConfig,
+                phases: state.agenticConfig.phases.map((p) =>
+                  p.id === phaseId
+                    ? {
+                        ...p,
+                        questions: (p.questions || []).map((q) =>
+                          q.id === questionId ? { ...q, answer } : q
+                        ),
+                      }
+                    : p
+                ),
+              }
+            : null,
+        })),
+      addPhase: (phase) =>
+        set((state) => ({
+          agenticConfig: state.agenticConfig
+            ? { ...state.agenticConfig, phases: [...state.agenticConfig.phases, phase] }
+            : null,
+        })),
+      removePhase: (phaseId) =>
+        set((state) => ({
+          agenticConfig: state.agenticConfig
+            ? { ...state.agenticConfig, phases: state.agenticConfig.phases.filter((p) => p.id !== phaseId) }
+            : null,
+        })),
+
       resetAll: () =>
         set({
           ...initialState,
@@ -330,13 +425,13 @@ export const useFlowAgentStore = create<FlowAgentState>()(
     }),
     {
       name: "flow-agent-store",
-      version: 2,
+      version: 4,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      migrate: (persisted: any, version: number) => {
-        if (version < 2 || !persisted) {
-          return { ...initialState, ...persisted, taskType: "workflow", agenticConfig: null };
+      migrate: (_persisted: any, version: number) => {
+        if (version < 4) {
+          return { ...initialState };
         }
-        return persisted;
+        return _persisted;
       },
       partialize: (state) => ({
         project: state.project,
@@ -352,6 +447,9 @@ export const useFlowAgentStore = create<FlowAgentState>()(
         nodeLabelMap: state.nodeLabelMap,
         taskType: state.taskType,
         agenticConfig: state.agenticConfig,
+        allNodeConfidence: state.allNodeConfidence,
+        deferredNodeIds: state.deferredNodeIds,
+        initialSnapshot: state.initialSnapshot,
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;
