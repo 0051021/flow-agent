@@ -9,15 +9,16 @@ import { Badge } from "@/components/ui/badge";
 import {
   Workflow, ArrowRight, Sparkles, BarChart3, PenTool,
   ShieldCheck, Zap, LayoutDashboard, Bot, GitBranch,
-  CheckCircle2, ArrowUpRight, Code2,
+  CheckCircle2, ArrowUpRight, Code2, ListChecks,
 } from "lucide-react";
 import { CONSOLE_STATS } from "@/lib/mock-console";
+import QuizPromptBuilder from "@/components/ui/QuizPromptBuilder";
 
 const EXAMPLES = [
   {
     icon: "📱",
     title: "小红书账号运营",
-    description: "每日3条图文 · 美妆/穿搭/互动 · 数据驱动优化",
+    description: "每天手动想内容、盯数据太累？让 AI 按策略自动执行，你只管审核方向。",
     type: "agentic" as const,
     steps: 4,
     time: "约 15 分钟",
@@ -26,7 +27,7 @@ const EXAMPLES = [
   {
     icon: "💰",
     title: "财务报销流程",
-    description: "提交申请 → 审批 → 打款 → 归档",
+    description: "报销单堆着没人审？审批流程一团乱？把整个流程理清楚，该自动的自动。",
     type: "workflow" as const,
     steps: 5,
     time: "约 10 分钟",
@@ -35,7 +36,7 @@ const EXAMPLES = [
   {
     icon: "📋",
     title: "App 改版项目管理",
-    description: "需求→开发→测试→上线 · 自动跟进和催办",
+    description: "项目进度靠人催、风险靠感觉？让 AI 盯进度、报风险，你专注做决策。",
     type: "agentic" as const,
     steps: 4,
     time: "约 10 分钟",
@@ -44,7 +45,7 @@ const EXAMPLES = [
   {
     icon: "🎧",
     title: "智能客服系统",
-    description: "FAQ→复杂问题 · 能力递进 · 降低人工介入",
+    description: "60% 都是重复问题，客服天天答同样的话？让 AI 先处理，复杂的再转人工。",
     type: "agentic" as const,
     steps: 4,
     time: "约 12 分钟",
@@ -53,7 +54,7 @@ const EXAMPLES = [
   {
     icon: "👥",
     title: "校招批量招聘",
-    description: "JD发布→简历筛选→面试→Offer · 50人招聘",
+    description: "3000+ 份简历靠人看？面试时间协调一团乱？把筛选和跟进交给 AI。",
     type: "agentic" as const,
     steps: 4,
     time: "约 10 分钟",
@@ -62,7 +63,7 @@ const EXAMPLES = [
   {
     icon: "📊",
     title: "竞品分析报告",
-    description: "5个竞品 · 4个维度 · 每周结构化报告",
+    description: "每周手动收集竞品动态太费时？让 AI 定期追踪、整理成报告给你看。",
     type: "agentic" as const,
     steps: 4,
     time: "约 8 分钟",
@@ -71,7 +72,7 @@ const EXAMPLES = [
   {
     icon: "🌐",
     title: "TikTok 矩阵账号运营",
-    description: "200个号 · 批量养号 · 数据分级 · 资源动态调度",
+    description: "200 个账号靠人盯、数据分级靠感觉？规则定好，AI 帮你管这个矩阵。",
     type: "agentic" as const,
     steps: 4,
     time: "约 15 分钟",
@@ -80,7 +81,7 @@ const EXAMPLES = [
   {
     icon: "📦",
     title: "进出口报关",
-    description: "单据审核 → 编码归类 → 申报 → 放行",
+    description: "报关单据多、编码归类靠经验、漏了就麻烦？把每个环节标清楚、管起来。",
     type: "workflow" as const,
     steps: 6,
     time: "约 12 分钟",
@@ -94,14 +95,15 @@ const TYPE_BADGE = {
 };
 
 const FEATURES = [
-  { icon: Zap, label: "AI 自动判断任务类型", color: "text-amber-500" },
-  { icon: BarChart3, label: "工作流 + 智能体双模式", color: "text-blue-500" },
-  { icon: PenTool, label: "拖拉拽自由编辑", color: "text-green-500" },
-  { icon: ShieldCheck, label: "技术方在线评审", color: "text-violet-500" },
+  { icon: Zap, label: "AI 自动拆解工作步骤", color: "text-amber-500" },
+  { icon: BarChart3, label: "清晰标注人机分工", color: "text-blue-500" },
+  { icon: PenTool, label: "拖拽修改随时调整", color: "text-green-500" },
+  { icon: ShieldCheck, label: "团队协作在线评审", color: "text-violet-500" },
 ];
 
 export default function HomePage() {
   const [input, setInput] = useState("");
+  const [showQuiz, setShowQuiz] = useState(false);
   const router = useRouter();
 
   const handleStart = (prompt?: string) => {
@@ -119,7 +121,7 @@ export default function HomePage() {
             <Workflow className="w-4 h-4 text-white" />
           </div>
           <span className="font-bold text-zinc-900">FlowAgent</span>
-          <span className="ml-2 text-xs text-zinc-400 hidden sm:inline">业务翻译平台</span>
+          <span className="ml-1.5 text-xs text-zinc-400 hidden sm:inline font-normal">工作流程 AI 助手</span>
         </div>
         <div className="flex items-center gap-2">
           <Link
@@ -140,78 +142,95 @@ export default function HomePage() {
       </header>
 
       {/* Hero */}
-      <main className="flex-1 flex flex-col items-center px-4 pt-16 pb-12">
-        <div className="text-center mb-10 max-w-2xl">
+      <main className="flex-1 flex flex-col items-center px-4 pt-12 pb-16">
+        <div className="text-center mb-8 max-w-2xl">
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/60 text-amber-700 text-xs font-medium mb-8">
             <Sparkles className="w-3.5 h-3.5" />
-            AI 驱动的业务翻译工具
+            用 AI 把工作流程理清楚
           </div>
           <h1 className="text-4xl font-extrabold text-zinc-900 mb-4 leading-tight tracking-tight">
-            描述你的业务场景
+            说说你的工作
             <br />
             <span className="bg-gradient-to-r from-blue-600 to-violet-600 bg-clip-text text-transparent">
-              AI 帮你翻译成可执行方案
+              AI 帮你理清流程、找出能自动化的部分
             </span>
           </h1>
           <p className="text-base text-zinc-500 leading-relaxed">
-            用自然语言描述业务场景，AI 自动判断任务类型——工作流生成流程图，智能体生成任务配置。
+            把你每天在做的事情描述给 AI，它会帮你拆解成清晰的步骤，标出哪些可以让 AI 自动做、哪些需要你来把关。
             <br className="hidden sm:block" />
-            业务方确认后，技术方评审可行性，双方在同一个平台上协作。
+            整理好之后，你的团队可以直接拿这份方案去搭建自动化系统。
           </p>
         </div>
 
         {/* Input */}
         <div className="w-full max-w-2xl">
-          <div className="bg-white rounded-2xl border border-zinc-200/80 shadow-lg shadow-zinc-200/50 p-5">
-            <Textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && input.trim()) { e.preventDefault(); handleStart(); } }}
-              placeholder="例如：我想做小红书账号运营，目标是3个月涨粉5万..."
-              className="border-0 shadow-none focus-visible:ring-0 text-sm min-h-[80px] resize-none p-0"
+          {showQuiz ? (
+            <QuizPromptBuilder
+              onComplete={(prompt) => {
+                setInput(prompt);
+                setShowQuiz(false);
+                handleStart(prompt);
+              }}
+              onCancel={() => setShowQuiz(false)}
             />
-            <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-zinc-100">
-              <p className="w-full text-[11px] text-zinc-400 mb-1">💡 试试描述清楚这几点，AI 翻译更准确：</p>
-              {[
-                { label: "🎯 你要解决什么问题？", hint: "我想自动化" },
-                { label: "📋 现在是怎么做的？", hint: "目前是人工" },
-                { label: "✅ 期望的结果是什么？", hint: "希望能够" },
-                { label: "👥 涉及哪些角色？", hint: "涉及的角色有" },
-              ].map((tag) => (
+          ) : (
+            <div className="bg-white rounded-2xl border border-zinc-200/80 shadow-lg shadow-zinc-200/50 p-5">
+              <Textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && input.trim()) { e.preventDefault(); handleStart(); } }}
+                placeholder="例如：我每天要处理几十张报销单，先核对发票，再找领导签字，最后录入系统，很费时间……"
+                className="border-0 shadow-none focus-visible:ring-0 text-sm min-h-[80px] resize-none p-0"
+              />
+              <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-zinc-100">
+                <p className="w-full text-[11px] text-zinc-400 mb-1">💡 说清楚这几点，AI 梳理得更准：</p>
+                {[
+                  { label: "⏰ 每天最花时间的事是什么？", hint: "我每天花大量时间在" },
+                  { label: "🔁 这件事大概怎么做的？", hint: "目前的做法是先" },
+                  { label: "😫 最让你头疼的环节是？", hint: "最麻烦的地方是" },
+                  { label: "🤝 谁需要参与进来？", hint: "这件事需要" },
+                ].map((tag) => (
+                  <button
+                    key={tag.label}
+                    className="text-[11px] px-2 py-0.5 rounded-full bg-zinc-50 text-zinc-500 border border-zinc-100 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition-colors cursor-pointer"
+                    onClick={() => {
+                      if (!input.trim()) {
+                        setInput(tag.hint);
+                      } else if (!input.endsWith("，") && !input.endsWith("。") && !input.endsWith(" ")) {
+                        setInput(input + "，" + tag.hint);
+                      } else {
+                        setInput(input + tag.hint);
+                      }
+                    }}
+                  >
+                    {tag.label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex justify-between items-center mt-3">
                 <button
-                  key={tag.label}
-                  className="text-[11px] px-2 py-0.5 rounded-full bg-zinc-50 text-zinc-500 border border-zinc-100 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition-colors cursor-pointer"
-                  onClick={() => {
-                    if (!input.trim()) {
-                      setInput(tag.hint);
-                    } else if (!input.endsWith("，") && !input.endsWith("。") && !input.endsWith(" ")) {
-                      setInput(input + "，" + tag.hint);
-                    } else {
-                      setInput(input + tag.hint);
-                    }
-                  }}
+                  onClick={() => setShowQuiz(true)}
+                  className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-blue-600 transition-colors"
                 >
-                  {tag.label}
+                  <ListChecks className="w-3.5 h-3.5" />
+                  不知道怎么写？回答几个问题
                 </button>
-              ))}
+                <Button
+                  onClick={() => handleStart()}
+                  disabled={!input.trim()}
+                  className="bg-zinc-900 hover:bg-zinc-800 px-5"
+                >
+                  帮我梳理 <ArrowRight className="w-4 h-4 ml-1.5" />
+                </Button>
+              </div>
             </div>
-            <div className="flex justify-between items-center mt-3">
-              <p className="text-xs text-zinc-400">AI 自动判断任务类型并标注人机分工</p>
-              <Button
-                onClick={() => handleStart()}
-                disabled={!input.trim()}
-                className="bg-zinc-900 hover:bg-zinc-800 px-5"
-              >
-                开始翻译 <ArrowRight className="w-4 h-4 ml-1.5" />
-              </Button>
-            </div>
-          </div>
+          )}
         </div>
 
         {/* Examples */}
         <div className="w-full max-w-2xl mt-10">
-          <p className="text-sm font-medium text-zinc-400 mb-4 text-center">或者试试这些场景</p>
-          <div className="grid grid-cols-2 gap-4">
+          <p className="text-xs text-zinc-400 mb-3 text-center tracking-wide uppercase">常见场景</p>
+          <div className="grid grid-cols-2 gap-3">
             {EXAMPLES.map((ex) => {
               const badge = TYPE_BADGE[ex.type];
               const BadgeIcon = badge.icon;
@@ -219,27 +238,21 @@ export default function HomePage() {
                 <button
                   key={ex.title}
                   onClick={() => handleStart(ex.prompt)}
-                  className="bg-white rounded-2xl border border-zinc-200/80 p-5 text-left hover:border-zinc-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 group"
+                  className="bg-white rounded-2xl border border-zinc-200/80 p-4 text-left hover:border-zinc-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 group"
                 >
-                  <div className="flex items-center justify-between">
-                    <div className="w-10 h-10 rounded-xl bg-zinc-50 border border-zinc-100 flex items-center justify-center text-xl">
-                      {ex.icon}
-                    </div>
+                  <div className="flex items-center justify-between mb-2.5">
+                    <span className="text-xl">{ex.icon}</span>
                     <Badge variant="outline" className={`text-[10px] h-5 gap-1 ${badge.className}`}>
                       <BadgeIcon className="w-3 h-3" />
                       {badge.label}
                     </Badge>
                   </div>
-                  <h3 className="text-sm font-bold text-zinc-900 mt-3">{ex.title}</h3>
-                  <p className="text-xs text-zinc-500 mt-1.5 leading-relaxed">{ex.description}</p>
-                  <div className="flex items-center justify-between mt-4 pt-3 border-t border-zinc-100">
-                    <div className="flex items-center gap-3 text-[11px] text-zinc-400">
-                      <span>{ex.steps} {ex.type === "agentic" ? "阶段" : "步"}</span>
-                      <span className="w-px h-3 bg-zinc-200" />
-                      <span>{ex.time}</span>
-                    </div>
-                    <span className="text-xs font-medium text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
-                      试试看 <ArrowRight className="w-3 h-3" />
+                  <h3 className="text-sm font-semibold text-zinc-900">{ex.title}</h3>
+                  <p className="text-[11px] text-zinc-500 mt-1 leading-relaxed line-clamp-2">{ex.description}</p>
+                  <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-zinc-100">
+                    <span className="text-[11px] text-zinc-400">{ex.steps} {ex.type === "agentic" ? "阶段" : "步"} · {ex.time}</span>
+                    <span className="text-[11px] font-medium text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
+                      试试 <ArrowRight className="w-3 h-3" />
                     </span>
                   </div>
                 </button>
@@ -248,184 +261,51 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Pre-built demo schemes */}
-        <div className="w-full max-w-2xl mt-10">
-          <p className="text-sm font-medium text-zinc-400 mb-4 text-center">或者直接查看完整示例方案</p>
-          <div className="grid grid-cols-2 gap-4">
-            <Link
-              href="/editor?reviewId=review-3&role=business"
-              className="bg-white rounded-2xl border border-zinc-200/80 p-5 hover:border-blue-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 group"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-xl">
-                  💰
+        {/* Pre-built demo schemes — compact list */}
+        <div className="w-full max-w-2xl mt-8">
+          <p className="text-xs text-zinc-400 mb-3 text-center tracking-wide uppercase">先看看效果长什么样</p>
+          <div className="bg-white rounded-2xl border border-zinc-200/80 divide-y divide-zinc-100 overflow-hidden">
+            {[
+              { href: "/editor?reviewId=review-3&role=business", icon: "💰", label: "财务报销审批", meta: "5 个步骤 · 含人工审批节点", color: "text-blue-500" },
+              { href: "/editor?reviewId=review-1&role=business", icon: "📱", label: "小红书账号运营", meta: "4 阶段 · 90天 · 含批准点", color: "text-violet-500" },
+              { href: "/editor?reviewId=review-5&role=business", icon: "📋", label: "App 改版项目管理", meta: "4 阶段 · 35天 · 自动跟进催办", color: "text-violet-500" },
+              { href: "/editor?reviewId=review-6&role=business", icon: "🎧", label: "智能客服系统", meta: "4 阶段 · 90天 · 渐进式替代人工", color: "text-violet-500" },
+              { href: "/editor?reviewId=review-7&role=business", icon: "👥", label: "校招批量招聘", meta: "4 阶段 · 45天 · 50人规模", color: "text-violet-500" },
+              { href: "/editor?reviewId=review-8&role=business", icon: "🌐", label: "TikTok 矩阵运营", meta: "4 阶段 · 90天 · 200个账号", color: "text-violet-500" },
+            ].map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="flex items-center gap-3 px-4 py-3 hover:bg-zinc-50 transition-colors group"
+              >
+                <span className="text-lg w-7 text-center shrink-0">{item.icon}</span>
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm font-medium text-zinc-800">{item.label}</span>
+                  <span className="text-[11px] text-zinc-400 ml-2">{item.meta}</span>
                 </div>
-                <div>
-                  <Badge variant="outline" className="text-[10px] h-5 gap-1 bg-blue-50 text-blue-600 border-blue-200 mb-1">
-                    <GitBranch className="w-3 h-3" />
-                    工作流示例
-                  </Badge>
-                  <h3 className="text-sm font-bold text-zinc-900">财务报销审批</h3>
-                </div>
-              </div>
-              <p className="text-xs text-zinc-500 mt-3 leading-relaxed">
-                完整的 5 节点流程图，包含人机分工标注、技术评审批注。
-              </p>
-              <div className="flex items-center justify-between mt-3 pt-3 border-t border-zinc-100">
-                <span className="text-[11px] text-zinc-400">5 个节点 · 含批注</span>
-                <span className="text-xs font-medium text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
-                  查看方案 <ArrowUpRight className="w-3 h-3" />
-                </span>
-              </div>
-            </Link>
-            <Link
-              href="/editor?reviewId=review-1&role=business"
-              className="bg-white rounded-2xl border border-zinc-200/80 p-5 hover:border-violet-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 group"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-violet-50 border border-violet-100 flex items-center justify-center text-xl">
-                  📱
-                </div>
-                <div>
-                  <Badge variant="outline" className="text-[10px] h-5 gap-1 bg-violet-50 text-violet-600 border-violet-200 mb-1">
-                    <Bot className="w-3 h-3" />
-                    内容运营
-                  </Badge>
-                  <h3 className="text-sm font-bold text-zinc-900">小红书账号运营</h3>
-                </div>
-              </div>
-              <p className="text-xs text-zinc-500 mt-3 leading-relaxed">
-                4 个阶段（冷启动→策略验证→规模化→增长冲刺），含追问和审批点。
-              </p>
-              <div className="flex items-center justify-between mt-3 pt-3 border-t border-zinc-100">
-                <span className="text-[11px] text-zinc-400">4 阶段 · 90天</span>
-                <span className="text-xs font-medium text-violet-500 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
-                  查看方案 <ArrowUpRight className="w-3 h-3" />
-                </span>
-              </div>
-            </Link>
-            <Link
-              href="/editor?reviewId=review-5&role=business"
-              className="bg-white rounded-2xl border border-zinc-200/80 p-5 hover:border-violet-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 group"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-violet-50 border border-violet-100 flex items-center justify-center text-xl">
-                  📋
-                </div>
-                <div>
-                  <Badge variant="outline" className="text-[10px] h-5 gap-1 bg-violet-50 text-violet-600 border-violet-200 mb-1">
-                    <Bot className="w-3 h-3" />
-                    项目管理
-                  </Badge>
-                  <h3 className="text-sm font-bold text-zinc-900">App 改版项目管理</h3>
-                </div>
-              </div>
-              <p className="text-xs text-zinc-500 mt-3 leading-relaxed">
-                4 个阶段（需求对齐→开发跟进→测试验收→发布上线）。
-              </p>
-              <div className="flex items-center justify-between mt-3 pt-3 border-t border-zinc-100">
-                <span className="text-[11px] text-zinc-400">4 阶段 · 35天</span>
-                <span className="text-xs font-medium text-violet-500 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
-                  查看方案 <ArrowUpRight className="w-3 h-3" />
-                </span>
-              </div>
-            </Link>
-            <Link
-              href="/editor?reviewId=review-6&role=business"
-              className="bg-white rounded-2xl border border-zinc-200/80 p-5 hover:border-violet-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 group"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-violet-50 border border-violet-100 flex items-center justify-center text-xl">
-                  🎧
-                </div>
-                <div>
-                  <Badge variant="outline" className="text-[10px] h-5 gap-1 bg-violet-50 text-violet-600 border-violet-200 mb-1">
-                    <Bot className="w-3 h-3" />
-                    智能客服
-                  </Badge>
-                  <h3 className="text-sm font-bold text-zinc-900">智能客服系统</h3>
-                </div>
-              </div>
-              <p className="text-xs text-zinc-500 mt-3 leading-relaxed">
-                4 个阶段（知识库构建→FAQ试运行→复杂场景扩展→稳定运营）。
-              </p>
-              <div className="flex items-center justify-between mt-3 pt-3 border-t border-zinc-100">
-                <span className="text-[11px] text-zinc-400">4 阶段 · 90天</span>
-                <span className="text-xs font-medium text-violet-500 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
-                  查看方案 <ArrowUpRight className="w-3 h-3" />
-                </span>
-              </div>
-            </Link>
-            <Link
-              href="/editor?reviewId=review-7&role=business"
-              className="bg-white rounded-2xl border border-zinc-200/80 p-5 hover:border-violet-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 group"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-violet-50 border border-violet-100 flex items-center justify-center text-xl">
-                  👥
-                </div>
-                <div>
-                  <Badge variant="outline" className="text-[10px] h-5 gap-1 bg-violet-50 text-violet-600 border-violet-200 mb-1">
-                    <Bot className="w-3 h-3" />
-                    批量招聘
-                  </Badge>
-                  <h3 className="text-sm font-bold text-zinc-900">校招批量招聘</h3>
-                </div>
-                <p className="text-xs text-zinc-500 ml-auto leading-relaxed">
-                  4 个阶段（岗位发布→笔试初面→终面评估→Offer发放）
-                </p>
-              </div>
-              <div className="flex items-center justify-between mt-3 pt-3 border-t border-zinc-100">
-                <span className="text-[11px] text-zinc-400">4 阶段 · 45天 · 50人招聘</span>
-                <span className="text-xs font-medium text-violet-500 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
-                  查看方案 <ArrowUpRight className="w-3 h-3" />
-                </span>
-              </div>
-            </Link>
-            <Link
-              href="/editor?reviewId=review-8&role=business"
-              className="bg-white rounded-2xl border border-zinc-200/80 p-5 hover:border-violet-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 group"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-violet-50 border border-violet-100 flex items-center justify-center text-xl">
-                  🌐
-                </div>
-                <div>
-                  <Badge variant="outline" className="text-[10px] h-5 gap-1 bg-violet-50 text-violet-600 border-violet-200 mb-1">
-                    <Bot className="w-3 h-3" />
-                    矩阵运营
-                  </Badge>
-                  <h3 className="text-sm font-bold text-zinc-900">TikTok 矩阵账号运营</h3>
-                </div>
-                <p className="text-xs text-zinc-500 ml-auto leading-relaxed">
-                  4 个阶段（批量冷启动→数据分级→加速优化→稳态冲刺）
-                </p>
-              </div>
-              <div className="flex items-center justify-between mt-3 pt-3 border-t border-zinc-100">
-                <span className="text-[11px] text-zinc-400">4 阶段 · 90天 · 200个账号</span>
-                <span className="text-xs font-medium text-violet-500 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
-                  查看方案 <ArrowUpRight className="w-3 h-3" />
-                </span>
-              </div>
-            </Link>
+                <ArrowUpRight className={`w-3.5 h-3.5 ${item.color} opacity-0 group-hover:opacity-100 transition-opacity shrink-0`} />
+              </Link>
+            ))}
           </div>
         </div>
 
         {/* Features */}
-        <div className="flex items-center gap-6 mt-14">
-          {FEATURES.map((f) => {
-            const Icon = f.icon;
-            return (
-              <div key={f.label} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-zinc-100 shadow-sm">
-                <Icon className={`w-3.5 h-3.5 ${f.color}`} />
-                <span className="text-xs font-medium text-zinc-600">{f.label}</span>
-              </div>
-            );
-          })}
+        <div className="w-full max-w-2xl mt-8">
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+            {FEATURES.map((f) => {
+              const Icon = f.icon;
+              return (
+                <div key={f.label} className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-white border border-zinc-100">
+                  <Icon className={`w-3.5 h-3.5 shrink-0 ${f.color}`} />
+                  <span className="text-xs text-zinc-600 leading-tight">{f.label}</span>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         {/* Console entry card */}
-        <div className="w-full max-w-2xl mt-14">
+        <div className="w-full max-w-2xl mt-8">
           <Link
             href="/console"
             className="flex items-center gap-5 p-5 rounded-2xl bg-gradient-to-r from-zinc-900 to-zinc-800 text-white hover:from-zinc-800 hover:to-zinc-700 transition-all shadow-lg shadow-zinc-300/50 group"

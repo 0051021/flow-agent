@@ -221,31 +221,44 @@ export default function ChatPanel() {
       currentNodeIdx: 0,
     });
 
+    // 统计人机分工
+    const aiAutoNodes = parsedNodes.filter((n) => n.data?.executionMode === "ai_auto");
+    const humanConfirmNodes = parsedNodes.filter((n) => n.data?.executionMode === "human_confirm");
+    const humanManualNodes = parsedNodes.filter((n) => n.data?.executionMode === "human_manual");
+    const humanTotal = humanConfirmNodes.length + humanManualNodes.length;
+
+    // 人话版摘要（先让小白看懂价值）
+    const humanSummaryParts: string[] = [];
+    humanSummaryParts.push(`**「${projectName}」梳理完成 ✅**`);
+    humanSummaryParts.push(`\n这件事共分 **${parsedNodes.length} 步**：`);
+    if (aiAutoNodes.length > 0) {
+      humanSummaryParts.push(`• 🤖 **AI 自动完成 ${aiAutoNodes.length} 步**（你不用管）`);
+    }
+    if (humanTotal > 0) {
+      humanSummaryParts.push(`• 👤 **需要你参与 ${humanTotal} 步**（确认或手动操作）`);
+    }
+
     if (needConfirm.length > 0) {
       const lowNodes = needConfirm.filter((nc) => nc.confidence === "low");
       const medNodes = needConfirm.filter((nc) => nc.confidence === "medium");
-      const summaryParts: string[] = [];
+      const uncertainParts: string[] = [];
       if (lowNodes.length > 0) {
-        summaryParts.push(`🔴 ${lowNodes.length} 个节点信息不足（${lowNodes.map((n) => labelMap[n.nodeId] || n.nodeId).join("、")}）`);
+        uncertainParts.push(`🔴 ${lowNodes.length} 个步骤信息不够（${lowNodes.map((n) => labelMap[n.nodeId] || n.nodeId).join("、")}）`);
       }
       if (medNodes.length > 0) {
-        summaryParts.push(`🟡 ${medNodes.length} 个节点需确认细节（${medNodes.map((n) => labelMap[n.nodeId] || n.nodeId).join("、")}）`);
+        uncertainParts.push(`🟡 ${medNodes.length} 个步骤需确认细节（${medNodes.map((n) => labelMap[n.nodeId] || n.nodeId).join("、")}）`);
       }
-
-      addChatMessage({
-        id: uuidv4(),
-        role: "assistant",
-        content: `已生成「${projectName}」流程图，共 ${parsedNodes.length} 个节点。\n\n${summaryParts.join("\n")}\n\n> 画布上带标记的节点可以点击查看详情。你也可以直接告诉我需要修改的地方。`,
-        timestamp: new Date().toISOString(),
-      });
+      humanSummaryParts.push(`\n右侧流程图已经生成，带颜色标记的步骤是 AI 觉得还需要你补充信息的地方，点击可以查看。也可以直接告诉我哪里不对。\n\n${uncertainParts.join("\n")}`);
     } else {
-      addChatMessage({
-        id: uuidv4(),
-        role: "assistant",
-        content: `已生成「${projectName}」流程图，共 ${parsedNodes.length} 个节点，所有节点信息都比较完整。你可以在画布上调整，或告诉我哪里需要修改。`,
-        timestamp: new Date().toISOString(),
-      });
+      humanSummaryParts.push(`\n右侧流程图已经生成，所有步骤信息都比较完整。可以在画布上查看和调整，或者直接告诉我哪里需要改。`);
     }
+
+    addChatMessage({
+      id: uuidv4(),
+      role: "assistant",
+      content: humanSummaryParts.join("\n"),
+      timestamp: new Date().toISOString(),
+    });
     setPhase("ready");
   }, [addChatMessage, loadGeneratedFlow, setPhase, setNodeLabelMap, setInitialSnapshot, setAllNodeConfidence]);
 
@@ -304,12 +317,28 @@ export default function ChatPanel() {
 
     const goalText = config.goalMetrics?.core || config.goal;
     const phaseCount = phases.length;
+    const approvalPhaseCount = phases.filter((p: { requiresApproval?: boolean }) => p.requiresApproval).length;
     const needQuestionCount = phases.filter((p: { questions?: unknown[] }) => p.questions && p.questions.length > 0).length;
+
+    // 人话版摘要
+    const agenticSummaryParts: string[] = [];
+    agenticSummaryParts.push(`**「${pName || "任务方案"}」梳理完成 ✅**`);
+    agenticSummaryParts.push(`\n**目标**：${goalText}`);
+    agenticSummaryParts.push(`\n这件事分 **${phaseCount} 个阶段**，周期约 **${config.totalDays} 天**：`);
+    agenticSummaryParts.push(`• 🤖 AI 按策略自动推进每个阶段`);
+    if (approvalPhaseCount > 0) {
+      agenticSummaryParts.push(`• 👤 有 **${approvalPhaseCount} 个阶段**需要你审批后才能继续`);
+    }
+    if (needQuestionCount > 0) {
+      agenticSummaryParts.push(`\n右侧方案已生成，有 ${needQuestionCount} 个阶段需要你补充一些信息，请逐阶段确认。`);
+    } else {
+      agenticSummaryParts.push(`\n右侧方案已生成，可以查看每个阶段的详情，或告诉我哪里需要调整。`);
+    }
 
     addChatMessage({
       id: uuidv4(),
       role: "assistant",
-      content: `已生成「${pName || "Agent 任务"}」阶段方案：\n\n**目标**：${goalText}\n**周期**：${config.totalDays} 天，${phaseCount} 个阶段\n\n${needQuestionCount > 0 ? `有 ${needQuestionCount} 个阶段包含追问，请在右侧画布逐阶段确认。` : "请在右侧画布查看阶段详情并确认。"}`,
+      content: agenticSummaryParts.join("\n"),
       timestamp: new Date().toISOString(),
     });
     setPhase("agentic_ready");
@@ -588,18 +617,19 @@ export default function ChatPanel() {
         return;
       }
 
-      // Workflow refine
+      // Workflow refine — tech uses full schema, business uses biz schema
       if (taskType === "workflow" && hasFlow && (phase === "ready" || phase === "questioning")) {
         setPhase("refining");
-        const { nodes: currentNodes, edges: currentEdges } =
+        const { nodes: currentNodes, edges: currentEdges, currentRole } =
           useFlowAgentStore.getState();
         const { json: canvasJson } = serializeFlowForLLM(currentNodes, currentEdges);
+        const refineAction = currentRole === "tech" ? "refine" : "refine_business";
 
         const res = await fetch("/api/generate-flow", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            action: "refine",
+            action: refineAction,
             prompt: originalPrompt,
             currentFlow: canvasJson,
             feedback: userInput,

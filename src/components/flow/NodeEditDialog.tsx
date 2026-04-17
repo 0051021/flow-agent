@@ -119,7 +119,7 @@ export default function NodeEditDialog() {
           {isTech && (
             <div className="flex items-center gap-2 p-2.5 rounded-lg bg-purple-50 border border-purple-100 text-xs text-purple-700">
               <Code2 className="w-3.5 h-3.5 shrink-0" />
-              技术评审模式：业务内容仅供查看，请在下方的"技术配置"中进行评估
+              技术评审模式：可修改执行方式、耗时、描述等技术判断项，节点名称由业务方定义
             </div>
           )}
 
@@ -142,7 +142,6 @@ export default function NodeEditDialog() {
                 onChange={(e) => setDescription(e.target.value)}
                 className="mt-1 text-sm min-h-[60px]"
                 placeholder="用一句话描述这个节点做什么"
-                disabled={isTech}
               />
             </div>
             <div>
@@ -152,7 +151,6 @@ export default function NodeEditDialog() {
                 onChange={(e) => setEstimatedTime(e.target.value)}
                 className="mt-1 text-sm"
                 placeholder="如：约2分钟"
-                disabled={isTech}
               />
             </div>
           </div>
@@ -167,13 +165,12 @@ export default function NodeEditDialog() {
                 return (
                   <button
                     key={mode.value}
-                    onClick={() => !isTech && setExecutionMode(mode.value)}
-                    disabled={isTech}
+                    onClick={() => setExecutionMode(mode.value)}
                     className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all text-center ${
                       isActive
                         ? "border-blue-400 bg-blue-50 ring-1 ring-blue-200"
                         : "border-zinc-200 hover:border-zinc-300"
-                    } ${isTech ? "opacity-60 cursor-default" : ""}`}
+                    }`}
                   >
                     <Icon className={`w-5 h-5 ${isActive ? "text-blue-600" : "text-zinc-400"}`} />
                     <span className={`text-[11px] font-medium ${isActive ? "text-blue-700" : "text-zinc-600"}`}>

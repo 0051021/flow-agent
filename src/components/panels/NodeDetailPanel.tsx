@@ -282,7 +282,9 @@ export default function NodeDetailPanel() {
 
   const data = node.data as unknown as FlowNodeData;
   const isTech = currentRole === "tech";
-  const canEditBusiness = !isTech;
+  const canEditLabel = !isTech;
+  const canEditTechFields = true;
+  const canEditErrorHandling = true;
 
   const updateField = (field: string, value: unknown) => {
     updateNodeData(selectedNodeId, { [field]: value });
@@ -327,7 +329,7 @@ export default function NodeDetailPanel() {
   };
 
   const toggleErrorStrategy = (strategy: string) => {
-    if (!canEditBusiness) return;
+    if (!canEditErrorHandling) return;
     const newHandling = data.errorHandling.map((eh) =>
       eh.strategy === strategy ? { ...eh, enabled: !eh.enabled } : eh
     );
@@ -347,7 +349,7 @@ export default function NodeDetailPanel() {
       <div className="flex items-center justify-between px-4 py-2 border-b border-zinc-100">
         <div className="flex items-center gap-2">
           <span className="text-sm">📌</span>
-          {canEditBusiness ? (
+          {canEditLabel ? (
             <input
               value={data.label}
               onChange={(e) => updateField("label", e.target.value)}
@@ -393,70 +395,54 @@ export default function NodeDetailPanel() {
           <TabsContent value="basic" className="px-4 py-3 mt-0 space-y-3">
             <div>
               <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider mb-1">节点描述</p>
-              {canEditBusiness ? (
-                <Textarea
-                  value={data.description}
-                  onChange={(e) => updateField("description", e.target.value)}
-                  className="text-sm min-h-[50px] bg-zinc-50 rounded-lg"
-                  placeholder="描述这个节点做什么"
-                />
-              ) : (
-                <p className="text-sm text-zinc-700 leading-relaxed bg-zinc-50 rounded-lg p-3">{data.description}</p>
-              )}
+              <Textarea
+                value={data.description}
+                onChange={(e) => updateField("description", e.target.value)}
+                className="text-sm min-h-[50px] bg-zinc-50 rounded-lg"
+                placeholder="描述这个节点做什么"
+              />
             </div>
             <div className="flex gap-4">
               <div className="flex-1">
                 <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider mb-1.5">执行方式</p>
-                {canEditBusiness ? (
-                  <div className="flex gap-1.5">
-                    {EXEC_MODES.map((mode) => {
-                      const Icon = mode.icon;
-                      const isActive = data.executionMode === mode.value;
-                      return (
-                        <button
-                          key={mode.value}
-                          onClick={() => updateField("executionMode", mode.value)}
-                          className={`flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] transition-all ${
-                            isActive
-                              ? "border-blue-400 bg-blue-50 text-blue-700"
-                              : "border-zinc-200 text-zinc-500 hover:border-zinc-300"
-                          }`}
-                        >
-                          <Icon className="w-3 h-3" />
-                          {mode.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1.5">
-                    {data.executionMode === "ai_auto" && <><Bot className="w-3.5 h-3.5 text-blue-500" /><span className="text-xs text-zinc-700">AI 自动</span></>}
-                    {data.executionMode === "human_confirm" && <><UserCheck className="w-3.5 h-3.5 text-amber-500" /><span className="text-xs text-zinc-700">需人工确认</span></>}
-                    {data.executionMode === "human_manual" && <><UserIcon className="w-3.5 h-3.5 text-purple-500" /><span className="text-xs text-zinc-700">人工操作</span></>}
-                  </div>
-                )}
+                <div className="flex gap-1.5">
+                  {EXEC_MODES.map((mode) => {
+                    const Icon = mode.icon;
+                    const isActive = data.executionMode === mode.value;
+                    return (
+                      <button
+                        key={mode.value}
+                        onClick={() => updateField("executionMode", mode.value)}
+                        className={`flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] transition-all ${
+                          isActive
+                            ? "border-blue-400 bg-blue-50 text-blue-700"
+                            : "border-zinc-200 text-zinc-500 hover:border-zinc-300"
+                        }`}
+                      >
+                        <Icon className="w-3 h-3" />
+                        {mode.label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
               <div>
                 <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider mb-1.5">预计耗时</p>
-                {canEditBusiness ? (
-                  <Input
-                    value={data.estimatedTime}
-                    onChange={(e) => updateField("estimatedTime", e.target.value)}
-                    className="text-xs h-7 w-28"
-                    placeholder="约2分钟"
-                  />
-                ) : (
-                  <span className="text-xs text-zinc-700">⏱️ {data.estimatedTime}</span>
-                )}
+                <Input
+                  value={data.estimatedTime}
+                  onChange={(e) => updateField("estimatedTime", e.target.value)}
+                  className="text-xs h-7 w-28"
+                  placeholder="约2分钟"
+                />
               </div>
             </div>
 
             {/* 执行规则 */}
-            {((data.executionRules && data.executionRules.length > 0) || canEditBusiness) && (
+            {((data.executionRules && data.executionRules.length > 0) || canEditTechFields) && (
               <div className="pt-2 border-t border-dashed border-zinc-200">
                 <div className="flex items-center justify-between mb-1.5">
                   <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider">执行规则</p>
-                  {canEditBusiness && (
+                  {canEditTechFields && (
                     <button
                       onClick={() => {
                         const newRules: ExecutionRule[] = [
@@ -473,7 +459,7 @@ export default function NodeDetailPanel() {
                 </div>
                 {(!data.executionRules || data.executionRules.length === 0) ? (
                   <p className="text-[11px] text-zinc-400 text-center py-2 bg-zinc-50 rounded-lg">
-                    暂无执行规则{canEditBusiness ? "，点击上方「添加」" : ""}
+                    暂无执行规则{canEditTechFields ? "，点击上方「添加」" : ""}
                   </p>
                 ) : (
                   <div className="space-y-1.5">
@@ -488,7 +474,7 @@ export default function NodeDetailPanel() {
                             {r.source === "user_confirmed" ? "用户确认" : "AI 推断"}
                           </span>
                           <div className="flex-1 min-w-0">
-                            {canEditBusiness ? (
+                            {canEditTechFields ? (
                               <div className="space-y-1">
                                 <Input
                                   value={r.rule}
@@ -518,7 +504,7 @@ export default function NodeDetailPanel() {
                               </>
                             )}
                           </div>
-                          {canEditBusiness && (
+                          {canEditTechFields && (
                             <button
                               onClick={() => {
                                 const newRules = (data.executionRules || []).filter((_, i) => i !== idx);
@@ -540,7 +526,7 @@ export default function NodeDetailPanel() {
             {data.executionMode === "human_confirm" && (
               <ConfirmStrategyPanel
                 config={data.confirmStrategy || { strategy: "always" }}
-                editable={canEditBusiness}
+                editable={canEditTechFields}
                 onChange={(cfg) => updateField("confirmStrategy", cfg)}
               />
             )}
@@ -552,7 +538,7 @@ export default function NodeDetailPanel() {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider">需要提供（输入）</p>
-                {canEditBusiness && (
+                {canEditTechFields && (
                   <button onClick={addInput} className="flex items-center gap-1 text-[10px] text-blue-600 hover:text-blue-700">
                     <Plus className="w-3 h-3" /> 添加
                   </button>
@@ -560,13 +546,13 @@ export default function NodeDetailPanel() {
               </div>
               {data.inputs.length === 0 ? (
                 <p className="text-[11px] text-zinc-400 text-center py-3 bg-zinc-50 rounded-lg">
-                  暂无输入{canEditBusiness ? '，点击上方「添加」' : ''}
+                  暂无输入{canEditTechFields ? '，点击上方「添加」' : ''}
                 </p>
               ) : (
                 <div className="space-y-1.5">
                   {data.inputs.map((inp) => (
                     <div key={inp.id} className="flex items-center gap-2 p-2 rounded-lg border border-zinc-100 bg-zinc-50 group">
-                      {canEditBusiness ? (
+                      {canEditTechFields ? (
                         <>
                           <Input
                             value={inp.name}
@@ -615,7 +601,7 @@ export default function NodeDetailPanel() {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider">会产出（输出）</p>
-                {canEditBusiness && (
+                {canEditTechFields && (
                   <button onClick={addOutput} className="flex items-center gap-1 text-[10px] text-blue-600 hover:text-blue-700">
                     <Plus className="w-3 h-3" /> 添加
                   </button>
@@ -623,13 +609,13 @@ export default function NodeDetailPanel() {
               </div>
               {data.outputs.length === 0 ? (
                 <p className="text-[11px] text-zinc-400 text-center py-3 bg-zinc-50 rounded-lg">
-                  暂无输出{canEditBusiness ? '，点击上方「添加」' : ''}
+                  暂无输出{canEditTechFields ? '，点击上方「添加」' : ''}
                 </p>
               ) : (
                 <div className="space-y-1.5">
                   {data.outputs.map((out) => (
                     <div key={out.id} className="flex items-center gap-2 p-2 rounded-lg border border-zinc-100 bg-zinc-50 group">
-                      {canEditBusiness ? (
+                      {canEditTechFields ? (
                         <>
                           <Input
                             value={out.name}
@@ -673,10 +659,10 @@ export default function NodeDetailPanel() {
                 <button
                   key={eh.strategy}
                   onClick={() => toggleErrorStrategy(eh.strategy)}
-                  disabled={!canEditBusiness}
+                  disabled={!canEditTechFields}
                   className={`w-full flex items-start gap-3 p-3 rounded-lg border transition-colors text-left
                     ${eh.enabled ? "border-zinc-200 bg-white" : "border-zinc-100 bg-zinc-50 opacity-50"}
-                    ${canEditBusiness ? "cursor-pointer hover:border-zinc-300" : "cursor-default"}`}
+                    ${canEditTechFields ? "cursor-pointer hover:border-zinc-300" : "cursor-default"}`}
                 >
                   <div className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 mt-0.5
                     ${eh.enabled ? "border-blue-500 bg-blue-500" : "border-zinc-300"}`}>

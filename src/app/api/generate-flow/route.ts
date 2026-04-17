@@ -631,12 +631,12 @@ const REFINE_BATCH_SYSTEM = `你是一个业务流程优化专家。你会收到
 ${FLOW_BIZ_SCHEMA}`;
 
 // ============================================================
-// Prompt: Refine（自由对话修改 Workflow）
+// Prompt: Refine（技术方自由对话修改 Workflow — 含技术字段）
 // ============================================================
 
 const REFINE_SYSTEM = `你是一个业务流程优化专家。你会收到：
 1. 当前的流程图（结构化 JSON，反映用户在画布上的最新修改）
-2. 用户的修改意见
+2. 用户的修改意见（来自技术方，可能涉及执行方式、执行规则、技术实现等）
 3. 用户的原始需求（供参考）
 
 请根据用户意见修改流程图，输出修改后的完整 JSON。
@@ -651,6 +651,29 @@ const REFINE_SYSTEM = `你是一个业务流程优化专家。你会收到：
 
 输出格式：
 ${FLOW_JSON_SCHEMA}`;
+
+// ============================================================
+// Prompt: Refine Business（业务方自由对话修改 Workflow — 不含技术字段）
+// ============================================================
+
+const REFINE_BUSINESS_SYSTEM = `你是一个业务流程优化专家。你会收到：
+1. 当前的流程图 JSON（业务侧内容）
+2. 用户的修改意见（来自业务方，通常是业务逻辑调整、步骤增删等）
+3. 用户的原始需求（供参考）
+
+请根据用户意见修改流程图，输出修改后的完整 JSON。
+
+修改规则：
+1. **只改用户提到的部分**，不要动其他已经合理的节点
+2. 如果需要新增节点，id 接着当前最大 id 递增
+3. 如果需要删除节点，同时删除相关的 edges
+4. 如果用户在画布上已经做了修改，尊重这些修改
+5. **不要生成 executionRules、executionType 字段**（这些由技术侧后续生成）
+6. 修改后的 JSON 格式必须和原来一致
+7. 直接输出合法 JSON，不要用 markdown 代码块包裹，不要有任何解释文字
+
+输出格式：
+${FLOW_BIZ_SCHEMA}`;
 
 // ============================================================
 // LLM 调用
@@ -957,13 +980,29 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // --- Action: refine ---
+    // --- Action: refine (tech role — full schema with executionRules/executionType) ---
     if (action === "refine") {
       if (!currentFlow || !feedback) {
         return NextResponse.json({ error: "缺少流程图或反馈" }, { status: 400 });
       }
       const refineInput = `原始需求：${prompt || "未提供"}\n\n当前流程图：\n${JSON.stringify(currentFlow, null, 2)}\n\n用户反馈：${feedback}`;
       const refined = await callLLM(REFINE_SYSTEM, refineInput);
+      if (!refined?.nodes || !Array.isArray(refined.nodes)) {
+        return NextResponse.json({ error: "AI 修改结果格式异常，请重试" }, { status: 502 });
+      }
+      if (!Array.isArray(refined.edges)) {
+        refined.edges = currentFlow.edges || [];
+      }
+      return NextResponse.json({ success: true, data: refined });
+    }
+
+    // --- Action: refine_business (business role — biz schema without executionRules/executionType) ---
+    if (action === "refine_business") {
+      if (!currentFlow || !feedback) {
+        return NextResponse.json({ error: "缺少流程图或反馈" }, { status: 400 });
+      }
+      const refineInput = `原始需求：${prompt || "未提供"}\n\n当前流程图：\n${JSON.stringify(currentFlow, null, 2)}\n\n用户反馈：${feedback}`;
+      const refined = await callLLM(REFINE_BUSINESS_SYSTEM, refineInput);
       if (!refined?.nodes || !Array.isArray(refined.nodes)) {
         return NextResponse.json({ error: "AI 修改结果格式异常，请重试" }, { status: 502 });
       }

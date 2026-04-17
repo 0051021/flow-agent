@@ -11,6 +11,7 @@ import AnnotationPanel from "@/components/panels/AnnotationPanel";
 import KnowledgePanel from "@/components/panels/KnowledgePanel";
 import NodeDetailPanel from "@/components/panels/NodeDetailPanel";
 import NodeEditDialog from "@/components/flow/NodeEditDialog";
+import OnboardingGuide from "@/components/ui/OnboardingGuide";
 import { useFlowAgentStore } from "@/lib/store";
 import { MOCK_ANNOTATIONS } from "@/lib/mock-data";
 import { getReviewById } from "@/lib/mock-reviews";
@@ -180,6 +181,11 @@ function EditorContent() {
   const isGenerating = chatPhase === "drafting" || chatPhase === "classifying";
   const [chatOpen, setChatOpen] = useState(true);
 
+  // 新手引导：方案生成完成后触发（仅首次、非 review 模式）
+  const isFlowReady = chatPhase === "ready" || chatPhase === "agentic_ready";
+  const showOnboarding = isFlowReady && !reviewId;
+  const [onboardingDone, setOnboardingDone] = useState(false);
+
   return (
     <div className="h-screen flex flex-col bg-zinc-50">
       <TopBar />
@@ -230,6 +236,10 @@ function EditorContent() {
         {showKnowledgePanel && <KnowledgePanel />}
       </div>
       {editingNodeId && !isAgentic && <NodeEditDialog />}
+      <OnboardingGuide
+        visible={showOnboarding && !onboardingDone}
+        onDone={() => setOnboardingDone(true)}
+      />
     </div>
   );
 }
