@@ -188,15 +188,23 @@ export default function ChatPanel() {
     const data = result.data;
     if (!data || !data.nodes || !Array.isArray(data.nodes)) { setPhase("idle"); return; }
 
-    console.log("[FlowAgent] raw edges from API:", JSON.stringify(data.edges?.length ?? "missing"), data.edges?.slice?.(0, 2));
-
     const { projectName, nodes: parsedNodes, edges: parsedEdges } =
       parseLLMResponse(data);
 
-    console.log("[FlowAgent] parsed edges:", parsedEdges.length, "nodes:", parsedNodes.length);
-
-    loadGeneratedFlow(parsedNodes, parsedEdges);
     setInitialSnapshot({ nodes: parsedNodes, edges: parsedEdges });
+
+    // Stream nodes in one by one
+    const STAGGER_MS = 300;
+    parsedNodes.forEach((_, i) => {
+      setTimeout(() => {
+        const visibleNodes = parsedNodes.slice(0, i + 1);
+        const visibleNodeIds = new Set(visibleNodes.map((n) => n.id));
+        const visibleEdges = parsedEdges.filter(
+          (e) => visibleNodeIds.has(e.source) && visibleNodeIds.has(e.target)
+        );
+        loadGeneratedFlow(visibleNodes, visibleEdges);
+      }, i * STAGGER_MS);
+    });
     useFlowAgentStore.setState((s) => ({
       project: { ...s.project, name: projectName },
     }));
@@ -216,50 +224,55 @@ export default function ChatPanel() {
       (nc) => nc.confidence !== "high" && nc.questions.length > 0
     );
 
-    useFlowAgentStore.setState({
-      pendingNodes: needConfirm,
-      currentNodeIdx: 0,
-    });
+    // Show summary after all nodes have streamed in
+    const streamDoneMs = parsedNodes.length * STAGGER_MS + 200;
+    setTimeout(() => {
+      useFlowAgentStore.setState({
+        pendingNodes: needConfirm,
+        currentNodeIdx: 0,
+      });
 
-    // 统计人机分工
-    const aiAutoNodes = parsedNodes.filter((n) => n.data?.executionMode === "ai_auto");
-    const humanConfirmNodes = parsedNodes.filter((n) => n.data?.executionMode === "human_confirm");
-    const humanManualNodes = parsedNodes.filter((n) => n.data?.executionMode === "human_manual");
-    const humanTotal = humanConfirmNodes.length + humanManualNodes.length;
+      const aiAutoNodes = parsedNodes.filter((n) => n.data?.executionMode === "ai_auto");
+      const humanConfirmNodes = parsedNodes.filter((n) => n.data?.executionMode === "human_confirm");
+      const humanManualNodes = parsedNodes.filter((n) => n.data?.executionMode === "human_manual");
+      const humanTotal = humanConfirmNodes.length + humanManualNodes.length;
 
-    // 人话版摘要（先让小白看懂价值）
-    const humanSummaryParts: string[] = [];
-    humanSummaryParts.push(`**「${projectName}」梳理完成 ✅**`);
-    humanSummaryParts.push(`\n这件事共分 **${parsedNodes.length} 步**：`);
-    if (aiAutoNodes.length > 0) {
-      humanSummaryParts.push(`• 🤖 **AI 自动完成 ${aiAutoNodes.length} 步**（你不用管）`);
-    }
-    if (humanTotal > 0) {
-      humanSummaryParts.push(`• 👤 **需要你参与 ${humanTotal} 步**（确认或手动操作）`);
-    }
-
-    if (needConfirm.length > 0) {
-      const lowNodes = needConfirm.filter((nc) => nc.confidence === "low");
-      const medNodes = needConfirm.filter((nc) => nc.confidence === "medium");
-      const uncertainParts: string[] = [];
-      if (lowNodes.length > 0) {
-        uncertainParts.push(`🔴 ${lowNodes.length} 个步骤信息不够（${lowNodes.map((n) => labelMap[n.nodeId] || n.nodeId).join("、")}）`);
+      const humanSummaryParts: string[] = [];
+      humanSummaryParts.push(`**「${projectName}」梳理完成 ✅**`);
+      humanSummaryParts.push(`\n这件事共分 **${parsedNodes.length} 步**：`);
+      if (aiAutoNodes.length > 0) {
+        humanSummaryParts.push(`• 🤖 **AI 自动完成 ${aiAutoNodes.length} 步**（你不用管）`);
       }
-      if (medNodes.length > 0) {
-        uncertainParts.push(`🟡 ${medNodes.length} 个步骤需确认细节（${medNodes.map((n) => labelMap[n.nodeId] || n.nodeId).join("、")}）`);
+      if (humanTotal > 0) {
+        humanSummaryParts.push(`• 👤 **需要你参与 ${humanTotal} 步**（确认或手动操作）`);
       }
-      humanSummaryParts.push(`\n右侧流程图已经生成，带颜色标记的步骤是 AI 觉得还需要你补充信息的地方，点击可以查看。也可以直接告诉我哪里不对。\n\n${uncertainParts.join("\n")}`);
-    } else {
-      humanSummaryParts.push(`\n右侧流程图已经生成，所有步骤信息都比较完整。可以在画布上查看和调整，或者直接告诉我哪里需要改。`);
-    }
 
-    addChatMessage({
-      id: uuidv4(),
-      role: "assistant",
-      content: humanSummaryParts.join("\n"),
-      timestamp: new Date().toISOString(),
-    });
-    setPhase("ready");
+      if (needConfirm.length > 0) {
+        const lowNodes = needConfirm.filter((nc) => nc.confidence === "low");
+        const medNodes = needConfirm.filter((nc) => nc.confidence === "medium");
+        const uncertainParts: string[] = [];
+        if (lowNodes.length > 0) {
+          uncertainParts.push(`🔴 ${lowNodes.length} 个步骤信息不够（${lowNodes.map((n) => labelMap[n.nodeId] || n.nodeId).join("、")}）`);
+        }
+        if (medNodes.length > 0) {
+          uncertainParts.push(`🟡 ${medNodes.length} 个步骤需确认细节（${medNodes.map((n) => labelMap[n.nodeId] || n.nodeId).join("、")}）`);
+        }
+        humanSummaryParts.push(`\n${uncertainParts.join("\n")}`);
+      }
+
+      humanSummaryParts.push(`\n**💡 小改自己动手，大改告诉我：**`);
+      humanSummaryParts.push(`• 改「谁来做」→ 点卡片底部的标签直接切换`);
+      humanSummaryParts.push(`• 改描述/补信息 → 点击卡片查看详情`);
+      humanSummaryParts.push(`• 加减步骤/改方向 → 在这里告诉我`);
+
+      addChatMessage({
+        id: uuidv4(),
+        role: "assistant",
+        content: humanSummaryParts.join("\n"),
+        timestamp: new Date().toISOString(),
+      });
+      setPhase("ready");
+    }, streamDoneMs);
   }, [addChatMessage, loadGeneratedFlow, setPhase, setNodeLabelMap, setInitialSnapshot, setAllNodeConfidence]);
 
   const handleAgenticResult = useCallback((result: Record<string, any>, prompt: string) => {
@@ -331,9 +344,11 @@ export default function ChatPanel() {
     }
     if (needQuestionCount > 0) {
       agenticSummaryParts.push(`\n右侧方案已生成，有 ${needQuestionCount} 个阶段需要你补充一些信息，请逐阶段确认。`);
-    } else {
-      agenticSummaryParts.push(`\n右侧方案已生成，可以查看每个阶段的详情，或告诉我哪里需要调整。`);
     }
+
+    agenticSummaryParts.push(`\n**💡 小改自己动手，大改告诉我：**`);
+    agenticSummaryParts.push(`• 改阶段细节 → 点击右侧卡片直接修改`);
+    agenticSummaryParts.push(`• 加减阶段/改方向 → 在这里告诉我`);
 
     addChatMessage({
       id: uuidv4(),
@@ -878,7 +893,7 @@ export default function ChatPanel() {
   const inputDisabled = isLoading;
 
   return (
-    <div className="w-[340px] border-r border-zinc-200 bg-white flex flex-col h-full">
+    <div className="w-[340px] border-r border-zinc-200 bg-white flex flex-col h-full" data-onboarding="chat-panel">
       {/* Header */}
       <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-100">
         <Sparkles className="w-4 h-4 text-amber-500" />

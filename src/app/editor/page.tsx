@@ -176,10 +176,24 @@ function EditorContent() {
     }
   }, [project.status]);
 
-  const { chatPhase } = useFlowAgentStore();
+  const { chatPhase, nodes: storeNodes } = useFlowAgentStore();
   const isAgentic = taskType === "agentic";
-  const isGenerating = chatPhase === "drafting" || chatPhase === "classifying";
+  const hasNodes = storeNodes.length > 0;
+  const isGenerating = (chatPhase === "drafting" || chatPhase === "classifying") && !hasNodes;
   const [chatOpen, setChatOpen] = useState(true);
+
+  // Stepped progress hints during generation
+  const [progressStep, setProgressStep] = useState(0);
+  useEffect(() => {
+    if (!isGenerating) { setProgressStep(0); return; }
+    const timers = [
+      setTimeout(() => setProgressStep(1), 2000),
+      setTimeout(() => setProgressStep(2), 5000),
+      setTimeout(() => setProgressStep(3), 9000),
+      setTimeout(() => setProgressStep(4), 14000),
+    ];
+    return () => timers.forEach(clearTimeout);
+  }, [isGenerating]);
 
   // 新手引导：方案生成完成后触发（仅首次、非 review 模式）
   const isFlowReady = chatPhase === "ready" || chatPhase === "agentic_ready";
@@ -213,15 +227,42 @@ function EditorContent() {
           currentRole === "tech" ? <AgenticConfigPanel /> : <AgenticCanvas />
         ) : isGenerating ? (
           <div className="flex-1 flex items-center justify-center">
-            <div className="text-center space-y-3">
-              <div className="w-10 h-10 mx-auto rounded-xl bg-zinc-100 flex items-center justify-center">
-                <svg className="w-5 h-5 text-zinc-400 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-              </div>
-              <p className="text-sm font-medium text-zinc-500">AI 正在分析你的业务场景…</p>
-              <p className="text-xs text-zinc-400">正在判断任务类型并生成方案</p>
+            <div className="w-72 space-y-5">
+              {[
+                { label: "理解你的业务场景", done: progressStep >= 1 },
+                { label: "判断任务类型", done: progressStep >= 2 },
+                { label: "拆解工作步骤", done: progressStep >= 3 },
+                { label: "分配人机分工", done: progressStep >= 4 },
+              ].map((step, i) => {
+                const isActive = progressStep === i;
+                const isDone = step.done;
+                return (
+                  <div key={i} className="flex items-center gap-3">
+                    <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition-all duration-500 ${
+                      isDone ? "bg-green-100 text-green-600" : isActive ? "bg-blue-100 text-blue-500" : "bg-zinc-100 text-zinc-300"
+                    }`}>
+                      {isDone ? (
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      ) : isActive ? (
+                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                      ) : (
+                        <div className="w-2 h-2 rounded-full bg-zinc-300" />
+                      )}
+                    </div>
+                    <span className={`text-sm transition-all duration-500 ${
+                      isDone ? "text-green-600 font-medium" : isActive ? "text-zinc-700 font-medium" : "text-zinc-400"
+                    }`}>
+                      {step.label}
+                    </span>
+                  </div>
+                );
+              })}
+              <p className="text-xs text-zinc-400 text-center pt-2">通常需要 10-20 秒</p>
             </div>
           </div>
         ) : (

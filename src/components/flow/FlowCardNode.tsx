@@ -2,7 +2,7 @@
 
 import { memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import type { FlowNodeData } from "@/lib/types";
+import type { FlowNodeData, NodeExecutionMode } from "@/lib/types";
 import { useFlowAgentStore } from "@/lib/store";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -10,6 +10,7 @@ import {
   Activity, RefreshCw, Bot, UserCheck, User,
   MessageSquare, Search, FileText, Mail, Database,
   Zap, Eye, Settings, Upload, Download, Users, Globe, Lock, Bell,
+  Repeat2,
 } from "lucide-react";
 
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -29,9 +30,11 @@ const DEFAULT_TECH_CONFIG = {
   feasibility: "pending" as const,
 };
 
+const EXEC_CYCLE: NodeExecutionMode[] = ["ai_auto", "human_confirm", "human_manual"];
+
 function FlowCardNode({ data, id }: NodeProps) {
   const nodeData = data as unknown as FlowNodeData;
-  const { viewMode, currentRole, selectedNodeId, setSelectedNodeId, setShowAnnotationPanel, annotations, allNodeConfidence, deferredNodeIds } = useFlowAgentStore();
+  const { viewMode, currentRole, selectedNodeId, setSelectedNodeId, setShowAnnotationPanel, annotations, allNodeConfidence, deferredNodeIds, updateNodeData } = useFlowAgentStore();
   const IconComponent = ICON_MAP[nodeData.icon] || BarChart3;
   const execConfig = EXEC_MODE_CONFIG[nodeData.executionMode] || EXEC_MODE_CONFIG.ai_auto;
   const ExecIcon = execConfig.icon;
@@ -49,6 +52,8 @@ function FlowCardNode({ data, id }: NodeProps) {
     pending: "border-l-transparent",
   };
 
+  const isFirstNode = nodeData.stepIndex === 1;
+
   return (
     <div
       className={`
@@ -60,6 +65,7 @@ function FlowCardNode({ data, id }: NodeProps) {
       onClick={() => {
         setSelectedNodeId(id);
       }}
+      {...(isFirstNode ? { "data-onboarding": "flow-node" } : {})}
     >
       <Handle type="target" position={Position.Top} id="top-in" className="!w-3 !h-3 !bg-zinc-300 !border-2 !border-white hover:!bg-blue-400 hover:!scale-125 transition-all" />
       <Handle type="source" position={Position.Top} id="top-out" className="!w-3 !h-3 !bg-zinc-300 !border-2 !border-white hover:!bg-blue-400 hover:!scale-125 transition-all" />
@@ -214,10 +220,21 @@ function FlowCardNode({ data, id }: NodeProps) {
       {/* Footer */}
       <div className="flex items-center justify-between px-4 py-2.5 mt-2 border-t border-zinc-100">
         <span className="text-[11px] text-zinc-400">⏱️ {nodeData.estimatedTime}</span>
-        <Badge variant="outline" className={`text-[10px] h-5 ${execConfig.className}`}>
-          <ExecIcon className="w-3 h-3 mr-1" />
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            const curIdx = EXEC_CYCLE.indexOf(nodeData.executionMode);
+            const nextMode = EXEC_CYCLE[(curIdx + 1) % EXEC_CYCLE.length];
+            updateNodeData(id, { executionMode: nextMode });
+          }}
+          className={`inline-flex items-center gap-1 text-[10px] h-5 px-2 rounded-full border transition-all hover:ring-2 hover:ring-offset-1 hover:ring-blue-200 active:scale-95 ${execConfig.className}`}
+          title="点击切换：AI 自动 → 需你确认 → 人工操作"
+          {...(isFirstNode ? { "data-onboarding": "exec-badge" } : {})}
+        >
+          <ExecIcon className="w-3 h-3" />
           {execConfig.label}
-        </Badge>
+          <Repeat2 className="w-2.5 h-2.5 ml-0.5 opacity-40" />
+        </button>
       </div>
 
       <Handle type="target" position={Position.Bottom} id="bottom-in" className="!w-3 !h-3 !bg-zinc-300 !border-2 !border-white hover:!bg-blue-400 hover:!scale-125 transition-all" />

@@ -1,6 +1,7 @@
 import type { FlowNodeData } from "./types";
 import type { Node, Edge } from "@xyflow/react";
 import { v4 as uuidv4 } from "uuid";
+import dagre from "@dagrejs/dagre";
 
 interface LLMNode {
   id: string;
@@ -53,129 +54,50 @@ const EDGE_STYLE_MAP: Record<string, { stroke: string; dash?: boolean }> = {
 };
 
 const NODE_WIDTH = 340;
-const NODE_HEIGHT = 380;
-const X_GAP = 100;
-const Y_GAP = 80;
+const NODE_HEIGHT = 260;
 
 /**
- * DAG-aware layout using topological sort + layer assignment.
- * Supports parallel branches, convergence, and back-edges (loops).
+ * Use dagre for proper hierarchical DAG layout.
+ * Dagre handles layering, crossing minimisation, and coordinate assignment
+ * far better than hand-rolled heuristics.
  */
 function computeDAGLayout(
   nodeIds: string[],
   edges: LLMEdge[]
 ): Map<string, { x: number; y: number }> {
   const positions = new Map<string, { x: number; y: number }>();
+  if (nodeIds.length === 0) return positions;
 
-  // Build adjacency (ignore loop edges for layout)
+  const g = new dagre.graphlib.Graph();
+  g.setGraph({
+    rankdir: "TB",
+    nodesep: 100,
+    ranksep: 120,
+    edgesep: 40,
+    marginx: 40,
+    marginy: 40,
+  });
+  g.setDefaultEdgeLabel(() => ({}));
+
+  for (const id of nodeIds) {
+    g.setNode(id, { width: NODE_WIDTH, height: NODE_HEIGHT });
+  }
+
   const forwardEdges = edges.filter((e) => e.style !== "loop");
-  const children = new Map<string, string[]>();
-  const parents = new Map<string, string[]>();
-  const inDegree = new Map<string, number>();
-
-  for (const id of nodeIds) {
-    children.set(id, []);
-    parents.set(id, []);
-    inDegree.set(id, 0);
-  }
-
+  const nodeIdSet = new Set(nodeIds);
   for (const e of forwardEdges) {
-    if (children.has(e.source) && inDegree.has(e.target)) {
-      children.get(e.source)!.push(e.target);
-      parents.get(e.target)!.push(e.source);
-      inDegree.set(e.target, (inDegree.get(e.target) || 0) + 1);
+    if (nodeIdSet.has(e.source) && nodeIdSet.has(e.target)) {
+      g.setEdge(e.source, e.target);
     }
   }
 
-  // Topological sort with layer assignment (longest path from root)
-  const layers = new Map<string, number>();
-  const queue: string[] = [];
+  dagre.layout(g);
 
   for (const id of nodeIds) {
-    if ((inDegree.get(id) || 0) === 0) {
-      queue.push(id);
-      layers.set(id, 0);
+    const node = g.node(id);
+    if (node) {
+      positions.set(id, { x: node.x - NODE_WIDTH / 2, y: node.y - NODE_HEIGHT / 2 });
     }
-  }
-
-  // BFS to assign layers (longest path = max layer of parents + 1)
-  const visited = new Set<string>();
-  const topoOrder: string[] = [];
-
-  // Use Kahn's algorithm but assign layer as max(parent layers) + 1
-  const tempInDegree = new Map(inDegree);
-  const bfsQueue = [...queue];
-
-  while (bfsQueue.length > 0) {
-    const current = bfsQueue.shift()!;
-    if (visited.has(current)) continue;
-    visited.add(current);
-    topoOrder.push(current);
-
-    for (const child of children.get(current) || []) {
-      const parentLayer = layers.get(current) || 0;
-      const currentChildLayer = layers.get(child) || 0;
-      layers.set(child, Math.max(currentChildLayer, parentLayer + 1));
-
-      tempInDegree.set(child, (tempInDegree.get(child) || 1) - 1);
-      if (tempInDegree.get(child) === 0) {
-        bfsQueue.push(child);
-      }
-    }
-  }
-
-  // Handle nodes not reached (cycles) — place them at the end
-  const maxExistingLayer = layers.size > 0 ? Math.max(...layers.values()) : -1;
-  for (const id of nodeIds) {
-    if (!layers.has(id)) {
-      layers.set(id, maxExistingLayer + 1);
-    }
-  }
-
-  // Group nodes by layer
-  const layerGroups = new Map<number, string[]>();
-  for (const [id, layer] of layers) {
-    if (!layerGroups.has(layer)) layerGroups.set(layer, []);
-    layerGroups.get(layer)!.push(id);
-  }
-
-  const sortedLayers = [...layerGroups.keys()].sort((a, b) => a - b);
-
-  const maxLayerSize = Math.max(...[...layerGroups.values()].map((g) => g.length));
-  if (sortedLayers.length <= 2 && maxLayerSize > 3 && nodeIds.length > 3) {
-    const CENTER_X = 0;
-    nodeIds.forEach((id, idx) => {
-      positions.set(id, { x: CENTER_X, y: idx * (NODE_HEIGHT + Y_GAP) });
-    });
-    return positions;
-  }
-
-  for (const layer of sortedLayers) {
-    const nodesInLayer = layerGroups.get(layer)!;
-
-    if (layer > 0) {
-      nodesInLayer.sort((a, b) => {
-        const parentsA = parents.get(a) || [];
-        const parentsB = parents.get(b) || [];
-        const avgA = parentsA.length > 0
-          ? parentsA.reduce((sum, p) => sum + (positions.get(p)?.x || 0), 0) / parentsA.length
-          : 0;
-        const avgB = parentsB.length > 0
-          ? parentsB.reduce((sum, p) => sum + (positions.get(p)?.x || 0), 0) / parentsB.length
-          : 0;
-        return avgA - avgB;
-      });
-    }
-
-    const totalWidth = nodesInLayer.length * NODE_WIDTH + (nodesInLayer.length - 1) * X_GAP;
-    const startX = -totalWidth / 2 + NODE_WIDTH / 2;
-
-    nodesInLayer.forEach((id, index) => {
-      positions.set(id, {
-        x: startX + index * (NODE_WIDTH + X_GAP),
-        y: layer * (NODE_HEIGHT + Y_GAP),
-      });
-    });
   }
 
   return positions;
@@ -194,7 +116,7 @@ export function parseLLMResponse(data: LLMFlowData): {
   const nodes: Node<FlowNodeData>[] = data.nodes.map((n, index) => ({
     id: n.id,
     type: "flowCard",
-    position: positions.get(n.id) || { x: 0, y: index * (NODE_HEIGHT + Y_GAP) },
+    position: positions.get(n.id) || { x: 0, y: index * (NODE_HEIGHT + 120) },
     data: {
       label: n.label,
       icon: n.icon,
@@ -271,23 +193,47 @@ export function parseLLMResponse(data: LLMFlowData): {
     }));
   }
 
-  const nodeIndexMap = new Map<string, number>();
-  data.nodes.forEach((n, i) => nodeIndexMap.set(n.id, i));
+  // Standard flowchart convention:
+  // - Main path (straight down): bottom-center → top-center
+  // - Side branch (target offset horizontally): side-of-source → top-of-target
+  // - Back edge (loop back up): side → side
+  // - Merge (multiple sources into one target): bottom-of-each → top-center-of-target
 
   const edges: Edge[] = validEdges.map((e) => {
     const s = EDGE_STYLE_MAP[e.style] || EDGE_STYLE_MAP.normal;
-    const srcIdx = nodeIndexMap.get(e.source) ?? 0;
-    const tgtIdx = nodeIndexMap.get(e.target) ?? 0;
-    const isBackEdge = tgtIdx <= srcIdx;
+    const srcPos = positions.get(e.source);
+    const tgtPos = positions.get(e.target);
+
+    let sourceHandle = "bottom-out";
+    let targetHandle = "top-in";
+
+    if (srcPos && tgtPos) {
+      const dy = tgtPos.y - srcPos.y;
+      const dx = tgtPos.x - srcPos.x;
+      const absDx = Math.abs(dx);
+
+      if (dy < -NODE_HEIGHT * 0.3) {
+        // Back edge: target is above source → loop via side
+        const side = dx >= 0 ? "right" : "left";
+        sourceHandle = `${side}-out`;
+        targetHandle = `${side}-in`;
+      } else if (absDx > NODE_WIDTH * 0.5) {
+        // Side branch: target is significantly to the left or right
+        // Exit from the SIDE of the source, enter from the TOP of target
+        sourceHandle = dx > 0 ? "right-out" : "left-out";
+        targetHandle = "top-in";
+      }
+      // else: straight down → default bottom-out / top-in
+    }
 
     return {
       id: `e-${uuidv4()}`,
       source: e.source,
       target: e.target,
-      sourceHandle: isBackEdge ? "right-out" : "bottom-out",
-      targetHandle: isBackEdge ? "left-in" : "top-in",
+      sourceHandle,
+      targetHandle,
       label: e.label,
-      type: "smoothstep",
+      type: "editable",
       animated: e.style !== "loop",
       style: {
         stroke: s.stroke,

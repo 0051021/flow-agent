@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import {
   BaseEdge,
   EdgeLabelRenderer,
+  getBezierPath,
   getSmoothStepPath,
   type EdgeProps,
 } from "@xyflow/react";
@@ -46,14 +47,16 @@ export default function EditableEdge({
     store.setEdges(updated);
   }, [id, text]);
 
-  const [edgePath, labelX, labelY] = getSmoothStepPath({
+  const isBackEdge = targetY < sourceY - 20;
+  const pathFn = isBackEdge ? getSmoothStepPath : getBezierPath;
+  const [edgePath, labelX, labelY] = pathFn({
     sourceX,
     sourceY,
     targetX,
     targetY,
     sourcePosition,
     targetPosition,
-    borderRadius: 16,
+    ...(isBackEdge ? { borderRadius: 16 } : {}),
   });
 
   const edgeStyle = {
