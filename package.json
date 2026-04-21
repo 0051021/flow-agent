@@ -7,7 +7,10 @@
     "build": "next build",
     "build:ci": "CDN_BASE_URL=https://s1.nodesk.tech/pub/${SCM_COMMIT_ID_SHORT}/ next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "docker:build": "docker build --platform linux/amd64 -t flow-chat .",
+    "docker:build:ci": "docker build --platform linux/amd64 --build-arg USE_CN_MIRROR=true --build-arg CDN_BASE_URL=https://s1.nodesk.tech/pub/${SCM_COMMIT_ID_SHORT}/ -t nodesk-center-cn-beijing.cr.volces.com/infra/flow-chat:${SCM_COMMIT_ID_SHORT} .",
+    "docker:push:ci": "docker push nodesk-center-cn-beijing.cr.volces.com/infra/flow-chat:${SCM_COMMIT_ID_SHORT}"
   },
   "dependencies": {
     "@base-ui/react": "^1.3.0",
