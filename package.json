@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:ci": "CDN_BASE_URL=https://s1.nodesk.tech/pub/${SCM_COMMIT_ID_SHORT}/ next build",
     "start": "next start",
     "lint": "eslint"
   },
