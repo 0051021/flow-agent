@@ -1,0 +1,805 @@
+{
+  "meta": {
+    "id": "project-gsds-ingest",
+    "name": "GSDS 入库",
+    "version": "3.0.0",
+    "taskType": "workflow",
+    "createdAt": "2026-05-07T10:00:00Z",
+    "updatedAt": "2026-05-07T11:00:00Z",
+    "totalNodes": 4,
+    "estimatedDuration": "单文件：下载秒级 + 解析 10-60 秒 + 人工审核（视复杂度）+ 写库秒级",
+    "businessContext": "用户在 SharePoint 上传 GSDS PDF 文件，系统自动下载并解析 PDF 得到 BBN、PART、颜色、状态、UN 编号、各项危害类别、密度、成分列表等字段。解析结果经人工审核确认后，按 BBN+PART 在数据库中做唯一性判断——有就 UPDATE，没有就 INSERT。",
+    "tags": ["GSDS", "主数据", "PDF", "入库", "多模态解析", "UPSERT"]
+  },
+
+  "documents": [
+    {
+      "id": "doc-gsds-pdf",
+      "name": "GSDS PDF（源文件）",
+      "fileType": "pdf",
+      "role": "external_input",
+      "schema": {
+        "type": "unstructured",
+        "contentType": "mixed",
+        "structureDescription": "用户上传至 SharePoint 的 GSDS 安全数据说明书 PDF，版面不固定，需多模态解析。部分字段可能不存在。",
+        "extractionHints": [
+          { "field": "BBN", "type": "string", "description": "BBN 编号（如 CL/VA-8.10）", "required": true },
+          { "field": "PART", "type": "string", "description": "PART 编号（如 Part 2B）", "required": true },
+          { "field": "颜色", "type": "string", "description": "如 浅黄色", "required": false },
+          { "field": "状态", "type": "string", "description": "物理状态（如 透明液体）", "required": false },
+          { "field": "正式运输名称", "type": "string", "description": "如 萃取液，液體", "required": false },
+          { "field": "UN联合国编号", "type": "string", "description": "四位数字（如 1197）", "required": false },
+          { "field": "危险货物类别", "type": "string", "description": "一位数字（如 3）", "required": false },
+          { "field": "包装类别", "type": "string", "description": "罗马数字（如 III）", "required": false },
+          { "field": "易燃液体，类别", "type": "string", "description": "如 3", "required": false },
+          { "field": "金属腐蚀剂，类别", "type": "string", "required": false },
+          { "field": "皮肤腐蚀/刺激，类别", "type": "string", "required": false },
+          { "field": "严重眼损伤/眼刺激，类别", "type": "string", "description": "如 2A", "required": false },
+          { "field": "皮肤致敏，类别", "type": "string", "required": false },
+          { "field": "吸入危险，类别", "type": "string", "required": false },
+          { "field": "危害水生环境-短期危害，类别", "type": "string", "required": false },
+          { "field": "危害水生环境-长期危害，类别", "type": "string", "required": false },
+          { "field": "海洋污染物", "type": "string", "required": false },
+          { "field": "急毒性", "type": "string", "required": false },
+          { "field": "SDS密度", "type": "number", "description": "如 0.9772", "required": false },
+          { "field": "密度", "type": "number", "description": "= SDS密度四舍五入保留两位小数（如 SDS密度 0.9772 → 密度 0.98）", "required": false },
+          { "field": "成分|含量|CAS", "type": "string", "description": "成分列表，格式：成分名称|含量|CAS编号，多行", "required": false }
+        ]
+      },
+      "samples": [
+        {
+          "description": "一份典型的 GSDS PDF 解析结果",
+          "data": {
+            "BBN": "CL/VA-8.10",
+            "PART": "Part 2B",
+            "颜色": "浅黄色",
+            "状态": "透明液体",
+            "正式运输名称": "萃取液，液體",
+            "UN联合国编号": "1197",
+            "危险货物类别": "3",
+            "包装类别": "III",
+            "易燃液体，类别": "3",
+            "严重眼损伤/眼刺激，类别": "2A",
+            "SDS密度": 0.9772,
+            "密度": 0.98,
+            "成分": [
+              { "component": "乙醇", "content": "15 - 40%", "cas": "64-17-5" },
+              { "component": "香兰素", "content": "10 - 30%", "cas": "121-33-5" }
+            ]
+          }
+        }
+      ],
+      "constraints": [
+        "PDF 版面不固定，不同供应商格式差异大",
+        "部分字段在文本中可能不存在，不存在则不填写",
+        "成分列表行数不固定",
+        "类别列名须与现网脚本一致（含中文逗号）"
+      ],
+      "versionStrategy": "immutable"
+    },
+    {
+      "id": "doc-gsds-master-row",
+      "name": "GSDS 主库行（逻辑视图）",
+      "fileType": "database",
+      "role": "working",
+      "schema": {
+        "type": "table",
+        "primaryKey": ["BBN", "PART"],
+        "columns": [
+          { "name": "BBN", "type": "string", "description": "业务唯一键之一", "required": true },
+          { "name": "PART", "type": "string", "description": "业务唯一键之二", "required": true },
+          { "name": "颜色", "type": "string", "required": true },
+          { "name": "状态", "type": "string", "required": true },
+          { "name": "正式运输名称", "type": "string", "required": true },
+          { "name": "UN联合国编号", "type": "string", "required": true },
+          { "name": "危险货物类别", "type": "string", "required": true },
+          { "name": "包装类别", "type": "string", "required": true },
+          { "name": "易燃液体，类别", "type": "string", "required": false },
+          { "name": "金属腐蚀剂，类别", "type": "string", "required": false },
+          { "name": "皮肤腐蚀/刺激，类别", "type": "string", "required": false },
+          { "name": "严重眼损伤/眼刺激，类别", "type": "string", "required": false },
+          { "name": "皮肤致敏，类别", "type": "string", "required": false },
+          { "name": "吸入危险，类别", "type": "string", "required": false },
+          { "name": "危害水生环境-短期危害，类别", "type": "string", "required": false },
+          { "name": "危害水生环境-长期危害，类别", "type": "string", "required": false },
+          { "name": "海洋污染物", "type": "string", "required": false },
+          { "name": "急毒性", "type": "string", "required": false },
+          { "name": "SDS密度", "type": "string", "required": true },
+          { "name": "密度", "type": "number", "description": "= SDS密度四舍五入保留两位小数", "required": true },
+          { "name": "成分｜含量｜CAS", "type": "json", "description": "数组：[{component, content, cas}]", "required": true },
+          { "name": "入库时间", "type": "date", "description": "ISO8601", "required": true },
+          { "name": "操作类型", "type": "string", "description": "insert | update", "required": true }
+        ]
+      },
+      "samples": [],
+      "constraints": [
+        "业务键：(BBN, PART) 在库中至多一条记录",
+        "须在库表上保证 (BBN, PART) 唯一索引",
+        "并发两笔同时写入同一 BBN+PART 时，依赖 DB 唯一约束 + 应用重试"
+      ],
+      "versionStrategy": "overwrite",
+      "contextBinding": {
+        "code": "cs-gsds-master-db",
+        "sourceType": "http",
+        "sensitivity": "confidential"
+      }
+    },
+    {
+      "id": "doc-gsds-conversion-rules",
+      "name": "GSDS 值转换规则表",
+      "fileType": "xlsx",
+      "role": "configuration",
+      "schema": {
+        "type": "table",
+        "columns": [
+          { "name": "修改字段名", "type": "string", "description": "要校正的字段名（如 正式运输名称、颜色、状态、组分）", "required": true },
+          { "name": "修改字段值", "type": "string", "description": "AI 解析出的原始值或常见错误值（空字符串表示默认值规则）", "required": false },
+          { "name": "正确字段值", "type": "string", "description": "业务确认的标准值", "required": true }
+        ]
+      },
+      "samples": [
+        {
+          "description": "典型转换规则示例",
+          "data": [
+            { "修改字段名": "正式运输名称", "修改字段值": "PHOSPHORIC ACID SOLUTION", "正确字段值": "磷酸溶液" },
+            { "修改字段名": "颜色", "修改字段值": "透明的", "正确字段值": "无色" },
+            { "修改字段名": "状态", "修改字段值": "液体、不透明的", "正确字段值": "不透明液体" },
+            { "修改字段名": "组分", "修改字段值": "2-已烯醛 (叶醛)", "正确字段值": "2-己烯醛 (叶醛)" }
+          ]
+        }
+      ],
+      "constraints": [
+        "同一字段可有多条规则（不同原始值映射到不同或相同的标准值）",
+        "匹配时忽略前后空格，大小写不敏感",
+        "修改字段值为空时，表示该字段解析为空/缺失时的默认填充值",
+        "规则由业务方维护，技术方不应修改规则内容"
+      ],
+      "versionStrategy": "overwrite",
+      "ownership": "business"
+    }
+  ],
+
+  "externalSystems": [
+    {
+      "id": "sys-sharepoint",
+      "name": "SharePoint（GSDS 文件目录）",
+      "type": "file_system",
+      "integration": {
+        "current": "file_transfer",
+        "target": "api",
+        "readiness": "partial"
+      },
+      "auth": {
+        "type": "bearer_token",
+        "secretBinding": { "code": "sharepoint-api-credential" }
+      },
+      "capabilities": ["文件下载", "Webhook 事件通知"],
+      "constraints": [
+        { "type": "file_size", "detail": "PDF 通常 1-5MB" },
+        { "type": "availability", "detail": "依赖企业 SharePoint 服务可用性" }
+      ],
+      "humanFallback": "SharePoint 不可用时，用户可通过本地上传入口触发",
+      "toolBinding": { "code": "sharepoint-file-download" }
+    },
+    {
+      "id": "sys-gsds-master-db",
+      "name": "GSDS 主数据库",
+      "type": "database",
+      "integration": {
+        "current": "database_query",
+        "target": "database_query",
+        "readiness": "ready"
+      },
+      "auth": {
+        "type": "username_password",
+        "secretBinding": { "code": "gsds-db-credential" }
+      },
+      "capabilities": ["SELECT 按 BBN+PART 查询", "INSERT 新记录", "UPDATE 覆盖已有记录"],
+      "constraints": [
+        { "type": "rate_limit", "detail": "连接池上限 50" }
+      ],
+      "humanFallback": "数据库不可用时暂停写入并告警",
+      "toolBinding": { "code": "gsds-db-upsert" }
+    }
+  ],
+
+  "globalConfig": {
+    "orchestration": {
+      "type": "sequential"
+    },
+    "timezone": "Asia/Shanghai",
+    "contextPolicyBinding": { "code": "gsds-processing-default" }
+  },
+
+  "adaptiveConfig": {
+    "runtimeAdjustable": [
+      {
+        "path": "task-parse-pdf.timeout",
+        "type": "number",
+        "description": "PDF 解析超时时间（秒），版面复杂时可调大",
+        "min": 30,
+        "max": 300,
+        "adjustScope": "hot",
+        "requiresApproval": false
+      },
+      {
+        "path": "task-upsert-db.retryPolicy.maxRetries",
+        "type": "number",
+        "description": "写库最大重试次数",
+        "min": 1,
+        "max": 10,
+        "adjustScope": "warm",
+        "requiresApproval": false
+      }
+    ],
+    "envAssumptions": [
+      {
+        "id": "sharepoint-available",
+        "description": "SharePoint 服务 7×24 可用",
+        "monitorType": "api_health",
+        "monitorConfig": {
+          "endpoint": "sys-sharepoint",
+          "checkInterval": "5m",
+          "timeout": "10s"
+        },
+        "warningThreshold": { "consecutive_failures": 1 },
+        "criticalThreshold": { "consecutive_failures": 3 }
+      },
+      {
+        "id": "gsds-db-pool-healthy",
+        "description": "GSDS 主库连接池充足",
+        "monitorType": "metric",
+        "monitorConfig": {
+          "source": "prometheus",
+          "query": "db_pool_usage_ratio{db='gsds'}",
+          "checkInterval": "1m"
+        },
+        "warningThreshold": { "usage_ratio": 0.8 },
+        "criticalThreshold": { "usage_ratio": 0.95 }
+      }
+    ],
+    "adjustmentPolicies": [
+      {
+        "id": "sharepoint-down-pause",
+        "name": "SharePoint 不可用时暂停入库",
+        "description": "SharePoint 连续 3 次健康检查失败则暂停 Job 并告警，恢复后自动补跑",
+        "trigger": {
+          "type": "assumption_violated",
+          "ref": "sharepoint-available"
+        },
+        "actions": [
+          {
+            "type": "pause",
+            "config": { "scope": "job" }
+          },
+          {
+            "type": "notify",
+            "config": {
+              "notifyChannels": ["email", "webhook"],
+              "notifyRoles": ["tech"]
+            }
+          }
+        ],
+        "requiresApproval": false,
+        "cooldownSeconds": 300
+      },
+      {
+        "id": "db-pool-throttle",
+        "name": "写库高峰限流",
+        "description": "DB 连接池使用率 >80% 时降低并发，释放多余连接",
+        "trigger": {
+          "type": "assumption_violated",
+          "ref": "gsds-db-pool-healthy",
+          "condition": "usage_ratio > 0.8"
+        },
+        "actions": [
+          {
+            "type": "adjust_param",
+            "config": {
+              "targetParam": "task-upsert-db.concurrency",
+              "newValue": 2
+            }
+          },
+          {
+            "type": "notify",
+            "config": {
+              "notifyChannels": ["webhook"],
+              "notifyRoles": ["tech"]
+            }
+          }
+        ],
+        "requiresApproval": false,
+        "cooldownSeconds": 60
+      }
+    ]
+  },
+
+  "nodes": [
+    {
+      "id": "node-1",
+      "identity": {
+        "label": "获取 PDF 文件",
+        "icon": "Upload",
+        "description": "从 SharePoint 下载用户上传的 GSDS PDF 文件到临时存储，返回本地文件路径和原始文件名。",
+        "stepIndex": 1,
+        "totalSteps": 4,
+        "executionMode": "ai_auto",
+        "estimatedTime": "秒级"
+      },
+      "dataContract": {
+        "inputs": [
+          {
+            "id": "in-1-1",
+            "name": "SharePoint 文件 URL",
+            "docRef": "doc-gsds-pdf",
+            "externalRef": "sys-sharepoint",
+            "source": "user",
+            "required": true,
+            "kind": "text",
+            "sourceType": "url"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "out-1-1",
+            "name": "本地 PDF 文件路径",
+            "docRef": "doc-gsds-pdf",
+            "kind": "document",
+            "intent": "下载后的 GSDS PDF 本地临时文件路径，供后续解析",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "pdf_file_path": { "type": "string", "description": "本地临时文件路径" },
+                "file_name": { "type": "string", "description": "原始文件名" }
+              }
+            },
+            "flowsTo": ["node-2"]
+          }
+        ]
+      },
+      "businessIntent": [
+        {
+          "stepIndex": 1,
+          "type": "call_api",
+          "description": "调用 SharePoint API 下载指定 URL 的 PDF 文件到临时存储",
+          "target": { "externalRef": "sys-sharepoint" },
+          "onError": "retry"
+        }
+      ],
+      "taskType": "integration",
+      "skillBinding": { "code": "gsds-file-fetcher" },
+      "runtimeBinding": { "profileCode": "integration-default" },
+      "qualityHint": {
+        "acceptanceCriteria": [
+          {
+            "id": "ac-node1-file-exists",
+            "title": "PDF 文件下载成功",
+            "description": "pdf_file_path 不为空且文件存在",
+            "checkType": ["deterministic_rule"],
+            "checkConfig": { "rule": "not_empty", "path": "out-1-1.pdf_file_path" },
+            "blocking": true
+          }
+        ],
+        "issueCategories": ["SharePoint 连接失败", "文件不存在", "权限不足"],
+        "onFailure": { "strategy": "retry", "notifyRoles": ["tech"] }
+      },
+      "errorStrategy": {
+        "strategy": "retry",
+        "retryPolicy": { "maxRetries": 3, "backoff": "exponential", "delayMs": 1000 },
+        "timeout": { "totalSeconds": 120, "externalCallSeconds": 30, "onExternalTimeout": "fail" },
+        "notifyRoles": ["tech"],
+        "fallbackDescription": "SharePoint API 失败时重试 3 次，仍失败则通知技术方检查凭证和网络"
+      },
+      "edges": [
+        {
+          "targetNodeId": "node-2",
+          "dataFlow": [
+            { "sourceOutput": "out-1-1", "targetInput": "in-2-1", "description": "PDF 文件路径传递给解析节点" }
+          ]
+        }
+      ]
+    },
+
+    {
+      "id": "node-2",
+      "identity": {
+        "label": "解析 GSDS PDF",
+        "icon": "FileText",
+        "description": "使用多模态能力解析 GSDS PDF 文件，提取 BBN、PART、颜色、状态、运输名称、UN 编号、各项危害类别、密度、成分列表等字段。部分字段在 PDF 中可能不存在则不填写。输出须符合 gsds-parsed-record.schema.json。",
+        "stepIndex": 2,
+        "totalSteps": 4,
+        "executionMode": "ai_auto",
+        "estimatedTime": "10-60 秒"
+      },
+      "dataContract": {
+        "inputs": [
+          {
+            "id": "in-2-1",
+            "name": "PDF 文件路径",
+            "docRef": "doc-gsds-pdf",
+            "source": "previous_step",
+            "sourceNodeId": "node-1",
+            "required": true,
+            "kind": "document",
+            "sourceType": "file_path",
+            "mediaType": "application/pdf"
+          },
+          {
+            "id": "in-2-2",
+            "name": "值转换规则表",
+            "docRef": "doc-gsds-conversion-rules",
+            "source": "configuration",
+            "required": true,
+            "kind": "structured",
+            "sourceType": "inline",
+            "description": "业务方维护的字段值替换规则，解析完成后按此表对原始值做标准化转换",
+            "ownership": "business"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "out-2-1",
+            "name": "GSDS 解析记录",
+            "docRef": null,
+            "kind": "structured",
+            "intent": "从 PDF 中提取的 GSDS 结构化字段，BBN+PART 为必填，其余字段视 PDF 内容而定",
+            "shapeRef": "gsds-parsed-record.schema.json",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "bbn": { "type": "string", "description": "BBN 编号", "required": true },
+                "part": { "type": "string", "description": "PART 编号", "required": true },
+                "color": { "type": "string", "description": "颜色" },
+                "state": { "type": "string", "description": "物理状态" },
+                "official_transport_name": { "type": "string", "description": "正式运输名称" },
+                "un_number": { "type": "string", "description": "UN 联合国编号（四位数字）" },
+                "hazard_class": { "type": "string", "description": "危险货物类别" },
+                "packing_group": { "type": "string", "description": "包装类别（罗马数字）" },
+                "flammable_liquid_category": { "type": "string", "description": "易燃液体，类别" },
+                "metal_corrosion_category": { "type": "string", "description": "金属腐蚀剂，类别" },
+                "skin_corrosion_irritation_category": { "type": "string", "description": "皮肤腐蚀/刺激，类别" },
+                "serious_eye_damage_category": { "type": "string", "description": "严重眼损伤/眼刺激，类别" },
+                "skin_sensitization_category": { "type": "string", "description": "皮肤致敏，类别" },
+                "aspiration_hazard_category": { "type": "string", "description": "吸入危险，类别" },
+                "aquatic_hazard_short_term": { "type": "string", "description": "危害水生环境-短期危害，类别" },
+                "aquatic_hazard_long_term": { "type": "string", "description": "危害水生环境-长期危害，类别" },
+                "marine_pollutant": { "type": "string", "description": "海洋污染物" },
+                "acute_toxicity": { "type": "string", "description": "急毒性" },
+                "sds_density": { "type": "number", "description": "SDS 密度" },
+                "density": { "type": "number", "description": "密度 = SDS密度四舍五入保留两位小数" },
+                "composition": { "type": "array", "description": "成分列表：[{component, content, cas}]" }
+              }
+            },
+            "flowsTo": ["node-3"]
+          }
+        ]
+      },
+      "businessIntent": [
+        {
+          "stepIndex": 1,
+          "type": "parse",
+          "description": "使用多模态模型解析 GSDS PDF，识别并提取全部结构化字段",
+          "target": { "docRef": "doc-gsds-pdf" },
+          "keyFields": ["BBN", "PART", "UN联合国编号", "危险货物类别", "包装类别", "SDS密度", "密度", "成分|含量|CAS"]
+        },
+        {
+          "stepIndex": 2,
+          "type": "validate",
+          "description": "校验 BBN 和 PART 必填；UN 编号格式（四位数字）；密度为数值",
+          "onError": "human_fallback"
+        },
+        {
+          "stepIndex": 3,
+          "type": "transform",
+          "description": "按值转换规则表（in-2-2）对解析结果做标准化替换：字段名匹配 + 原始值匹配 → 替换为标准值。匹配时忽略前后空格、大小写不敏感。空值规则用于默认填充。",
+          "target": { "docRef": "doc-gsds-conversion-rules" },
+          "keyFields": ["正式运输名称", "颜色", "状态", "组分"]
+        },
+        {
+          "stepIndex": 4,
+          "type": "transform",
+          "description": "将转换后的结果标准化为 gsds-parsed-record.schema.json 格式输出",
+          "keyFields": ["bbn", "part", "composition"]
+        }
+      ],
+      "taskType": "agentic",
+      "skillBinding": { "code": "gsds-pdf-parser" },
+      "runtimeBinding": { "profileCode": "agentic-default" },
+      "qualityHint": {
+        "skillValidations": [
+          {
+            "skillCode": "gsds-pdf-parser",
+            "field": "bbn",
+            "rule": "not_empty",
+            "severity": "error",
+            "description": "BBN 编号必填"
+          },
+          {
+            "skillCode": "gsds-pdf-parser",
+            "field": "part",
+            "rule": "not_empty",
+            "severity": "error",
+            "description": "PART 编号必填"
+          },
+          {
+            "skillCode": "gsds-pdf-parser",
+            "field": "un_number",
+            "rule": "matches_pattern",
+            "params": { "pattern": "^\\d{4}$" },
+            "severity": "warning",
+            "description": "UN 编号应为四位数字（若存在）"
+          }
+        ],
+        "acceptanceCriteria": [
+          {
+            "id": "ac-node2-bbn-part",
+            "title": "BBN 和 PART 解析成功",
+            "description": "BBN 和 PART 不为空是写库的前提条件",
+            "checkType": ["deterministic_rule"],
+            "checkConfig": { "rule": "not_empty", "paths": ["bbn", "part"] },
+            "blocking": true
+          }
+        ],
+        "issueCategories": ["解析遗漏", "PDF 版面异常", "多模态模型超时", "BBN/PART 识别失败"],
+        "onFailure": { "strategy": "human_fallback", "notifyRoles": ["business", "tech"] }
+      },
+      "errorStrategy": {
+        "strategy": "retry",
+        "retryPolicy": { "maxRetries": 2, "backoff": "fixed", "delayMs": 3000 },
+        "timeout": { "totalSeconds": 300, "externalCallSeconds": 120, "onExternalTimeout": "fail" },
+        "notifyRoles": ["tech"],
+        "fallbackDescription": "多模态解析失败时重试 2 次，仍失败则通知技术方检查模型服务或切换解析方案"
+      },
+      "edges": [
+        {
+          "targetNodeId": "node-3",
+          "dataFlow": [
+            { "sourceOutput": "out-2-1", "targetInput": "in-3-1", "description": "GSDS 解析记录传递给人工审核" }
+          ]
+        }
+      ]
+    },
+
+    {
+      "id": "node-3",
+      "identity": {
+        "label": "人工审核解析结果",
+        "icon": "ShieldCheck",
+        "description": "审核员对照 PDF 原文查看 AI 解析结果，直接修正错误字段，提交修正后的完整记录。",
+        "stepIndex": 3,
+        "totalSteps": 4,
+        "executionMode": "human_confirm",
+        "estimatedTime": "1-5 分钟"
+      },
+      "dataContract": {
+        "inputs": [
+          {
+            "id": "in-3-1",
+            "name": "GSDS 解析记录（待审核）",
+            "docRef": null,
+            "source": "previous_step",
+            "sourceNodeId": "node-2",
+            "required": true,
+            "kind": "structured",
+            "sourceType": "inline"
+          },
+          {
+            "id": "in-3-2",
+            "name": "PDF 原文件（供对照）",
+            "docRef": "doc-gsds-pdf",
+            "source": "previous_step",
+            "sourceNodeId": "node-1",
+            "required": true,
+            "kind": "document",
+            "sourceType": "file_path"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "out-3-1",
+            "name": "确认后的 GSDS 记录",
+            "docRef": null,
+            "kind": "structured",
+            "intent": "经人工确认或修正后的 GSDS 完整记录，直接传给写库",
+            "shapeRef": "gsds-parsed-record.schema.json",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "bbn": { "type": "string", "description": "BBN 编号", "required": true },
+                "part": { "type": "string", "description": "PART 编号", "required": true },
+                "color": { "type": "string" },
+                "state": { "type": "string" },
+                "official_transport_name": { "type": "string" },
+                "un_number": { "type": "string" },
+                "hazard_class": { "type": "string" },
+                "packing_group": { "type": "string" },
+                "flammable_liquid_category": { "type": "string" },
+                "metal_corrosion_category": { "type": "string" },
+                "skin_corrosion_irritation_category": { "type": "string" },
+                "serious_eye_damage_category": { "type": "string" },
+                "skin_sensitization_category": { "type": "string" },
+                "aspiration_hazard_category": { "type": "string" },
+                "aquatic_hazard_short_term": { "type": "string" },
+                "aquatic_hazard_long_term": { "type": "string" },
+                "marine_pollutant": { "type": "string" },
+                "acute_toxicity": { "type": "string" },
+                "sds_density": { "type": "number" },
+                "density": { "type": "number" },
+                "composition": { "type": "array" }
+              }
+            },
+            "flowsTo": ["node-4"]
+          }
+        ]
+      },
+      "businessIntent": [
+        {
+          "stepIndex": 1,
+          "type": "present",
+          "description": "向审核员展示 AI 解析结果（可编辑表单）和 PDF 原文件，左右对照",
+          "target": { "docRef": "doc-gsds-pdf" }
+        },
+        {
+          "stepIndex": 2,
+          "type": "edit_and_confirm",
+          "description": "审核员核对各字段，有错直接改，改完点确认提交",
+          "keyFields": ["bbn", "part", "un_number", "hazard_class", "packing_group", "sds_density", "density", "composition"]
+        }
+      ],
+      "taskType": "human_review",
+      "skillBinding": null,
+      "runtimeBinding": { "profileCode": "human-review-default" },
+      "reviewConfig": {
+        "reviewPolicyCode": "mandatory",
+        "assigneeRoles": ["business"],
+        "escalationRoles": ["tech"],
+        "timeoutMinutes": 1440,
+        "onTimeout": "escalate",
+        "ui": {
+          "layout": "side-by-side",
+          "leftPanel": "pdf_viewer",
+          "rightPanel": "editable_field_form",
+          "highlightFields": ["bbn", "part", "un_number", "hazard_class", "sds_density", "density"],
+          "editableFields": "all"
+        }
+      },
+      "qualityHint": {
+        "acceptanceCriteria": [
+          {
+            "id": "ac-node3-confirmed",
+            "title": "审核员已确认",
+            "description": "审核员已提交确认后的完整记录",
+            "checkType": ["human_judgment"],
+            "blocking": true
+          }
+        ],
+        "issueCategories": ["审核超时"],
+        "onFailure": { "strategy": "escalate", "notifyRoles": ["tech"] }
+      },
+      "errorStrategy": {
+        "strategy": "escalate",
+        "timeout": { "totalSeconds": 86400, "onExternalTimeout": "escalate" },
+        "notifyRoles": ["business", "tech"],
+        "fallbackDescription": "审核超时 24 小时后自动升级到技术方处理"
+      },
+      "edges": [
+        {
+          "targetNodeId": "node-4",
+          "dataFlow": [
+            { "sourceOutput": "out-3-1", "targetInput": "in-4-1", "description": "确认后的 GSDS 记录传递给写库节点" }
+          ]
+        }
+      ]
+    },
+
+    {
+      "id": "node-4",
+      "identity": {
+        "label": "写入主数据库",
+        "icon": "Database",
+        "description": "以 BBN + PART 为唯一键查询 GSDS 主数据库：已存在则 UPDATE 覆盖全部字段，不存在则 INSERT 新记录。返回操作类型和影响行数。",
+        "stepIndex": 4,
+        "totalSteps": 4,
+        "executionMode": "ai_auto",
+        "estimatedTime": "秒级"
+      },
+      "dataContract": {
+        "inputs": [
+          {
+            "id": "in-4-1",
+            "name": "GSDS 解析记录（已审核）",
+            "docRef": null,
+            "source": "previous_step",
+            "sourceNodeId": "node-3",
+            "required": true,
+            "kind": "structured",
+            "sourceType": "inline"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "out-4-1",
+            "name": "写库结果",
+            "docRef": null,
+            "kind": "structured",
+            "intent": "UPSERT 操作的结果，含操作类型和主键回显",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "operation": { "type": "string", "description": "insert | update" },
+                "affected_rows": { "type": "number", "description": "影响的行数" },
+                "bbn": { "type": "string", "description": "操作的 BBN" },
+                "part": { "type": "string", "description": "操作的 PART" }
+              }
+            },
+            "flowsTo": []
+          }
+        ]
+      },
+      "businessIntent": [
+        {
+          "stepIndex": 1,
+          "type": "query",
+          "description": "按 BBN+PART 查询主库是否已有该记录",
+          "target": { "externalRef": "sys-gsds-master-db" },
+          "keyFields": ["BBN", "PART"]
+        },
+        {
+          "stepIndex": 2,
+          "type": "write",
+          "description": "无记录则 INSERT，有记录则 UPDATE 覆盖全部字段",
+          "target": { "docRef": "doc-gsds-master-row", "externalRef": "sys-gsds-master-db" },
+          "keyFields": ["BBN", "PART"]
+        },
+        {
+          "stepIndex": 3,
+          "type": "validate",
+          "description": "写后读校验，确认操作成功",
+          "target": { "externalRef": "sys-gsds-master-db" },
+          "onError": "retry"
+        }
+      ],
+      "taskType": "integration",
+      "skillBinding": { "code": "gsds-db-writer" },
+      "runtimeBinding": { "profileCode": "integration-default" },
+      "qualityHint": {
+        "skillValidations": [
+          {
+            "skillCode": "gsds-db-writer",
+            "field": "operation",
+            "rule": "not_empty",
+            "severity": "error",
+            "description": "操作类型必须为 insert 或 update"
+          },
+          {
+            "skillCode": "gsds-db-writer",
+            "field": "affected_rows",
+            "rule": "in_range",
+            "params": { "min": 1, "max": 1 },
+            "severity": "error",
+            "description": "UPSERT 应恰好影响 1 行"
+          }
+        ],
+        "acceptanceCriteria": [
+          {
+            "id": "ac-node4-upsert-ok",
+            "title": "写库操作成功",
+            "description": "affected_rows = 1 且 operation 为 insert 或 update",
+            "checkType": ["deterministic_rule"],
+            "blocking": true
+          }
+        ],
+        "issueCategories": ["写库失败", "唯一约束冲突", "连接池耗尽", "数据类型不匹配"],
+        "onFailure": { "strategy": "retry", "notifyRoles": ["tech"] }
+      },
+      "errorStrategy": {
+        "strategy": "retry",
+        "retryPolicy": { "maxRetries": 3, "backoff": "exponential", "delayMs": 500 },
+        "timeout": { "totalSeconds": 60, "externalCallSeconds": 15, "onExternalTimeout": "fail" },
+        "notifyRoles": ["tech"],
+        "fallbackDescription": "写库失败时按指数退避重试 3 次，仍失败则暂停并告警"
+      },
+      "edges": []
+    }
+  ]
+}

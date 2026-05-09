@@ -1,0 +1,304 @@
+# AI Prompt 架构设计
+
+> 最后更新：2026-04-10
+>
+> 本文档描述 FlowAgent 的 AI 翻译引擎的 prompt 架构——分类、生成、精炼的多阶段设计，以及准确率提升策略。
+>
+> 产品层面的 AI 翻译设计见 [`flowagent-product.md`](./flowagent-product.md)，代码实现见 `src/app/api/generate-flow/route.ts`。
+
+---
+
+## 一、Prompt 架构总览
+
+FlowAgent 的 AI 翻译引擎采用**多阶段 prompt 架构**，每个阶段有独立的 system prompt 和 JSON schema，职责明确：
+
+```
+用户输入（自然语言）
+    │
+    ▼
+┌──────────────┐
+│  分类阶段      │  CLASSIFY_SYSTEM
+│  判断任务类型   │  → workflow / agentic
+└──────┬───────┘
+       │
+       ├── workflow ──→ 两步生成
+       │                 ├── 业务侧：UNIFIED_DRAFT_SYSTEM（FLOW_BIZ_SCHEMA）
+       │                 └── 技术侧：GENERATE_WORKFLOW_TECH_SYSTEM（FLOW_TECH_SCHEMA）
+       │
+       └── agentic ──→ 两步生成
+                         ├── 业务侧：UNIFIED_DRAFT_SYSTEM（AGENTIC_JSON_SCHEMA）
+                         └── 技术侧：GENERATE_TECH_SYSTEM
+```
+
+### 核心设计原则
+
+1. **业务侧和技术侧分离**：先生成业务方能看懂的方案，确认后再生成技术配置
+2. **一次调用做一件事**：每个 prompt 职责单一，避免"又分类又生成"导致质量下降
+3. **JSON schema 约束输出**：每个 prompt 都有严格的输出 schema，减少格式错误
+4. **防御性设计**：使用 `jsonrepair` 修复 LLM 输出的常见 JSON 错误
+
+---
+
+## 二、分类阶段
+
+### 目的
+
+判断用户描述的业务场景属于 workflow（工作流）还是 agentic（智能体）。
+
+### 判断标准
+
+| 类型 | 特征 | 典型场景 |
+|------|------|---------|
+| **workflow** | 有明确固定的步骤顺序，每步输入输出确定 | 财务报销、合同审批、进出口报关、IT 工单 |
+| **agentic** | 有业务目标但执行路径不固定，需要 AI 自主规划 | 账号运营、竞品分析、营销活动策划、内容营销 |
+
+### 输出格式
+
+```json
+{
+  "taskType": "workflow 或 agentic",
+  "reason": "一句话解释为什么是这个类型",
+  "confidence": 0.0-1.0
+}
+```
+
+### 容错机制
+
+分类结果不一定准确，前端有纠正逻辑：如果分类为 workflow 但生成结果包含 agentic 特征（如 `config` 字段），自动切换处理路径。
+
+---
+
+## 三、Workflow 生成
+
+### 3.1 业务侧生成（Step 1）
+
+**Prompt**：`UNIFIED_DRAFT_SYSTEM`（workflow 分支）
+
+**输入**：用户的自然语言描述
+
+**输出 Schema**：`FLOW_BIZ_SCHEMA`
+
+```json
+{
+  "projectName": "项目名称",
+  "nodes": [
+    {
+      "id": "node-1",
+      "label": "节点名称（2-6字）",
+      "description": "一句话描述（20-40字）",
+      "executionMode": "ai_auto / human_confirm / human_manual",
+      "estimatedTime": "预计耗时",
+      "inputs": [{ "name": "...", "source": "user / previous_step / default" }],
+      "outputs": [{ "name": "...", "description": "..." }]
+    }
+  ],
+  "edges": [
+    { "source": "node-1", "target": "node-2", "label": "连线标签", "style": "normal / success / error / loop" }
+  ]
+}
+```
+
+**关键约束**：
+- 节点数量 4-8 个
+- 每个节点必须认真评估 `executionMode`，不能全部设为 `ai_auto`
+- 一个典型 6 节点流程中，应有 2-3 个 `human_confirm` 或 `human_manual`
+- 业务侧不生成 `executionRules`、`executionType` 等技术字段
+
+### 3.2 技术侧生成（Step 2）
+
+**Prompt**：`GENERATE_WORKFLOW_TECH_SYSTEM`
+
+**输入**：业务侧已确认的方案 JSON
+
+**输出 Schema**：`FLOW_TECH_SCHEMA`
+
+```json
+{
+  "nodes": [
+    {
+      "id": "node-1",
+      "executionType": "deterministic / intelligent",
+      "executionRules": [{ "rule": "规则名", "detail": "具体说明", "source": "ai_inferred" }],
+      "errorHandling": [{ "strategy": "retry / human_fallback / skip / abort", "enabled": true }],
+      "techConfig": {
+        "boundSkill": "绑定的 Skill 名称",
+        "evaluator": "评估器名称",
+        "timeout": 300
+      },
+      "inputDataTypes": { "输入名称": "string / json / file / number" },
+      "outputDataTypes": { "输出名称": "string / json / file / number" }
+    }
+  ]
+}
+```
+
+**触发时机**：业务方确认方案后，自动触发技术侧生成。技术方看到的是业务方案 + 技术配置的合并视图。
+
+---
+
+## 四、Agentic 生成
+
+### 4.1 业务侧生成（Step 1）
+
+**Prompt**：`UNIFIED_DRAFT_SYSTEM`（agentic 分支）
+
+**输入**：用户的自然语言描述
+
+**输出 Schema**：`AGENTIC_JSON_SCHEMA`
+
+核心结构是**阶段驱动**的：
+
+```json
+{
+  "projectName": "项目名称",
+  "config": {
+    "goal": "业务目标",
+    "background": "业务背景",
+    "totalDays": 90,
+    "phases": [
+      {
+        "id": "phase-1",
+        "name": "阶段名称（动作+目标）",
+        "dayRange": [1, 7],
+        "actions": ["具体行动"],
+        "successCriteria": { "good": "...", "warning": "...", "bad": "..." },
+        "exitCondition": "进入下一阶段的条件",
+        "questions": [{ "question": "...", "options": ["A", "B"] }],
+        "requiredCapabilities": ["需要的能力"]
+      }
+    ],
+    "constraints": [{ "type": "budget / time / quality", "description": "..." }],
+    "goalMetrics": { "core": "核心指标", "process": ["过程指标"] },
+    "permissions": {
+      "autonomous": ["可自主决定的事项"],
+      "needApproval": ["需审批的事项"]
+    },
+    "reporting": { "daily": {}, "weekly": {}, "alerts": {} }
+  }
+}
+```
+
+### 4.2 技术侧生成（Step 2）
+
+**Prompt**：`GENERATE_TECH_SYSTEM`
+
+**输入**：业务侧已确认的 Agentic 配置
+
+**输出**：补充 `skills`、`evaluators`、`decisionLoop`、`skillOrchestration`、`contextArchitecture`、`schedule` 等技术字段。
+
+---
+
+## 五、精炼阶段
+
+用户确认方案后，可以通过对话继续修改。精炼有两种模式：
+
+### 5.1 单节点精炼（Workflow）
+
+**Prompt**：`REFINE_NODE_SYSTEM`
+
+**输入**：当前流程图 + 目标节点 ID + 用户对该节点的确认回答
+
+**规则**：
+- 主要修改目标节点，不动无关节点
+- 如果回答揭示了新的子步骤，可以拆分节点
+- 如果影响了相邻节点的输入输出衔接，同步修改
+
+### 5.2 自由对话精炼
+
+**Prompt**：`REFINE_SYSTEM` / `REFINE_BATCH_SYSTEM`
+
+**输入**：当前方案 + 用户的自然语言反馈
+
+**防御性设计**：如果 LLM 返回的 `edges` 为空或缺失，自动恢复为修改前的 edges，避免连线丢失。
+
+---
+
+## 六、人机分工标注规则
+
+这是 prompt 中最重要的约束之一。每个节点的 `executionMode` 必须遵循：
+
+| 场景 | executionMode | 原因 |
+|------|--------------|------|
+| 数据采集、格式转换、定时执行、文件归档 | `ai_auto` | 纯确定性操作 |
+| 数据处理完成后的校验 | `human_confirm` | 防止 AI 产出错误数据 |
+| 策略制定、方案决策 | `human_confirm` | 需要业务判断 |
+| 内容创作完成后的审核 | `human_confirm` | 需要审美和品牌调性把控 |
+| 发布、删除、付款、对外提交等不可逆操作 | `human_confirm` | 不可回滚 |
+| 纯人工操作（实物签字、现场检查） | `human_manual` | 无法自动化 |
+
+---
+
+## 七、准确率提升策略
+
+AI 生成不准的根源只有三个：输入信息不够（AI 在猜）、AI 能力不够（给了信息也生成不好）、没有参考（从零生成）。
+
+### 四个层面
+
+| 层面 | 做什么 | 难度 | 效果 | 优先级 |
+|------|--------|------|------|--------|
+| **Prompt Engineering** | 思维链（强制 AI 先想清楚再输出）+ 负面示例 + 输出质量约束 | 低 | 高 | P0 |
+| **Few-shot Examples** | 按场景分类动态选择示例（审批类/数据处理类/客服类/监控类） | 低 | 高 | P0 |
+| **生成后自动校验** | 连通性检查、依赖检查、人机分工合理性、节点粒度检查 | 中 | 中 | P1 |
+| **用户反馈闭环** | 自动存储 Diff → 统计系统性错误 → 数据驱动 prompt 优化 | 高 | 长期高 | P2 |
+
+### 思维链推理（已实现）
+
+在 `UNIFIED_DRAFT_SYSTEM` 中强制 AI 先输出推理过程：
+
+```
+请先在 "thinking" 字段中写出你的推理过程：
+1. 用户想要什么？
+2. 这个场景的关键步骤是什么？
+3. 哪些步骤需要人工确认？为什么？
+4. 有哪些不确定的地方？
+```
+
+### 动态 Few-shot（已实现）
+
+根据用户输入的关键词自动选择最相关的示例：
+
+| 关键词 | 匹配的 Few-shot |
+|--------|----------------|
+| 审批、报销、请假 | 审批流程示例 |
+| 数据、报表、清洗 | 数据处理示例 |
+| 运营、涨粉、内容 | 运营策略示例 |
+
+---
+
+## 八、三层评估体系
+
+Agent 执行任务时的评估架构（适用于 Agentic 类型）：
+
+```
+目标级（整体达标吗）
+  ↑ 由多个步骤的结果汇总
+步骤级（每步结果有用吗）
+  ↑ 由工具的输出质量决定
+工具级（工具执行对了吗）
+```
+
+| 层级 | 评估方式 | 谁配置 |
+|------|---------|--------|
+| **工具级** | Skill 执行后自动检查输出格式、完整性、错误率 | 技术方（Skill 自带） |
+| **步骤级** | LLM 根据用户约束判断结果质量 | AI 自动推导 + 用户审查 |
+| **目标级** | 根据真实数据评估目标达成度 | 用户定义成功标准，AI 转化为结构化指标 |
+
+---
+
+## 附录：Prompt 文件索引
+
+| Prompt 常量 | 用途 | 所在文件 |
+|------------|------|---------|
+| `CLASSIFY_SYSTEM` | 任务类型分类 | `route.ts` |
+| `UNIFIED_DRAFT_SYSTEM` | 统一草稿生成（业务侧） | `route.ts`（内含 workflow/agentic 两个分支） |
+| `DRAFT_SYSTEM` | Workflow 草稿（含 confidence 标注） | `route.ts` |
+| `DRAFT_AGENTIC_SYSTEM` | Agentic 草稿 | `route.ts` |
+| `GENERATE_WORKFLOW_TECH_SYSTEM` | Workflow 技术侧生成 | `route.ts` |
+| `GENERATE_TECH_SYSTEM` | Agentic 技术侧生成 | `route.ts` |
+| `REFINE_NODE_SYSTEM` | 单节点精炼 | `route.ts` |
+| `REFINE_SYSTEM` | 自由对话精炼 | `route.ts` |
+| `REFINE_BATCH_SYSTEM` | 批量精炼 | `route.ts` |
+| `FLOW_BIZ_SCHEMA` | Workflow 业务侧 JSON schema | `route.ts` |
+| `FLOW_TECH_SCHEMA` | Workflow 技术侧 JSON schema | `route.ts` |
+| `FLOW_JSON_SCHEMA` | Workflow 完整 JSON schema（兼容） | `route.ts` |
+| `AGENTIC_JSON_SCHEMA` | Agentic JSON schema | `route.ts` |

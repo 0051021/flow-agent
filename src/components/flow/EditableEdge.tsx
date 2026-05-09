@@ -10,6 +10,15 @@ import {
 } from "@xyflow/react";
 import { useFlowAgentStore } from "@/lib/store";
 
+/**
+ * Global registry: FlowCanvas calls `triggerEdgeEdit(edgeId)` on double-click,
+ * and the matching EditableEdge instance picks it up.
+ */
+const editTriggers = new Map<string, () => void>();
+export function triggerEdgeEdit(edgeId: string) {
+  editTriggers.get(edgeId)?.();
+}
+
 export default function EditableEdge({
   id,
   sourceX,
@@ -25,7 +34,13 @@ export default function EditableEdge({
 }: EdgeProps) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(String(label || ""));
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const startEdit = () => setEditing(true);
+    editTriggers.set(id, startEdit);
+    return () => { editTriggers.delete(id); };
+  }, [id]);
 
   useEffect(() => {
     setText(String(label || ""));
@@ -79,50 +94,38 @@ export default function EditableEdge({
           style={{
             position: "absolute",
             transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
-            pointerEvents: "all",
+            pointerEvents: editing || text ? "all" : "none",
           }}
         >
           {editing ? (
-            <input
+            <textarea
               ref={inputRef}
               value={text}
               onChange={(e) => setText(e.target.value)}
               onBlur={commitLabel}
               onKeyDown={(e) => {
-                if (e.key === "Enter") commitLabel();
+                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); commitLabel(); }
                 if (e.key === "Escape") { setText(String(label || "")); setEditing(false); }
               }}
-              className="text-xs px-2.5 py-1 rounded-md border border-blue-400 bg-white shadow-md outline-none ring-2 ring-blue-200 w-32 text-center"
+              rows={Math.max(1, text.split("\n").length)}
+              className="text-xs px-2.5 py-1.5 rounded-md border border-blue-400 bg-white shadow-md outline-none ring-2 ring-blue-200 w-36 text-center resize-none leading-relaxed"
             />
-          ) : (
+          ) : text ? (
             <button
               onDoubleClick={(e) => { e.stopPropagation(); setEditing(true); }}
-              title="双击编辑条件"
-              className={`group text-xs px-2.5 py-1 rounded-md transition-all cursor-text ${
-                text
-                  ? `bg-white border shadow-sm ${selected ? "border-blue-400 text-blue-700 shadow-blue-100" : "border-zinc-200 text-zinc-600 hover:border-blue-300 hover:text-blue-600 hover:shadow-md"}`
-                  : "bg-white/80 border border-dashed border-zinc-300 text-zinc-400 hover:border-blue-300 hover:text-blue-500 hover:bg-blue-50/50"
+              title="双击编辑"
+              className={`group text-xs px-2.5 py-1 rounded-md transition-all cursor-text bg-white border shadow-sm ${
+                selected ? "border-blue-400 text-blue-700 shadow-blue-100" : "border-zinc-200 text-zinc-600 hover:border-blue-300 hover:text-blue-600 hover:shadow-md"
               }`}
             >
               <span className="flex items-center gap-1">
-                {text ? (
-                  <>
-                    {text}
-                    <svg className="w-3 h-3 opacity-0 group-hover:opacity-50 transition-opacity shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                    </svg>
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                    </svg>
-                    添加条件
-                  </>
-                )}
+                <span className="whitespace-pre-wrap text-center leading-relaxed">{text}</span>
+                <svg className="w-3 h-3 opacity-0 group-hover:opacity-50 transition-opacity shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                </svg>
               </span>
             </button>
-          )}
+          ) : null}
         </div>
       </EdgeLabelRenderer>
     </>

@@ -13,6 +13,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   output: "standalone",
   assetPrefix: process.env.CDN_BASE_URL || undefined,
+  serverExternalPackages: ["@cursor/sdk", "xlsx", "pdf-parse"],
 };
 
 export default nextConfig;

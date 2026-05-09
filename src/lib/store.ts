@@ -3,6 +3,7 @@ import { persist } from "zustand/middleware";
 import type {
   Annotation,
   AnnotationReply,
+  FileAttachment,
   FlowNodeData,
   KnowledgeFile,
   Project,
@@ -17,7 +18,25 @@ import type {
   AgenticConfirmItem,
   AgenticPhase,
   AgenticPhaseStatus,
+  Notification,
+  TechConfig,
+  TechTabId,
+  TechTabStatus,
+  TechOverviewData,
+  TechDocumentsData,
+  TechExternalsData,
+  TechGuardsData,
+  TechDeploymentData,
+  TechBindingState,
+  AdaptiveConfigState,
+  JobGroup,
+  GlobalResourceBindings,
+  DocumentBindingEntry,
+  ExternalSystemBindingEntry,
+  NodeBindingEntry,
+  TechJobSpecMeta,
 } from "./types";
+import { createDefaultTechBindingState, createDefaultAdaptiveConfig } from "./tech-binding-helpers";
 import type { Node, Edge } from "@xyflow/react";
 import { MOCK_KNOWLEDGE_FILES } from "./mock-data";
 
@@ -33,6 +52,19 @@ export type ChatPhase =
   | "confirming_agentic"
   | "agentic_ready"
   | "refining_agentic";
+
+export type GenerationStage =
+  | "idle"
+  | "classify_start"
+  | "classify_done"
+  | "draft_start"
+  | "draft_done";
+
+export interface EnrichProgress {
+  total: number;
+  done: number;
+  status: "idle" | "running" | "done";
+}
 
 export interface NodeQuestion {
   id: string;
@@ -69,6 +101,7 @@ interface FlowAgentState {
   currentNodeIdx: number;
   nodeLabelMap: Record<string, string>;
   initQuery: string | null;
+  initFiles: ChatAttachment[];
 
   taskType: TaskType;
   agenticConfig: AgenticTaskConfig | null;
@@ -80,6 +113,27 @@ interface FlowAgentState {
   allNodeConfidence: NodeConfidence[];
   deferredNodeIds: string[];
   showNodeQuestions: boolean;
+  generationStage: GenerationStage;
+  enrichProgress: EnrichProgress;
+
+  // Notifications
+  notifications: Notification[];
+
+  // Tech-side multi-tab config
+  techConfig: TechConfig;
+
+  /** Editable resource bindings (FlowAgent-only; maps to JobSpec on export) */
+  techBindings: TechBindingState;
+  adaptiveConfig: AdaptiveConfigState;
+  /** Confirmed Job split group; null if single-job flow */
+  jobGroup: JobGroup | null;
+
+  /** JobSpec-level metadata (tech workspace) */
+  techJobMeta: TechJobSpecMeta;
+  /** Trigger codes registered on task-platform */
+  jobTriggerCodes: string[];
+  /** Tech canvas: flow diagram vs sequence diagram */
+  techCanvasView: "flow" | "sequence";
 
   setCurrentRole: (role: UserRole) => void;
   setViewMode: (mode: ViewMode) => void;
@@ -97,6 +151,7 @@ interface FlowAgentState {
     status: Annotation["status"]
   ) => void;
   addChatMessage: (message: ChatMessage) => void;
+  updateChatMessage: (id: string, content: string) => void;
   loadGeneratedFlow: (nodes: Node<FlowNodeData>[], edges: Edge[]) => void;
   onNodesChangeSync: (nodes: Node<FlowNodeData>[]) => void;
   onEdgesChangeSync: (edges: Edge[]) => void;
@@ -109,6 +164,7 @@ interface FlowAgentState {
   setCurrentNodeIdx: (idx: number) => void;
   setNodeLabelMap: (map: Record<string, string>) => void;
   setInitQuery: (query: string | null) => void;
+  setInitFiles: (files: ChatAttachment[]) => void;
 
   setTaskType: (type: TaskType) => void;
   setAgenticConfig: (config: AgenticTaskConfig | null) => void;
@@ -124,6 +180,36 @@ interface FlowAgentState {
   addDeferredNodeId: (id: string) => void;
   removeDeferredNodeId: (id: string) => void;
   setShowNodeQuestions: (show: boolean) => void;
+  setGenerationStage: (stage: GenerationStage) => void;
+  setEnrichProgress: (progress: EnrichProgress) => void;
+
+  // Notifications
+  addNotification: (notification: Notification) => void;
+  markNotificationRead: (id: string) => void;
+  markAllNotificationsRead: () => void;
+  clearNotifications: () => void;
+
+  // Tech config tabs
+  setTechTabStatus: (tab: TechTabId, status: TechTabStatus, error?: string) => void;
+  setTechOverview: (data: TechOverviewData) => void;
+  setTechDocuments: (data: TechDocumentsData) => void;
+  setTechExternals: (data: TechExternalsData) => void;
+  setTechGuards: (data: TechGuardsData) => void;
+  setTechDeployment: (data: TechDeploymentData) => void;
+  resetTechConfig: () => void;
+
+  setTechBindingsGlobal: (partial: Partial<GlobalResourceBindings>) => void;
+  setDocumentBinding: (docId: string, partial: Partial<DocumentBindingEntry>) => void;
+  setExternalBinding: (extId: string, partial: Partial<ExternalSystemBindingEntry>) => void;
+  setNodeBinding: (nodeId: string, partial: Partial<NodeBindingEntry>) => void;
+  setAdaptiveConfig: (partial: Partial<AdaptiveConfigState>) => void;
+  setJobGroup: (group: JobGroup | null) => void;
+  resetTechBindings: () => void;
+
+  setTechJobMeta: (partial: Partial<TechJobSpecMeta>) => void;
+  setJobTriggerCodes: (codes: string[]) => void;
+  setTechCanvasView: (view: "flow" | "sequence") => void;
+
   updateAgenticGoal: (goal: string) => void;
   updateAgenticBackground: (background: string) => void;
   addAgenticSkill: (skill: AgenticSkill) => void;
@@ -145,11 +231,14 @@ interface FlowAgentState {
   resetAll: () => void;
 }
 
+export type ChatAttachment = FileAttachment;
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
   timestamp: string;
+  attachments?: ChatAttachment[];
 }
 
 const initialState = {
@@ -178,6 +267,7 @@ const initialState = {
   currentNodeIdx: 0,
   nodeLabelMap: {} as Record<string, string>,
   initQuery: null as string | null,
+  initFiles: [] as ChatAttachment[],
   taskType: "workflow" as TaskType,
   agenticConfig: null as AgenticTaskConfig | null,
   agenticConfirmItems: [] as AgenticConfirmItem[],
@@ -188,6 +278,36 @@ const initialState = {
   allNodeConfidence: [] as NodeConfidence[],
   deferredNodeIds: [] as string[],
   showNodeQuestions: false,
+  generationStage: "idle" as GenerationStage,
+  enrichProgress: { total: 0, done: 0, status: "idle" } as EnrichProgress,
+  notifications: [] as Notification[],
+  techConfig: {
+    overview: null,
+    documents: null,
+    externals: null,
+    guards: null,
+    deployment: null,
+    tabStates: {
+      overview: { status: "idle" as const },
+      documents: { status: "idle" as const },
+      externals: { status: "idle" as const },
+      guards: { status: "idle" as const },
+      deployment: { status: "idle" as const },
+    },
+  } as TechConfig,
+  techBindings: createDefaultTechBindingState(),
+  adaptiveConfig: createDefaultAdaptiveConfig(),
+  jobGroup: null as JobGroup | null,
+  techJobMeta: {
+    code: "",
+    name: "",
+    description: "",
+    inputSchemaJson: "",
+    defaultRuntimeProfileCode: "",
+    defaultReviewPolicyCode: "",
+  } as TechJobSpecMeta,
+  jobTriggerCodes: [] as string[],
+  techCanvasView: "flow" as const,
 };
 
 export const useFlowAgentStore = create<FlowAgentState>()(
@@ -224,6 +344,12 @@ export const useFlowAgentStore = create<FlowAgentState>()(
         })),
       addChatMessage: (message) =>
         set((state) => ({ chatMessages: [...state.chatMessages, message] })),
+      updateChatMessage: (id, content) =>
+        set((state) => ({
+          chatMessages: state.chatMessages.map((m) =>
+            m.id === id ? { ...m, content } : m
+          ),
+        })),
       loadGeneratedFlow: (nodes, edges) =>
         set((state) => ({
           nodes,
@@ -259,6 +385,7 @@ export const useFlowAgentStore = create<FlowAgentState>()(
       setCurrentNodeIdx: (idx) => set({ currentNodeIdx: idx }),
       setNodeLabelMap: (map) => set({ nodeLabelMap: map }),
       setInitQuery: (query) => set({ initQuery: query }),
+      setInitFiles: (files) => set({ initFiles: files }),
 
       setTaskType: (type) => set({ taskType: type }),
       setAgenticConfig: (config) => set({ agenticConfig: config }),
@@ -290,6 +417,165 @@ export const useFlowAgentStore = create<FlowAgentState>()(
           deferredNodeIds: state.deferredNodeIds.filter((d) => d !== id),
         })),
       setShowNodeQuestions: (show) => set({ showNodeQuestions: show }),
+      setGenerationStage: (stage) => set({ generationStage: stage }),
+      setEnrichProgress: (progress) => set({ enrichProgress: progress }),
+
+      // Notifications
+      addNotification: (notification) =>
+        set((state) => ({ notifications: [notification, ...state.notifications] })),
+      markNotificationRead: (id) =>
+        set((state) => ({
+          notifications: state.notifications.map((n) =>
+            n.id === id ? { ...n, read: true } : n
+          ),
+        })),
+      markAllNotificationsRead: () =>
+        set((state) => ({
+          notifications: state.notifications.map((n) => ({ ...n, read: true })),
+        })),
+      clearNotifications: () => set({ notifications: [] }),
+
+      // Tech config tabs
+      setTechTabStatus: (tab, status, error) =>
+        set((state) => ({
+          techConfig: {
+            ...state.techConfig,
+            tabStates: {
+              ...state.techConfig.tabStates,
+              [tab]: { status, error, ...(status === "ready" ? { generatedAt: new Date().toISOString() } : {}) },
+            },
+          },
+        })),
+      setTechOverview: (data) =>
+        set((state) => ({
+          techConfig: {
+            ...state.techConfig,
+            overview: data,
+            tabStates: { ...state.techConfig.tabStates, overview: { status: "ready" as const, generatedAt: new Date().toISOString() } },
+          },
+        })),
+      setTechDocuments: (data) =>
+        set((state) => ({
+          techConfig: {
+            ...state.techConfig,
+            documents: data,
+            tabStates: { ...state.techConfig.tabStates, documents: { status: "ready" as const, generatedAt: new Date().toISOString() } },
+          },
+        })),
+      setTechExternals: (data) =>
+        set((state) => ({
+          techConfig: {
+            ...state.techConfig,
+            externals: data,
+            tabStates: { ...state.techConfig.tabStates, externals: { status: "ready" as const, generatedAt: new Date().toISOString() } },
+          },
+        })),
+      setTechGuards: (data) =>
+        set((state) => ({
+          techConfig: {
+            ...state.techConfig,
+            guards: data,
+            tabStates: { ...state.techConfig.tabStates, guards: { status: "ready" as const, generatedAt: new Date().toISOString() } },
+          },
+        })),
+      setTechDeployment: (data) =>
+        set((state) => ({
+          techConfig: {
+            ...state.techConfig,
+            deployment: data,
+            tabStates: { ...state.techConfig.tabStates, deployment: { status: "ready" as const, generatedAt: new Date().toISOString() } },
+          },
+        })),
+      resetTechConfig: () =>
+        set({
+          techConfig: {
+            overview: null, documents: null, externals: null, guards: null, deployment: null,
+            tabStates: {
+              overview: { status: "idle" as const }, documents: { status: "idle" as const },
+              externals: { status: "idle" as const }, guards: { status: "idle" as const },
+              deployment: { status: "idle" as const },
+            },
+          },
+          techBindings: createDefaultTechBindingState(),
+          adaptiveConfig: createDefaultAdaptiveConfig(),
+          jobGroup: null,
+          techJobMeta: {
+            code: "",
+            name: "",
+            description: "",
+            inputSchemaJson: "",
+            defaultRuntimeProfileCode: "",
+            defaultReviewPolicyCode: "",
+          },
+          jobTriggerCodes: [],
+          techCanvasView: "flow",
+        }),
+
+      setTechBindingsGlobal: (partial) =>
+        set((state) => ({
+          techBindings: {
+            ...state.techBindings,
+            global: { ...state.techBindings.global, ...partial },
+          },
+        })),
+      setDocumentBinding: (docId, partial) =>
+        set((state) => ({
+          techBindings: {
+            ...state.techBindings,
+            documentsById: {
+              ...state.techBindings.documentsById,
+              [docId]: { ...state.techBindings.documentsById[docId], ...partial },
+            },
+          },
+        })),
+      setExternalBinding: (extId, partial) =>
+        set((state) => ({
+          techBindings: {
+            ...state.techBindings,
+            externalsById: {
+              ...state.techBindings.externalsById,
+              [extId]: { ...state.techBindings.externalsById[extId], ...partial },
+            },
+          },
+        })),
+      setNodeBinding: (nodeId, partial) =>
+        set((state) => ({
+          techBindings: {
+            ...state.techBindings,
+            nodesById: {
+              ...state.techBindings.nodesById,
+              [nodeId]: { ...state.techBindings.nodesById[nodeId], ...partial },
+            },
+          },
+        })),
+      setAdaptiveConfig: (partial) =>
+        set((state) => ({
+          adaptiveConfig: { ...state.adaptiveConfig, ...partial },
+        })),
+      setJobGroup: (group) => set({ jobGroup: group }),
+      resetTechBindings: () =>
+        set({
+          techBindings: createDefaultTechBindingState(),
+          adaptiveConfig: createDefaultAdaptiveConfig(),
+          jobGroup: null,
+          techJobMeta: {
+            code: "",
+            name: "",
+            description: "",
+            inputSchemaJson: "",
+            defaultRuntimeProfileCode: "",
+            defaultReviewPolicyCode: "",
+          },
+          jobTriggerCodes: [],
+        }),
+
+      setTechJobMeta: (partial) =>
+        set((state) => ({
+          techJobMeta: { ...state.techJobMeta, ...partial },
+        })),
+      setJobTriggerCodes: (codes) => set({ jobTriggerCodes: codes }),
+      setTechCanvasView: (view) => set({ techCanvasView: view }),
+
       updateAgenticGoal: (goal) =>
         set((state) => ({
           agenticConfig: state.agenticConfig
@@ -425,10 +711,52 @@ export const useFlowAgentStore = create<FlowAgentState>()(
     }),
     {
       name: "flow-agent-store",
-      version: 4,
+      version: 10,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       migrate: (_persisted: any, version: number) => {
-        if (version < 4) {
+        if (version < 10) {
+          return { ...initialState };
+        }
+        if (version < 6) {
+          return {
+            ..._persisted,
+            techBindings: _persisted.techBindings ?? createDefaultTechBindingState(),
+            adaptiveConfig: _persisted.adaptiveConfig ?? createDefaultAdaptiveConfig(),
+            jobGroup: _persisted.jobGroup ?? null,
+          };
+        }
+        if (version < 7) {
+          const tb = _persisted.techBindings ?? createDefaultTechBindingState();
+          const g = tb.global ?? {};
+          const { contextPolicyCode: _cp, orchestrationType: _or, ...restGlobal } = g;
+          tb.global = {
+            ...createDefaultTechBindingState().global,
+            ...restGlobal,
+          };
+          if (tb.nodesById) {
+            for (const id of Object.keys(tb.nodesById)) {
+              const n = tb.nodesById[id];
+              if (n.skillBindingCode?.trim() && !(n.skillBindingCodes?.length)) {
+                n.skillBindingCodes = [n.skillBindingCode.trim()];
+              }
+            }
+          }
+          return {
+            ..._persisted,
+            techBindings: tb,
+            techJobMeta: _persisted.techJobMeta ?? {
+              code: "",
+              name: _persisted.project?.name ?? "",
+              description: _persisted.project?.description ?? "",
+              inputSchemaJson: "",
+              defaultRuntimeProfileCode: "",
+              defaultReviewPolicyCode: "",
+            },
+            jobTriggerCodes: _persisted.jobTriggerCodes ?? [],
+            techCanvasView: _persisted.techCanvasView ?? "flow",
+          };
+        }
+        if (version < 9) {
           return { ...initialState };
         }
         return _persisted;
@@ -449,7 +777,17 @@ export const useFlowAgentStore = create<FlowAgentState>()(
         agenticConfig: state.agenticConfig,
         allNodeConfidence: state.allNodeConfidence,
         deferredNodeIds: state.deferredNodeIds,
+        generationStage: state.generationStage,
+        enrichProgress: state.enrichProgress,
         initialSnapshot: state.initialSnapshot,
+        notifications: state.notifications,
+        techConfig: state.techConfig,
+        techBindings: state.techBindings,
+        adaptiveConfig: state.adaptiveConfig,
+        jobGroup: state.jobGroup,
+        techJobMeta: state.techJobMeta,
+        jobTriggerCodes: state.jobTriggerCodes,
+        techCanvasView: state.techCanvasView,
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;
@@ -477,6 +815,23 @@ export const useFlowAgentStore = create<FlowAgentState>()(
             collectedAnswers: {},
             deferredNodeIds: [],
           });
+        }
+
+        // Reset generating tech tabs to idle
+        if (state.techConfig) {
+          const tabStates = { ...state.techConfig.tabStates };
+          let changed = false;
+          for (const tab of Object.keys(tabStates) as TechTabId[]) {
+            if (tabStates[tab].status === "generating") {
+              tabStates[tab] = { status: "idle" };
+              changed = true;
+            }
+          }
+          if (changed) {
+            useFlowAgentStore.setState({
+              techConfig: { ...state.techConfig, tabStates },
+            });
+          }
         }
       },
     }

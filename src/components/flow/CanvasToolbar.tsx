@@ -2,8 +2,9 @@
 
 import { useCallback } from "react";
 import { useFlowAgentStore } from "@/lib/store";
-import { Plus, Trash2, Copy, Code2 } from "lucide-react";
+import { Plus, Trash2, Copy, Code2, RotateCcw } from "lucide-react";
 import type { FlowNodeData } from "@/lib/types";
+import { loadGsdsDemo } from "@/lib/gsds-demo-loader";
 import type { Node } from "@xyflow/react";
 import { v4 as uuidv4 } from "uuid";
 
@@ -84,15 +85,18 @@ export default function CanvasToolbar() {
   const dividerClass = isTech ? "bg-slate-600" : "bg-zinc-200";
 
   return (
-    <div className={`absolute top-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1 rounded-lg border shadow-sm px-1.5 py-1 ${toolbarBg}`}>
+    <div
+      className={`absolute top-3 left-1/2 -translate-x-1/2 z-10 flex select-none items-center gap-1 rounded-lg border shadow-sm px-1.5 py-1 ${toolbarBg}`}
+    >
       {isTech && (
         <>
-          <Code2 className="w-3.5 h-3.5 text-purple-400 ml-1" />
-          <span className="text-[11px] text-slate-300 font-medium">技术评审</span>
+          <Code2 className="w-3.5 h-3.5 shrink-0 text-purple-400 ml-1" />
+          <span className="text-[11px] text-slate-300 font-medium whitespace-nowrap">技术评审</span>
           <div className={`w-px h-5 ${dividerClass}`} />
         </>
       )}
       <button
+        type="button"
         onClick={handleAddNode}
         className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium ${btnClass} transition-colors`}
         title="添加节点"
@@ -104,6 +108,7 @@ export default function CanvasToolbar() {
       <div className={`w-px h-5 ${dividerClass}`} />
 
       <button
+        type="button"
         onClick={handleDuplicateNode}
         disabled={!selectedNodeId}
         className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium ${btnClass} transition-colors disabled:opacity-30 disabled:cursor-not-allowed`}
@@ -114,6 +119,7 @@ export default function CanvasToolbar() {
       </button>
 
       <button
+        type="button"
         onClick={handleDeleteNode}
         disabled={!selectedNodeId}
         className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium ${isTech ? "text-red-400 hover:bg-red-900/30" : "text-red-500 hover:bg-red-50"} transition-colors disabled:opacity-30 disabled:cursor-not-allowed`}
@@ -121,6 +127,18 @@ export default function CanvasToolbar() {
       >
         <Trash2 className="w-3.5 h-3.5" />
         删除
+      </button>
+
+      <div className={`w-px h-5 ${dividerClass}`} />
+
+      <button
+        type="button"
+        onClick={loadGsdsDemo}
+        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium ${btnClass} transition-colors`}
+        title="重载 GSDS Demo 数据"
+      >
+        <RotateCcw className="w-3.5 h-3.5" />
+        重载 Demo
       </button>
     </div>
   );

@@ -1,0 +1,321 @@
+spec_version: task-platform.job.v1
+kind: JobSpec
+
+# ─── YAML Anchor：GSDS 解析记录 schema（内联完整版，消除外部 $ref） ───
+_gsds_parsed_record_schema: &gsds_parsed_record
+  type: object
+  required:
+    - bbn
+    - part
+  properties:
+    bbn:
+      type: string
+      description: BBN 编号（如 CL/VA-8.10）
+    part:
+      type: string
+      description: PART 编号（如 Part 2B）
+    color:
+      type: string
+      description: 颜色（如 浅黄色）
+    state:
+      type: string
+      description: 物理状态（如 透明液体）
+    official_transport_name:
+      type: string
+      description: 正式运输名称（如 萃取液，液體）
+    un_number:
+      type: string
+      description: UN 联合国编号，四位数字（如 1197）
+    hazard_class:
+      type: string
+      description: 危险货物类别，一位数字（如 3）
+    packing_group:
+      type: string
+      description: 包装类别，罗马数字（如 III）
+    flammable_liquid_category:
+      type: string
+      description: 易燃液体，类别（如 3）
+    metal_corrosion_category:
+      type: string
+      description: 金属腐蚀剂，类别
+    skin_corrosion_irritation_category:
+      type: string
+      description: 皮肤腐蚀/刺激，类别
+    serious_eye_damage_category:
+      type: string
+      description: 严重眼损伤/眼刺激，类别（如 2A）
+    skin_sensitization_category:
+      type: string
+      description: 皮肤致敏，类别
+    aspiration_hazard_category:
+      type: string
+      description: 吸入危险，类别
+    aquatic_hazard_short_term:
+      type: string
+      description: 危害水生环境-短期危害，类别
+    aquatic_hazard_long_term:
+      type: string
+      description: 危害水生环境-长期危害，类别
+    marine_pollutant:
+      type: string
+      description: 海洋污染物
+    acute_toxicity:
+      type: string
+      description: 急毒性
+    sds_density:
+      type: number
+      description: SDS 密度（如 0.9772）
+    density:
+      type: number
+      description: 密度 = SDS密度四舍五入保留两位小数（如 0.98）
+    composition:
+      type: array
+      description: 成分列表
+      items:
+        type: object
+        required:
+          - component
+          - content
+          - cas
+        properties:
+          component:
+            type: string
+            description: 成分名称（如 乙醇）
+          content:
+            type: string
+            description: 含量范围（如 15 - 40%）
+          cas:
+            type: string
+            description: CAS 注册号（如 64-17-5）
+  additionalProperties: false
+
+metadata:
+  code: gsds-ingest
+  name: GSDS 入库
+  description: 从 SharePoint 获取 GSDS PDF，多模态解析提取化学品数据字段，按 BBN+PART 唯一键写入主数据库（有则 UPDATE，无则 INSERT）。
+
+input_schema:
+  type: object
+  required:
+    - sharepoint_file_url
+  properties:
+    sharepoint_file_url:
+      type: string
+      description: SharePoint 上 GSDS PDF 文件的 URL 或路径
+
+globalConfig:
+  timezone: Asia/Shanghai
+
+triggers:
+  - gsds-pdf-uploaded
+
+tasks:
+  - code: node-1
+    name: 获取 PDF 文件
+    type: integration
+    instruction: |
+      从 SharePoint 下载用户上传的 GSDS PDF 文件到临时存储，
+      返回本地文件路径和原始文件名。
+    runtime_profile_code: integration-default
+    context_policy_code: gsds-processing-default
+    skill_codes:
+      - gsds-file-fetcher
+    tool_codes:
+      - sharepoint-file-download
+    secret_refs:
+      - sharepoint-api-credential
+    input_schema:
+      type: object
+      required:
+        - sharepoint_file_url
+      properties:
+        sharepoint_file_url:
+          type: string
+          description: SharePoint 文件 URL
+    output_schema:
+      type: object
+      required:
+        - pdf_file_path
+        - file_name
+      properties:
+        pdf_file_path:
+          type: string
+          description: 下载后的本地临时文件路径
+        file_name:
+          type: string
+          description: 原始文件名
+
+  - code: node-2
+    name: 解析 GSDS PDF
+    type: agentic
+    instruction: |
+      使用多模态能力解析 GSDS PDF 文件，提取以下字段：
+      - BBN、PART（必填）
+      - 颜色、状态、正式运输名称
+      - UN 联合国编号、危险货物类别、包装类别
+      - 各项危害类别（易燃液体、金属腐蚀剂、皮肤腐蚀/刺激、严重眼损伤/眼刺激、
+        皮肤致敏、吸入危险、危害水生环境-短期/长期、海洋污染物、急毒性）
+      - SDS 密度、密度
+      - 成分列表（成分名称 | 含量 | CAS 编号）
+      部分字段在 PDF 中可能不存在，不存在的字段不填写（不输出 null 或空字符串）。
+
+      【值转换规则】
+      解析完成后，须按 conversion_rules 输入中的规则表对结果做标准化替换：
+      - 逐条匹配：字段名 == 修改字段名 且 当前值 == 修改字段值 → 替换为正确字段值
+      - 匹配时忽略前后空格，大小写不敏感
+      - 修改字段值为空时，表示该字段解析为空/缺失时的默认填充值
+      - 成分列表中的组分名称也需匹配替换
+
+      输出须符合本 task 的 output_schema 定义。
+    runtime_profile_code: agentic-default
+    context_policy_code: gsds-processing-default
+    skill_codes:
+      - gsds-pdf-parser
+    tool_codes: []
+    secret_refs: []
+    input_schema:
+      type: object
+      required:
+        - pdf_file_path
+        - conversion_rules
+      properties:
+        pdf_file_path:
+          type: string
+          description: 待解析的 PDF 本地路径
+        conversion_rules:
+          type: array
+          description: 业务方维护的值转换规则表（当前由 Excel 导入，未来可由平台规则编辑器提供）
+          items:
+            type: object
+            required:
+              - field_name
+              - target_value
+            properties:
+              field_name:
+                type: string
+                description: 要校正的字段名（如 正式运输名称、颜色、状态、组分）
+              source_value:
+                type: string
+                description: 原始值（空字符串表示默认值规则）
+              target_value:
+                type: string
+                description: 业务确认的标准值
+    output_schema: *gsds_parsed_record
+
+  - code: node-3
+    name: 人工审核解析结果
+    type: human_review
+    instruction: |
+      审核员对照 PDF 原文查看 AI 解析结果，直接修正错误字段，
+      提交修正后的完整记录。无需退回重解析。
+    runtime_profile_code: human-review-default
+    context_policy_code: gsds-processing-default
+    review_policy_code: mandatory
+    assignee_roles:
+      - business
+    escalation_roles:
+      - tech
+    timeout_minutes: 1440
+    on_timeout: escalate
+    input_schema:
+      type: object
+      required:
+        - parsed_record
+        - pdf_file_path
+      properties:
+        parsed_record:
+          <<: *gsds_parsed_record
+          description: AI 解析结果（待审核，可编辑）
+        pdf_file_path:
+          type: string
+          description: PDF 原文件路径（供对照）
+    output_schema:
+      <<: *gsds_parsed_record
+      description: 审核员确认或修正后的完整记录
+
+  - code: node-4
+    name: 写入主数据库
+    type: integration
+    instruction: |
+      以 BBN + PART 为唯一键查询 GSDS 主数据库：
+      - 若已存在该记录：UPDATE 覆盖全部字段
+      - 若不存在：INSERT 新记录
+      返回操作类型（insert / update）和影响行数。
+    runtime_profile_code: integration-default
+    context_policy_code: gsds-processing-default
+    skill_codes:
+      - gsds-db-writer
+    tool_codes:
+      - gsds-db-upsert
+    secret_refs:
+      - gsds-db-credential
+    input_schema: *gsds_parsed_record
+    output_schema:
+      type: object
+      required:
+        - operation
+        - affected_rows
+        - bbn
+        - part
+      properties:
+        operation:
+          type: string
+          enum: [insert, update]
+          description: 实际执行的操作类型
+        affected_rows:
+          type: integer
+          description: 影响的数据库行数
+        bbn:
+          type: string
+          description: 操作的 BBN
+        part:
+          type: string
+          description: 操作的 PART
+
+flow:
+  - from: null
+    to: node-1
+  - from: node-1
+    to: node-2
+  - from: node-2
+    to: node-3
+  - from: node-3
+    to: node-4
+
+externalSystems:
+  - id: sys-sharepoint
+    name: SharePoint（GSDS 文件目录）
+    type: file_system
+    integration:
+      current: file_transfer
+      target: api
+      readiness: partial
+    auth:
+      type: bearer_token
+    capabilities:
+      - 文件下载
+      - Webhook 事件通知
+    constraints:
+      - type: file_size
+        detail: PDF 通常 1-5MB
+      - type: availability
+        detail: 依赖企业 SharePoint 服务可用性
+    humanFallback: SharePoint 不可用时，用户可通过本地上传入口触发
+
+  - id: sys-gsds-master-db
+    name: GSDS 主数据库
+    type: database
+    integration:
+      current: database_query
+      target: database_query
+      readiness: ready
+    auth:
+      type: username_password
+    capabilities:
+      - SELECT 按 BBN+PART 查询
+      - INSERT 新记录
+      - UPDATE 覆盖已有记录
+    constraints:
+      - type: rate_limit
+        detail: 连接池上限 50
+    humanFallback: 数据库不可用时暂停写入并告警

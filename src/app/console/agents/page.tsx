@@ -67,9 +67,9 @@ export default function AgentsPage() {
       <div className="px-8 py-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold text-zinc-900">Agent 团队</h1>
+            <h1 className="text-xl font-bold text-zinc-900">AI 助手</h1>
             <p className="text-sm text-zinc-400 mt-1">
-              {MOCK_AGENTS.length} 个 Agent · {runningCount} 个运行中
+              共 {MOCK_AGENTS.length} 个助手，{runningCount} 个正在工作
             </p>
           </div>
         </div>
@@ -79,7 +79,7 @@ export default function AgentsPage() {
           <div className="relative flex-1 max-w-xs">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
             <Input
-              placeholder="搜索 Agent 名称、场景、部门..."
+              placeholder="搜索助手名称、业务场景、部门..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-9 h-9 text-sm"
@@ -110,8 +110,8 @@ export default function AgentsPage() {
         {filteredAgents.length === 0 ? (
           <EmptyState
             icon={<Bot className="w-6 h-6 text-zinc-400" />}
-            title="没有匹配的 Agent"
-            description={search ? "试试调整搜索关键词" : "当前筛选条件下没有 Agent"}
+            title="没有找到匹配的助手"
+            description={search ? "试试换个关键词搜索" : "当前筛选条件下没有助手"}
             className="mt-12"
           />
         ) : (
@@ -212,18 +212,18 @@ export default function AgentsPage() {
               <h4 className="text-xs font-medium text-zinc-500 mb-3">基本信息</h4>
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-zinc-50 rounded-lg p-3">
-                  <p className="text-[10px] text-zinc-400">状态</p>
+                  <p className="text-[10px] text-zinc-400">工作状态</p>
                   <div className="flex items-center gap-1.5 mt-1">
                     <div className={`w-1.5 h-1.5 rounded-full ${STATUS_CONFIG[getStatus(agent.id, agent.status)].dot}`} />
                     <span className="text-sm font-medium text-zinc-900">{STATUS_CONFIG[getStatus(agent.id, agent.status)].label}</span>
                   </div>
                 </div>
                 <div className="bg-zinc-50 rounded-lg p-3">
-                  <p className="text-[10px] text-zinc-400">类型</p>
-                  <p className="text-sm font-medium text-zinc-900 mt-1">{agent.taskType === "workflow" ? "工作流" : "智能体"}</p>
+                  <p className="text-[10px] text-zinc-400">工作方式</p>
+                  <p className="text-sm font-medium text-zinc-900 mt-1">{agent.taskType === "workflow" ? "按流程执行" : "自主规划"}</p>
                 </div>
                 <div className="bg-zinc-50 rounded-lg p-3">
-                  <p className="text-[10px] text-zinc-400">部门</p>
+                  <p className="text-[10px] text-zinc-400">所属部门</p>
                   <p className="text-sm font-medium text-zinc-900 mt-1">{agent.department}</p>
                 </div>
                 <div className="bg-zinc-50 rounded-lg p-3">
@@ -236,22 +236,22 @@ export default function AgentsPage() {
             {/* Metrics */}
             {getStatus(agent.id, agent.status) !== "draft" && (
               <div>
-                <h4 className="text-xs font-medium text-zinc-500 mb-3">运行指标</h4>
+                <h4 className="text-xs font-medium text-zinc-500 mb-3">工作表现</h4>
                 <div className="grid grid-cols-3 gap-3">
                   <div className="text-center bg-zinc-50 rounded-lg p-3">
                     <CheckCircle2 className="w-4 h-4 text-green-500 mx-auto mb-1" />
                     <p className="text-lg font-bold text-zinc-900">{agent.successRate}%</p>
-                    <p className="text-[10px] text-zinc-400">成功率</p>
+                    <p className="text-[10px] text-zinc-400">靠谱率</p>
                   </div>
                   <div className="text-center bg-zinc-50 rounded-lg p-3">
                     <BarChart3 className="w-4 h-4 text-blue-500 mx-auto mb-1" />
                     <p className="text-lg font-bold text-zinc-900">{agent.taskCount}</p>
-                    <p className="text-[10px] text-zinc-400">任务数</p>
+                    <p className="text-[10px] text-zinc-400">已处理</p>
                   </div>
                   <div className="text-center bg-zinc-50 rounded-lg p-3">
                     <Clock className="w-4 h-4 text-amber-500 mx-auto mb-1" />
                     <p className="text-lg font-bold text-zinc-900">{agent.avgDuration}</p>
-                    <p className="text-[10px] text-zinc-400">均耗时</p>
+                    <p className="text-[10px] text-zinc-400">平均用时</p>
                   </div>
                 </div>
               </div>
@@ -265,7 +265,7 @@ export default function AgentsPage() {
 
             {/* Recent tasks */}
             <div>
-              <h4 className="text-xs font-medium text-zinc-500 mb-3">最近任务</h4>
+              <h4 className="text-xs font-medium text-zinc-500 mb-3">最近在做的事</h4>
               {agentTasks.length === 0 ? (
                 <p className="text-xs text-zinc-400">暂无任务记录</p>
               ) : (
@@ -298,9 +298,9 @@ export default function AgentsPage() {
                   onClick={() => handleToggleStatus(agent.id, getStatus(agent.id, agent.status))}
                 >
                   {getStatus(agent.id, agent.status) === "running" ? (
-                    <><Pause className="w-3.5 h-3.5 mr-1.5" /> 暂停 Agent</>
+                    <><Pause className="w-3.5 h-3.5 mr-1.5" /> 让它先停一下</>
                   ) : (
-                    <><Play className="w-3.5 h-3.5 mr-1.5" /> 恢复运行</>
+                    <><Play className="w-3.5 h-3.5 mr-1.5" /> 继续工作</>
                   )}
                 </Button>
               </div>

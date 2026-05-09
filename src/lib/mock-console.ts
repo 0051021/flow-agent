@@ -66,6 +66,22 @@ export const MOCK_AGENTS: ConsoleAgent[] = [
     description: "从提交报销到审批完成的全流程自动化",
   },
   {
+    id: "agent-6",
+    name: "HR 入职 Agent",
+    icon: "🧑‍💼",
+    sceneId: "M-010",
+    sceneName: "员工入职办理",
+    taskType: "workflow",
+    status: "running",
+    successRate: 99.1,
+    taskCount: 312,
+    avgDuration: "15 分钟",
+    version: "v1.1.0",
+    department: "人力资源部",
+    lastActiveAt: "10 分钟前",
+    description: "新员工入职手续办理全流程自动化",
+  },
+  {
     id: "agent-5",
     name: "小红书运营 Agent",
     icon: "📱",
@@ -96,6 +112,14 @@ export const MOCK_TASKS: ConsoleTask[] = [
     startedAt: "2026-04-02 14:20",
     duration: "6 分钟",
     description: "报关单 BG-2026-0392 处理",
+    flowNodes: [
+      { id: "n1", label: "接收委托", type: "ai_auto", status: "completed", duration: "12s" },
+      { id: "n2", label: "单据审核", type: "ai_auto", status: "completed", duration: "45s" },
+      { id: "n3", label: "海关编码归类", type: "ai_auto", status: "running" },
+      { id: "n4", label: "人工确认", type: "human_confirm", status: "waiting" },
+      { id: "n5", label: "申报生成", type: "ai_auto", status: "waiting" },
+      { id: "n6", label: "提交海关", type: "ai_auto", status: "waiting" },
+    ],
   },
   {
     id: "T-2849",
@@ -110,6 +134,14 @@ export const MOCK_TASKS: ConsoleTask[] = [
     duration: "23 分钟",
     priority: "high",
     description: "报关单 BG-2026-0391 处理",
+    flowNodes: [
+      { id: "n1", label: "接收委托", type: "ai_auto", status: "completed", duration: "10s" },
+      { id: "n2", label: "单据审核", type: "ai_auto", status: "completed", duration: "2m 30s" },
+      { id: "n3", label: "海关编码归类", type: "ai_auto", status: "completed", duration: "5m 05s" },
+      { id: "n4", label: "人工确认", type: "human_confirm", status: "pending_confirm" },
+      { id: "n5", label: "申报生成", type: "ai_auto", status: "waiting" },
+      { id: "n6", label: "提交海关", type: "ai_auto", status: "waiting" },
+    ],
   },
   {
     id: "T-2848",
@@ -124,6 +156,13 @@ export const MOCK_TASKS: ConsoleTask[] = [
     duration: "48 分钟",
     priority: "urgent",
     description: "合同 CT-2026-0178 条款审核",
+    flowNodes: [
+      { id: "n1", label: "合同接收", type: "ai_auto", status: "completed", duration: "5s" },
+      { id: "n2", label: "条款解析", type: "ai_auto", status: "completed", duration: "13m" },
+      { id: "n3", label: "风险评估", type: "ai_auto", status: "completed", duration: "8m" },
+      { id: "n4", label: "人工确认", type: "human_confirm", status: "pending_confirm" },
+      { id: "n5", label: "审批流转", type: "ai_auto", status: "waiting" },
+    ],
   },
   {
     id: "T-2847",
@@ -138,6 +177,14 @@ export const MOCK_TASKS: ConsoleTask[] = [
     completedAt: "2026-04-02 13:23",
     duration: "13 分钟",
     description: "报关单 BG-2026-0387 处理",
+    flowNodes: [
+      { id: "n1", label: "接收委托", type: "ai_auto", status: "completed", duration: "8s" },
+      { id: "n2", label: "单据审核", type: "ai_auto", status: "completed", duration: "1m 50s" },
+      { id: "n3", label: "海关编码归类", type: "ai_auto", status: "completed", duration: "4m 12s" },
+      { id: "n4", label: "人工确认", type: "human_confirm", status: "completed", duration: "3m 20s" },
+      { id: "n5", label: "申报生成", type: "ai_auto", status: "completed", duration: "2m 05s" },
+      { id: "n6", label: "提交海关", type: "ai_auto", status: "completed", duration: "1m 38s" },
+    ],
   },
   {
     id: "T-5012",
@@ -178,6 +225,35 @@ export const MOCK_TASKS: ConsoleTask[] = [
     startedAt: "2026-04-02 13:12",
     duration: "1 小时 8 分钟",
     description: "报销单 #6104 · 培训费 ¥12,800",
+    flowNodes: [
+      { id: "n1", label: "单据接收", type: "ai_auto", status: "completed", duration: "3s" },
+      { id: "n2", label: "发票验真", type: "ai_auto", status: "completed", duration: "30s" },
+      { id: "n3", label: "合规校验", type: "ai_auto", status: "completed", duration: "1m 45s" },
+      { id: "n4", label: "超额审批", type: "human_confirm", status: "pending_confirm" },
+      { id: "n5", label: "打款", type: "ai_auto", status: "waiting" },
+    ],
+  },
+  {
+    id: "T-7001",
+    agentId: "agent-6",
+    agentName: "HR 入职 Agent",
+    agentIcon: "🧑‍💼",
+    currentNode: "人工补充 · 入职信息",
+    progress: 40,
+    status: "pending_confirm",
+    taskType: "workflow",
+    startedAt: "2026-04-02 09:30",
+    duration: "5 小时",
+    description: "新员工入职 · 王小明（产品部）",
+    flowNodes: [
+      { id: "n1", label: "Offer 确认", type: "ai_auto", status: "completed", duration: "5s" },
+      { id: "n2", label: "系统账号开通", type: "ai_auto", status: "completed", duration: "2m" },
+      { id: "n3", label: "入职信息收集", type: "human_confirm", status: "pending_confirm" },
+      { id: "n4", label: "社保办理", type: "ai_auto", status: "waiting" },
+      { id: "n5", label: "公积金办理", type: "ai_auto", status: "waiting" },
+      { id: "n6", label: "工位分配", type: "ai_auto", status: "waiting" },
+      { id: "n7", label: "入职完成", type: "ai_auto", status: "waiting" },
+    ],
   },
   {
     id: "T-2840",
@@ -218,6 +294,53 @@ export const MOCK_TASKS: ConsoleTask[] = [
     duration: "32 天",
     priority: "high",
     description: "小红书涨粉计划 · 周策略复盘",
+  },
+  {
+    id: "T-9001",
+    agentId: "agent-7",
+    agentName: "危化品合规 Agent",
+    agentIcon: "🧪",
+    currentNode: "人工确认大表",
+    progress: 35,
+    status: "pending_confirm",
+    taskType: "workflow",
+    startedAt: "2026-04-02 09:00",
+    duration: "5 小时 20 分钟",
+    description: "IMI 证书申请 · BBN-003 / Z-5590（海运）",
+    subJobs: [
+      {
+        id: "T-9001-A",
+        name: "GSDS 入库",
+        status: "completed",
+        progress: 100,
+        trigger: "文件落盘触发",
+        currentNode: "-",
+        flowNodes: [
+          { id: "sn1", label: "上传并查重", type: "ai_auto", status: "completed", duration: "12s" },
+          { id: "sn2", label: "PDF 解析（含校验）", type: "ai_auto", status: "completed", duration: "3m 20s" },
+          { id: "sn3", label: "人工比对与修正", type: "human_confirm", status: "completed", duration: "15m" },
+          { id: "sn4", label: "写入主库", type: "ai_auto", status: "completed", duration: "2s" },
+        ],
+      },
+      {
+        id: "T-9001-B",
+        name: "IMI 证书申请",
+        status: "pending_confirm",
+        progress: 30,
+        trigger: "Leader 邮件触发",
+        currentNode: "人工确认大表",
+        flowNodes: [
+          { id: "sn5", label: "解析 Leader 邮件并写入大表", type: "ai_auto", status: "completed", duration: "2m" },
+          { id: "sn6", label: "按 BBN+PART 从 GSDS 补全大表", type: "ai_auto", status: "completed", duration: "5m" },
+          { id: "sn7", label: "人工确认大表", type: "human_confirm", status: "pending_confirm" },
+          { id: "sn8", label: "上传中外运系统", type: "human_manual", status: "waiting" },
+          { id: "sn9", label: "邮件发送至海关", type: "ai_auto", status: "waiting" },
+          { id: "sn10", label: "等待并接收证书", type: "human_confirm", status: "waiting" },
+          { id: "sn11", label: "全字段核验", type: "ai_auto", status: "waiting" },
+          { id: "sn12", label: "回填并归档 IMI List", type: "ai_auto", status: "waiting" },
+        ],
+      },
+    ],
   },
 ];
 
@@ -274,12 +397,61 @@ export const MOCK_TASK_EVENTS: Record<string, TaskEvent[]> = {
       nodeId: "node-3",
       nodeName: "海关编码归类",
       type: "human_confirm",
-      content: "AI 建议编码 8542.31（集成电路），置信度 87%。VIP 客户（华为），请人工确认编码是否正确。",
+      confirmType: "verify",
+      reviewLayout: "match",
+      content: "AI 根据商品描述匹配了 HS 编码，但置信度未达到自动通过标准（87% < 95%），请对照源文件确认。",
       timestamp: "2026-04-02 14:05:00",
       details: {
-        suggestedCode: "8542.31",
-        confidence: 0.87,
-        alternativeCodes: ["8542.39", "8541.49"],
+        aiResult: [
+          { label: "AI 建议编码", value: "8542.31（集成电路）" },
+          { label: "匹配置信度", value: "87%（自动通过需 95%）" },
+          { label: "备选编码", value: "8542.39（其他集成电路）、8541.49（其他半导体器件）" },
+          { label: "客户", value: "华为（VIP）" },
+        ],
+        sourceFiles: [
+          { name: "报关单 BG-2026-0391.pdf", desc: "商品描述：电子元器件 x 2000pcs，第3页" },
+          { name: "装箱单 PL-0391.xlsx", desc: "品名规格明细" },
+        ],
+        matchView: {
+          source: {
+            title: "源文件信息",
+            subtitle: "报关单 BG-2026-0391",
+            fields: [
+              { label: "商品名称", value: "电子元器件" },
+              { label: "规格型号", value: "IC-7842-A3 / 14nm FinFET" },
+              { label: "数量", value: "2,000 pcs" },
+              { label: "产地", value: "中国台湾" },
+              { label: "报关口岸", value: "深圳皇岗" },
+              { label: "贸易方式", value: "一般贸易" },
+            ],
+            file: { name: "报关单 BG-2026-0391.pdf", page: "第 3 页" },
+          },
+          result: {
+            title: "AI 匹配结果",
+            confidence: 87,
+            recommended: {
+              code: "8542.31",
+              name: "集成电路 — 处理器及控制器",
+              taxRate: "0%",
+              reason: "14nm FinFET 工艺符合集成电路定义，型号 IC-7842 指向处理器类",
+            },
+            alternatives: [
+              { code: "8542.39", name: "其他集成电路", taxRate: "0%", confidence: 72, diff: "当无法确认是处理器时的兜底编码" },
+              { code: "8541.49", name: "其他半导体器件", taxRate: "3%", confidence: 45, diff: "若为分立器件而非集成电路，税率不同" },
+            ],
+          },
+          reference: {
+            title: "HS 编码参考",
+            subtitle: "第85章 — 电机、电气设备及其零件",
+            entries: [
+              { code: "8542.31", name: "处理器及控制器", desc: "不论是否组装有存储器、转换器、逻辑电路、放大器、时钟及时序电路或其他电路", highlight: true },
+              { code: "8542.32", name: "存储器", desc: "DRAM、SRAM、EPROM、EEPROM、Flash 等" },
+              { code: "8542.33", name: "放大器", desc: "运算放大器、功率放大器等" },
+              { code: "8542.39", name: "其他集成电路", desc: "未列名的混合集成电路或其他集成电路" },
+              { code: "8541.49", name: "其他半导体器件", desc: "光敏半导体器件、LED、晶体管等分立器件" },
+            ],
+          },
+        },
       },
     },
   ],
@@ -308,11 +480,40 @@ export const MOCK_TASK_EVENTS: Record<string, TaskEvent[]> = {
       nodeId: "node-3",
       nodeName: "风险评估",
       type: "human_confirm",
-      content: "发现 3 条高风险条款需法务确认：\n1. 违约金条款超出行业标准\n2. 知识产权归属不明确\n3. 交付标准缺少验收细则",
+      confirmType: "verify",
+      reviewLayout: "compare",
+      content: "AI 在合同中标记了 3 条高风险条款，需要法务确认是否属实。",
       timestamp: "2026-04-02 14:10:00",
       details: {
-        riskLevel: "high",
-        riskCount: 3,
+        aiResult: [
+          { label: "风险等级", value: "高风险（3 条）" },
+          { label: "条款 1", value: "第 8.3 条 — 违约金条款超出行业标准（约定 30%，行业通常 10-15%）" },
+          { label: "条款 2", value: "第 12.1 条 — 知识产权归属不明确，未约定合作产出的 IP 归属" },
+          { label: "条款 3", value: "第 15.2 条 — 交付标准缺少验收细则，可能导致验收争议" },
+        ],
+        sourceFiles: [
+          { name: "合同 CT-2026-0178.pdf", desc: "完整合同原件，共 28 页" },
+          { name: "风险标注版.pdf", desc: "AI 标注了风险条款的位置（第 12、18、22 页）" },
+        ],
+        compareView: {
+          left: {
+            title: "合同原文",
+            subtitle: "CT-2026-0178 · 深圳市XX科技有限公司",
+            sections: [
+              { heading: "第 8.3 条 · 违约责任", page: 12, text: "甲方违反本合同任何条款的，应向乙方支付合同总金额 30% 的违约金，并赔偿乙方因此所受的全部损失。" },
+              { heading: "第 12.1 条 · 知识产权", page: 18, text: "双方在合同履行过程中各自产生的知识产权归各自所有。合作过程中产生的成果，由双方另行协商。" },
+              { heading: "第 15.2 条 · 验收标准", page: 22, text: "乙方应按照甲方要求完成交付，甲方在收到交付物后 15 个工作日内完成验收。" },
+            ],
+          },
+          right: {
+            title: "AI 风险标注",
+            annotations: [
+              { clause: "8.3", level: "high", original: "支付合同总金额 30% 的违约金", issue: "违约金比例偏高", detail: "行业通常约定 10-15%，30% 的违约金在司法实践中可能被认定为\"过高\"而被调低。建议改为 15% 或改为\"实际损失\"。", suggestion: "建议修改为：\"…支付合同总金额 15% 的违约金，但不超过实际损失的 120%。\"" },
+              { clause: "12.1", level: "high", original: "由双方另行协商", issue: "IP 归属不明确", detail: "\"另行协商\"等于没有约定。如项目产出包含软件、算法等，未约定归属将导致纠纷。", suggestion: "建议明确约定：合作成果 IP 归甲方所有/归双方共有/按投入比例分配（选其一）。" },
+              { clause: "15.2", level: "medium", original: "按照甲方要求完成交付", issue: "验收标准缺失", detail: "未明确验收标准和验收流程。\"按甲方要求\"过于笼统，可能导致反复修改。", suggestion: "建议增加附件列明具体验收标准、测试用例、验收流程和争议处理机制。" },
+            ],
+          },
+        },
       },
     },
   ],
@@ -334,9 +535,106 @@ export const MOCK_TASK_EVENTS: Record<string, TaskEvent[]> = {
     { id: "xhs-15", taskId: "T-8001", type: "node_complete" as const, nodeName: "内容发布", content: "内容 #67 重试发布成功", timestamp: "2026-03-25 12:10:00" },
     { id: "xhs-16", taskId: "T-8001", type: "ai_suggestion" as const, nodeName: "AI 建议", content: "发现视频内容在平台获得更多推荐流量，建议尝试增加短视频内容（当前全部为图文）", timestamp: "2026-03-28 23:00:00", details: { suggestion: "增加短视频", reason: "平台算法偏向视频内容，竞品视频平均播放量是图文的3倍" } },
     { id: "xhs-17", taskId: "T-8001", type: "milestone" as const, nodeName: "里程碑", content: "累计涨粉突破 15,000！目标完成 30%", timestamp: "2026-03-31 18:00:00" },
+    { id: "xhs-i1", taskId: "T-8001", type: "intervention" as const, nodeName: "运营总监干预", content: "运营总监（张总）判断该账号增长潜力大，特批追加推广预算", timestamp: "2026-04-01 10:30:00", details: { operator: "张总（运营总监）", action: "参数变更", changes: [{ param: "月推广预算", from: "¥5,000", to: "¥15,000" }, { param: "付费推广", from: "关闭", to: "开启" }, { param: "投放策略", from: "无", to: "测评类爆款加推" }], reason: "账号增速超预期，涨粉成本低于行业均值，追加投入抢占窗口期" } },
+    { id: "xhs-i2", taskId: "T-8001", type: "system" as const, content: "运行时参数已更新：月推广预算 ¥5,000→¥15,000，付费推广已开启，Agent 将在下一轮执行中应用新参数", timestamp: "2026-04-01 10:30:15" },
     { id: "xhs-18", taskId: "T-8001", type: "node_complete" as const, nodeName: "内容生成", content: "生成内容 #94：「5分钟通勤妆容教程」（穿搭教程）", timestamp: "2026-04-02 08:00:00" },
     { id: "xhs-19", taskId: "T-8001", type: "node_complete" as const, nodeName: "合规扫描", content: "合规扫描通过", timestamp: "2026-04-02 08:01:00" },
     { id: "xhs-20", taskId: "T-8001", type: "node_complete" as const, nodeName: "内容发布", content: "内容 #94 发布成功", timestamp: "2026-04-02 08:02:00" },
+    { id: "xhs-i3", taskId: "T-8001", type: "data_report" as const, nodeName: "干预效果", content: "干预后首日效果：付费推广曝光+12,000，涨粉+580（环比+82%），单粉成本 ¥2.1（行业均值 ¥5.8）", timestamp: "2026-04-02 23:00:00", details: { triggerIntervention: "xhs-i1", metricsBeforeIntervention: { dailyFollowers: 320, dailyCost: 0 }, metricsAfterIntervention: { dailyFollowers: 580, dailyCost: 1218 } } },
+  ],
+  "T-6104": [
+    {
+      id: "fin-1",
+      taskId: "T-6104",
+      nodeId: "node-1",
+      nodeName: "单据接收",
+      type: "node_complete",
+      content: "报销单 #6104 已接收，申请人：李明（市场部），金额 ¥12,800",
+      timestamp: "2026-04-02 13:12:00",
+    },
+    {
+      id: "fin-2",
+      taskId: "T-6104",
+      nodeId: "node-2",
+      nodeName: "合规校验",
+      type: "node_complete",
+      content: "发票验真通过（3张），费用类目匹配，但金额超出部门单笔限额（¥10,000）",
+      timestamp: "2026-04-02 13:14:00",
+    },
+    {
+      id: "fin-3",
+      taskId: "T-6104",
+      nodeId: "node-3",
+      nodeName: "超额审批",
+      type: "human_confirm",
+      confirmType: "decision",
+      content: "该报销单金额超出部门单笔限额，需要主管做出审批决策。",
+      timestamp: "2026-04-02 13:15:00",
+      details: {
+        aiResult: [
+          { label: "申请人", value: "李明（市场部 · 高级经理）" },
+          { label: "费用类目", value: "培训费" },
+          { label: "申请金额", value: "¥12,800" },
+          { label: "部门限额", value: "单笔 ¥10,000" },
+          { label: "超出金额", value: "¥2,800" },
+          { label: "发票状态", value: "3张发票全部验真通过" },
+          { label: "AI 参考意见", value: "该员工近6个月报销记录正常，培训费用合理，建议批准" },
+        ],
+        sourceFiles: [
+          { name: "报销单 #6104.pdf", desc: "报销申请表原件" },
+          { name: "培训通知.png", desc: "公司培训中心出具的培训通知" },
+          { name: "发票_3张.pdf", desc: "培训费发票（已验真）" },
+        ],
+        decisions: [
+          { id: "approve", label: "批准报销", desc: "全额批准 ¥12,800", color: "green" },
+          { id: "partial", label: "部分批准", desc: "只批准限额内的 ¥10,000", color: "amber" },
+          { id: "reject", label: "驳回", desc: "不予报销，退回申请人", color: "red" },
+        ],
+      },
+    },
+  ],
+  "T-7001": [
+    {
+      id: "hr-1",
+      taskId: "T-7001",
+      nodeId: "node-1",
+      nodeName: "Offer 确认",
+      type: "node_complete",
+      content: "Offer 已签署，入职日期 2026-04-07，岗位：产品经理",
+      timestamp: "2026-04-02 09:30:00",
+    },
+    {
+      id: "hr-2",
+      taskId: "T-7001",
+      nodeId: "node-2",
+      nodeName: "系统账号开通",
+      type: "node_complete",
+      content: "已自动开通：企业邮箱、飞书账号、VPN",
+      timestamp: "2026-04-02 09:32:00",
+    },
+    {
+      id: "hr-3",
+      taskId: "T-7001",
+      nodeId: "node-3",
+      nodeName: "入职信息收集",
+      type: "human_confirm",
+      confirmType: "input",
+      content: "以下信息无法从系统获取，需要 HR 手动补充后才能继续办理社保和公积金。",
+      timestamp: "2026-04-02 09:35:00",
+      details: {
+        inputFields: [
+          { id: "bank_account", label: "工资卡号", type: "text", placeholder: "请输入银行卡号", required: true },
+          { id: "bank_name", label: "开户行", type: "text", placeholder: "如：招商银行北京分行", required: true },
+          { id: "social_security_id", label: "社保账号", type: "text", placeholder: "如首次参保请留空", required: false },
+          { id: "housing_fund_base", label: "公积金缴纳基数", type: "select", options: ["按最低标准", "按实际工资", "按封顶标准"], required: true },
+          { id: "emergency_contact", label: "紧急联系人", type: "text", placeholder: "姓名 + 关系 + 电话", required: true },
+        ],
+        sourceFiles: [
+          { name: "Offer Letter — 王小明.pdf", desc: "签署的 Offer，含薪资和岗位信息" },
+          { name: "身份证扫描件.jpg", desc: "员工提交的身份证正反面" },
+        ],
+      },
+    },
   ],
   "T-8002": [
     { id: "xhs-r1", taskId: "T-8002", type: "data_report" as const, nodeName: "周报", content: "第4周周报摘要：\n涨粉+3,200（累计15,500/50,000）\n互动率5.1%\n测评类最佳（平均赞380）\n教程类次之（平均赞210）", timestamp: "2026-03-28 23:00:00" },
@@ -346,17 +644,44 @@ export const MOCK_TASK_EVENTS: Record<string, TaskEvent[]> = {
 };
 
 // Agentic dashboard mock data
+
+export type HealthLevel = "good" | "warning" | "critical";
+
+export interface AgenticHealth {
+  level: HealthLevel;
+  summary: string;
+  kpis: { label: string; value: string; trend?: "up" | "down" | "flat" }[];
+}
+
+export interface SpendItem { week: string; amount: number; label: string }
+
+export interface StrategyParam { id: string; label: string; value: string; editable?: boolean }
+
 export interface AgenticDashboardData {
+  health: AgenticHealth;
   followerTrend: { date: string; count: number }[];
   contentPerformance: { type: string; avgLikes: number; avgComments: number; count: number; rating: number }[];
   weeklyGrowth: { week: string; followers: number; engagement: number }[];
   goalProgress: { current: number; target: number; percentage: number };
   weeklySummary: string;
   aiSuggestions: { id: string; content: string; impact: string; status: "pending" | "accepted" | "rejected" }[];
+  spending: { total: number; thisWeek: number; costPerFollower: number; trend: SpendItem[] };
+  strategyParams: StrategyParam[];
+  weeklyReports: { week: string; summary: string }[];
 }
 
 export const MOCK_AGENTIC_DASHBOARD: Record<string, AgenticDashboardData> = {
   "T-8001": {
+    health: {
+      level: "good",
+      summary: "涨粉速度超预期，ROI 良好，本周单粉成本创新低",
+      kpis: [
+        { label: "目标完成率", value: "31%", trend: "up" },
+        { label: "本周涨粉", value: "+3,200", trend: "up" },
+        { label: "投入产出比", value: "1:4.2", trend: "up" },
+        { label: "互动率", value: "5.6%", trend: "up" },
+      ],
+    },
     followerTrend: [
       { date: "3/1", count: 10000 }, { date: "3/5", count: 10450 },
       { date: "3/10", count: 11200 }, { date: "3/15", count: 12500 },
@@ -382,8 +707,44 @@ export const MOCK_AGENTIC_DASHBOARD: Record<string, AgenticDashboardData> = {
       { id: "sug-2", content: "周三和周五发布效果最好，建议增加这两天的发布量", impact: "中", status: "accepted" },
       { id: "sug-3", content: "话题类内容互动率低，建议降低比例至5%", impact: "中", status: "accepted" },
     ],
+    spending: {
+      total: 18200,
+      thisWeek: 4500,
+      costPerFollower: 2.1,
+      trend: [
+        { week: "第1周", amount: 0, label: "纯自然流量" },
+        { week: "第2周", amount: 0, label: "纯自然流量" },
+        { week: "第3周", amount: 0, label: "纯自然流量" },
+        { week: "第4周", amount: 0, label: "纯自然流量" },
+        { week: "第5周", amount: 4500, label: "开启付费推广" },
+      ],
+    },
+    strategyParams: [
+      { id: "content-ratio", label: "内容比例", value: "测评70% · 教程25% · 话题5%", editable: true },
+      { id: "publish-freq", label: "发布频率", value: "每天 3 条", editable: true },
+      { id: "budget", label: "月推广预算", value: "¥15,000", editable: true },
+      { id: "promotion", label: "付费推广", value: "已开启 · 测评类爆款加推", editable: true },
+      { id: "target-audience", label: "目标人群", value: "18-30岁女性 · 一二线城市", editable: true },
+      { id: "tone", label: "内容调性", value: "实用干货 + 轻松亲和", editable: false },
+    ],
+    weeklyReports: [
+      { week: "第5周", summary: "干预后首周效果显著。付费推广带来+12,000曝光，涨粉+3,200（环比+52%），单粉成本¥2.1（行业均值¥5.8）。测评内容爆款率提升至23%。" },
+      { week: "第4周", summary: "涨粉+3,200，策略v2效果稳定。测评类互动率5.3%（环比+18%），教程类保持稳定。话题内容已降至5%，无明显损失。" },
+      { week: "第3周", summary: "涨粉+2,100，策略v2开始生效。测评比例提升至70%后效果明显，互动率5.3%创新高。" },
+      { week: "第2周", summary: "涨粉+1,350，增速环比+51%。初始策略运行稳定，测评类表现突出。" },
+      { week: "第1周", summary: "涨粉+892，冷启动期。发布21条内容，测评类表现最佳（平均赞320），已建立基础内容库。" },
+    ],
   },
   "T-8002": {
+    health: {
+      level: "warning",
+      summary: "策略调整待确认，AI 建议增加视频内容线以突破增长瓶颈",
+      kpis: [
+        { label: "目标完成率", value: "31%", trend: "flat" },
+        { label: "本周涨粉", value: "+3,200", trend: "up" },
+        { label: "待确认建议", value: "1 条", trend: "flat" },
+      ],
+    },
     followerTrend: [],
     contentPerformance: [],
     weeklyGrowth: [],
@@ -391,6 +752,14 @@ export const MOCK_AGENTIC_DASHBOARD: Record<string, AgenticDashboardData> = {
     weeklySummary: "第4周复盘：涨粉+3,200，策略调整效果显著。AI建议增加视频内容，待确认。",
     aiSuggestions: [
       { id: "sug-4", content: "新增「短视频生成」Skill，开启视频内容线", impact: "高", status: "pending" },
+    ],
+    spending: { total: 0, thisWeek: 0, costPerFollower: 0, trend: [] },
+    strategyParams: [
+      { id: "content-ratio", label: "内容比例", value: "测评70% · 教程25% · 话题5%", editable: true },
+      { id: "publish-freq", label: "发布频率", value: "每天 3 条", editable: true },
+    ],
+    weeklyReports: [
+      { week: "第4周", summary: "涨粉+3,200，策略调整效果显著。AI建议增加视频内容，待确认。" },
     ],
   },
 };

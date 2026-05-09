@@ -1,4 +1,29 @@
-export type NodeExecutionMode = "ai_auto" | "human_confirm" | "human_manual";
+// --- File Attachment ---
+export interface FileAttachment {
+  originalName: string;
+  storedName: string;
+  path: string;
+  size: number;
+  type: string;
+  ext: string;
+}
+
+// --- Feasibility Gate (v12) ---
+export interface FeasibilityDetail {
+  dimension: string;
+  status: "pass" | "warning" | "block";
+  note: string;
+}
+
+export interface FeasibilityAssessment {
+  level: "suitable" | "partial" | "not_recommended";
+  summary: string;
+  automationRate?: string;
+  details: FeasibilityDetail[];
+  suggestion?: string;
+}
+
+export type NodeExecutionMode = "pending" | "ai_auto" | "human_confirm" | "human_manual";
 export type NodeExecutionType = "deterministic" | "intelligent";
 export type NodeFeasibility = "confirmed" | "partial" | "infeasible" | "pending";
 export type ErrorStrategy = "retry" | "human_fallback" | "skip" | "abort";
@@ -11,6 +36,13 @@ export interface ConfirmStrategyConfig {
   rules?: string[];
 }
 
+/** json/object/array 等复合类型的子字段定义 */
+export interface SubField {
+  key: string;
+  type: string;
+  desc: string;
+}
+
 export interface FlowNodeInput {
   id: string;
   name: string;
@@ -19,7 +51,13 @@ export interface FlowNodeInput {
   required: boolean;
   source: "user" | "previous_step" | "default";
   sourceDetail?: string;
-  dataType?: string; // visible in tech view
+  dataType?: string;
+  /** @deprecated 旧版纯文本示例，迁移到 subFields */
+  example?: string;
+  /** 复合类型的内部字段结构 */
+  subFields?: SubField[];
+  /** 业务方上传的样例文件 */
+  exampleFiles?: FileAttachment[];
 }
 
 export interface FlowNodeOutput {
@@ -27,8 +65,14 @@ export interface FlowNodeOutput {
   name: string;
   icon: string;
   description: string;
-  flowsTo: string[]; // node ids that consume this output
+  flowsTo: string[];
   dataType?: string;
+  /** @deprecated 旧版纯文本示例，迁移到 subFields */
+  example?: string;
+  /** 复合类型的内部字段结构 */
+  subFields?: SubField[];
+  /** 业务方上传的样例文件 */
+  exampleFiles?: FileAttachment[];
 }
 
 export interface ErrorHandling {
@@ -41,7 +85,8 @@ export interface ErrorHandling {
   };
 }
 
-export interface TechConfig {
+/** Per-node technical settings on the flow canvas (execution type, skills, feasibility). */
+export interface NodeTechConfig {
   executionType: NodeExecutionType;
   boundSkill?: string;
   evaluator?: string;
@@ -68,8 +113,14 @@ export interface FlowNodeData {
   outputs: FlowNodeOutput[];
   executionRules?: ExecutionRule[];
   errorHandling: ErrorHandling[];
-  techConfig: TechConfig;
+  techConfig: NodeTechConfig;
   confirmStrategy?: ConfirmStrategyConfig;
+  /** 业务侧：节点内操作清单（SOP 小步骤） */
+  operationSteps?: string[];
+  /** 业务侧：必对字段/关键校对项 */
+  requiredCheckFields?: string[];
+  /** 业务侧：完成标准 */
+  doneCriteria?: string;
   isCondition?: boolean;
   conditionBranches?: { label: string; icon: string; targetLabel: string }[];
 }
@@ -387,7 +438,7 @@ export interface AgenticConfirmItem {
 
 export type AgentStatus = "running" | "draft" | "error" | "paused";
 export type ConsoleTaskStatus = "queued" | "running" | "pending_confirm" | "completed" | "error";
-export type TaskEventType = "node_start" | "node_complete" | "node_error" | "human_confirm" | "system" | "ai_suggestion" | "data_report" | "milestone";
+export type TaskEventType = "node_start" | "node_complete" | "node_error" | "human_confirm" | "system" | "ai_suggestion" | "data_report" | "milestone" | "intervention";
 
 export interface ConsoleAgent {
   id: string;
@@ -406,6 +457,16 @@ export interface ConsoleAgent {
   description: string;
 }
 
+export type FlowNodeStatus = "completed" | "running" | "pending_confirm" | "error" | "waiting";
+
+export interface FlowNodeDef {
+  id: string;
+  label: string;
+  type: "ai_auto" | "human_confirm" | "human_manual";
+  status: FlowNodeStatus;
+  duration?: string;
+}
+
 export interface ConsoleTask {
   id: string;
   agentId: string;
@@ -420,7 +481,34 @@ export interface ConsoleTask {
   duration: string;
   priority?: "normal" | "high" | "urgent";
   description: string;
+  flowNodes?: FlowNodeDef[];
+  /** 拆分后的子 Job，展示为文件夹式展开 */
+  subJobs?: ConsoleSubJob[];
 }
+
+export interface ConsoleSubJob {
+  id: string;
+  name: string;
+  status: ConsoleTaskStatus;
+  progress: number;
+  trigger: string;
+  currentNode: string;
+  flowNodes?: FlowNodeDef[];
+}
+
+/**
+ * verify  — AI 已产出结果，人来校验对不对
+ * input   — 流程需要人补充 AI 无法获取的信息
+ * decision— AI 准备好材料，人来做业务决策
+ */
+export type HumanConfirmType = "verify" | "input" | "decision";
+
+/**
+ * card    — 卡片式（默认，信息量小的审批/填表）
+ * compare — 双栏对照（合同审阅：原文 ↔ 标注）
+ * match   — 三栏匹配（编码匹配：源件 ↔ 结果 ↔ 参考库）
+ */
+export type ReviewLayout = "card" | "compare" | "match";
 
 export interface TaskEvent {
   id: string;
@@ -428,7 +516,362 @@ export interface TaskEvent {
   nodeId?: string;
   nodeName?: string;
   type: TaskEventType;
+  confirmType?: HumanConfirmType;
+  reviewLayout?: ReviewLayout;
   content: string;
   timestamp: string;
   details?: Record<string, unknown>;
+}
+
+// ============================================================
+// Notification System
+// ============================================================
+
+export type NotificationType = "tech_config_ready" | "review_submitted" | "review_approved" | "review_rejected" | "annotation_reply" | "quality_alert" | "system";
+
+export interface Notification {
+  id: string;
+  type: NotificationType;
+  title: string;
+  content: string;
+  timestamp: string;
+  read: boolean;
+  actionUrl?: string;
+  relatedProject?: string;
+}
+
+// ============================================================
+// Tech-side Multi-Tab Configuration
+// ============================================================
+
+export type TechTabId = "overview" | "documents" | "externals" | "guards" | "deployment";
+export type TechTabStatus = "idle" | "generating" | "ready" | "error";
+
+export interface TechTabState {
+  status: TechTabStatus;
+  error?: string;
+  generatedAt?: string;
+}
+
+// --- Tab 1: Overview + Sequence Diagram ---
+
+export interface NodeAnnotation {
+  nodeId: string;
+  executionType: "deterministic" | "intelligent";
+  riskLevel: "low" | "medium" | "high";
+  riskReason: string;
+  estimatedLatency: string;
+  boundSkillSuggestion: string;
+}
+
+export interface SequenceMessage {
+  from: string;
+  to: string;
+  label: string;
+  type: "sync" | "async";
+  nodeId: string;
+}
+
+export interface SequenceDiagram {
+  participants: string[];
+  messages: SequenceMessage[];
+}
+
+export interface TechOverviewData {
+  nodeAnnotations: NodeAnnotation[];
+  sequenceDiagram: SequenceDiagram;
+}
+
+// --- Tab 2: Document Contracts ---
+
+export interface DocumentField {
+  name: string;
+  type: string;
+  description: string;
+}
+
+export interface DocumentSchema {
+  description: string;
+  fields: DocumentField[];
+}
+
+export interface DocumentUsage {
+  nodeId: string;
+  usage: "read" | "write" | "query" | "create";
+}
+
+export interface DocumentEntry {
+  id: string;
+  name: string;
+  fileType: "xlsx" | "pdf" | "json" | "database" | "email" | "other";
+  role: "working" | "reference" | "archive" | "external_input" | "external_output";
+  schema: DocumentSchema;
+  usedByNodes: DocumentUsage[];
+}
+
+export interface DocumentRelationship {
+  from: string;
+  to: string;
+  type: "inherits" | "references" | "derived_from";
+}
+
+export interface TechDocumentsData {
+  documents: DocumentEntry[];
+  relationships: DocumentRelationship[];
+}
+
+// --- Tab 3: External Systems ---
+
+export interface ExternalSystemIntegration {
+  current: "manual" | "api" | "email" | "file_transfer" | "database_query";
+  target: "manual" | "api" | "email" | "file_transfer" | "database_query";
+  readiness: "ready" | "partial" | "not_available";
+}
+
+export interface ExternalSystemConstraint {
+  type: "availability" | "rate_limit" | "file_size" | "response_time" | "format";
+  detail: string;
+}
+
+export interface ExternalSystem {
+  id: string;
+  name: string;
+  type: "web_portal" | "api" | "email" | "database" | "file_system";
+  relatedNodes: string[];
+  integration: ExternalSystemIntegration;
+  auth: { type: "none" | "bearer_token" | "username_password" | "certificate" | "smtp_credentials" | "unknown" };
+  capabilities: string[];
+  constraints: ExternalSystemConstraint[];
+  humanFallback: string;
+  automationPriority: "high" | "medium" | "low";
+  estimatedEffort: string;
+}
+
+export interface TechExternalsData {
+  externalSystems: ExternalSystem[];
+}
+
+// --- Tab 4: Quality Guards ---
+
+export interface GuardCheck {
+  field: string;
+  rule: "not_empty" | "type_check" | "range" | "format";
+  severity: "error" | "warning";
+}
+
+export interface GuardMonitor {
+  type: "structural" | "statistical" | "sampling";
+  description: string;
+  checks: GuardCheck[];
+  threshold?: number;
+}
+
+export interface GuardEscalation {
+  business: string[];
+  tech: string[];
+}
+
+export interface NodeGuard {
+  nodeId: string;
+  monitors: GuardMonitor[];
+  issueCategories: string[];
+  escalation: GuardEscalation;
+}
+
+export interface TechGuardsData {
+  guards: NodeGuard[];
+}
+
+// --- Tab 5: Deployment ---
+
+export interface DeploymentService {
+  nodeId: string;
+  serviceName: string;
+  runtime: "python" | "node" | "browser_automation";
+  dependencies: string[];
+  resourceRequirements: { cpu: "low" | "medium" | "high"; memory: "low" | "medium" | "high" };
+}
+
+export interface DeploymentMessaging {
+  from: string;
+  to: string;
+  type: "sync" | "async" | "human_gate";
+  format: "json" | "file";
+}
+
+export interface DeploymentEnvVar {
+  name: string;
+  description: string;
+  secret: boolean;
+  relatedNode: string;
+}
+
+export interface DeploymentResourceLimit {
+  resource: string;
+  limit: string;
+  strategy: "token_bucket" | "reserve_commit" | "queue";
+}
+
+export interface TechDeploymentData {
+  services: DeploymentService[];
+  messaging: DeploymentMessaging[];
+  envVars: DeploymentEnvVar[];
+  resourceLimits: DeploymentResourceLimit[];
+}
+
+// --- Combined Tech Config ---
+
+export interface TechConfig {
+  overview: TechOverviewData | null;
+  documents: TechDocumentsData | null;
+  externals: TechExternalsData | null;
+  guards: TechGuardsData | null;
+  deployment: TechDeploymentData | null;
+  tabStates: Record<TechTabId, TechTabState>;
+}
+
+// ============================================================
+// Tech workspace — editable bindings (FlowAgent-only, not JobSpec)
+// ============================================================
+
+/** Tab ids for binding-focused workspace UI */
+export type TechWorkspaceBindingTabId =
+  | "binding_global"
+  | "binding_documents"
+  | "binding_externals"
+  | "adaptive"
+  | "job_split";
+
+/** Maps to task-platform Task.type / executable-schema taskType */
+export type PlatformTaskType = "agentic" | "integration" | "deterministic" | "human_review";
+
+/**
+ * Optional display-only job-level defaults. Context policy is generated by the platform, not edited here.
+ */
+export interface GlobalResourceBindings {
+  timezone?: string;
+}
+
+/** JobSpec metadata (editable in tech workspace, maps to metadata + defaults) */
+export interface TechJobSpecMeta {
+  code: string;
+  name: string;
+  description: string;
+  /** JSON string: Job-level input schema (JobSpec input_schema) */
+  inputSchemaJson?: string;
+  defaultRuntimeProfileCode?: string;
+  defaultReviewPolicyCode?: string;
+  /** 用户是否手动编辑过 code；为 true 后名称变更不再联动 */
+  codeManuallyEdited?: boolean;
+}
+
+/** Per-document overrides keyed by DocumentEntry.id */
+export interface DocumentBindingEntry {
+  contextSourceCode?: string;
+  sourceType?: "manual" | "static" | "http" | "object_storage";
+  sensitivity?: "public" | "internal" | "confidential";
+}
+
+/** Per external system overrides keyed by ExternalSystem.id */
+export interface ExternalSystemBindingEntry {
+  toolCode?: string;
+  secretCode?: string;
+  skipped?: boolean;
+}
+
+/** Per-flow-node overrides keyed by React Flow node id */
+export interface NodeBindingEntry {
+  /** Job 内唯一的 Task 编码 → JobSpec task.code */
+  taskCode?: string;
+  taskType?: PlatformTaskType;
+  /** Multiple skills → JobSpec skill_codes */
+  skillBindingCodes?: string[];
+  /** @deprecated use skillBindingCodes; kept for persist migration */
+  skillBindingCode?: string;
+  runtimeProfileCode?: string;
+  /** 上下文打包策略 → JobSpec context_policy_code（非人工 Task 必填） */
+  contextPolicyCode?: string;
+  reviewPolicyCode?: string;
+  /** Task 需要调用的工具编码列表 → JobSpec tool_codes */
+  toolCodes?: string[];
+  /** Task 需要访问的凭证引用列表 → JobSpec secret_refs */
+  secretRefs?: string[];
+}
+
+export interface TechBindingState {
+  global: GlobalResourceBindings;
+  documentsById: Record<string, DocumentBindingEntry>;
+  externalsById: Record<string, ExternalSystemBindingEntry>;
+  nodesById: Record<string, NodeBindingEntry>;
+}
+
+export interface RuntimeAdjustableParam {
+  path: string;
+  valueType: "number" | "string" | "enum";
+  scope: "hot" | "warm" | "cold";
+  description?: string;
+}
+
+export interface EnvAssumptionEntry {
+  id: string;
+  description: string;
+  monitorType: string;
+  interval?: string;
+  warningThreshold?: string;
+  criticalThreshold?: string;
+}
+
+export interface AdjustmentPolicyEntry {
+  id: string;
+  title: string;
+  triggerCondition?: string;
+  actions?: string;
+}
+
+/** Mirrors adaptiveConfig in executable-schema / JobSpec v2 */
+export interface AdaptiveConfigState {
+  runtimeAdjustable: RuntimeAdjustableParam[];
+  envAssumptions: EnvAssumptionEntry[];
+  adjustmentPolicies: AdjustmentPolicyEntry[];
+}
+
+export interface JobGroupEntry {
+  schemaId?: string;
+  name: string;
+  /** Original canvas node stepIndex range [from, to] inclusive */
+  nodeStepRange: [number, number];
+  triggerConfig?: {
+    type: "schedule" | "manual" | "event" | "api";
+    params?: Record<string, string>;
+  };
+}
+
+export interface JobRelationEntry {
+  from: string;
+  to: string;
+  relation: "upstream_producer" | "downstream_consumer";
+  sharedResource?: string;
+  description?: string;
+}
+
+export interface JobGroup {
+  id: string;
+  name: string;
+  sourceSchemaId?: string;
+  createdAt: string;
+  jobs: JobGroupEntry[];
+  sharedResources: string[];
+  relatedJobs: JobRelationEntry[];
+}
+
+/** Validation checklist item for export readiness */
+export interface BindingCheckItem {
+  ok: boolean;
+  label: string;
+  hint?: string;
+}
+
+export interface BindingCompletionResult {
+  percent: number;
+  checks: BindingCheckItem[];
 }

@@ -13,10 +13,12 @@ import {
   Briefcase, Code2, AlertTriangle, ArrowLeftRight,
   FileCheck, X, Download, FileJson, FileText, Image,
 } from "lucide-react";
-import { serializeFlowForLLM, mergeWorkflowTechConfig } from "@/lib/flow-parser";
+import { serializeFlowForLLM } from "@/lib/flow-parser";
 import { addDynamicReview } from "@/lib/mock-reviews";
-import type { ProjectStatus, UserRole, FlowNodeData } from "@/lib/types";
+import type { ProjectStatus, UserRole, FlowNodeData, TechTabId, Notification as AppNotification } from "@/lib/types";
 import type { Node } from "@xyflow/react";
+import { NotificationBell } from "@/components/layout/NotificationBell";
+import { TechGenerationProgress } from "@/components/layout/TechGenerationProgress";
 
 const STATUS_LABELS: Record<ProjectStatus, { label: string; className: string }> = {
   draft: { label: "草稿", className: "bg-zinc-100 text-zinc-600" },
@@ -60,7 +62,7 @@ function computeDiff(
       continue;
     }
     if (cur.executionMode !== orig.executionMode) {
-      const modeLabels: Record<string, string> = { ai_auto: "AI 自动", human_confirm: "需人工确认", human_manual: "人工操作" };
+      const modeLabels: Record<string, string> = { pending: "待技术选择", ai_auto: "AI 自动", human_confirm: "需人工确认", human_manual: "人工操作" };
       diffs.push({ label: cur.label, field: "executionMode", from: modeLabels[orig.executionMode] || orig.executionMode, to: modeLabels[cur.executionMode] || cur.executionMode });
     }
     if (cur.description !== orig.description) {
@@ -84,14 +86,15 @@ export default function TopBar() {
   const {
     project, currentRole,
     annotations,
-    showAnnotationPanel, setShowAnnotationPanel,
     showKnowledgePanel, setShowKnowledgePanel,
     setProjectStatus, nodes,
-    chatPhase, taskType, initialSnapshot, deferredNodeIds, edges,
+    chatPhase, taskType, initialSnapshot, deferredNodeIds, edges, allNodeConfidence, collectedAnswers,
   } = useFlowAgentStore();
 
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [showUnansweredReminder, setShowUnansweredReminder] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showTechProgress, setShowTechProgress] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -156,29 +159,86 @@ export default function TopBar() {
   const generateTechConfig = useCallback(async () => {
     const store = useFlowAgentStore.getState();
     const isWorkflow = store.taskType === "workflow";
-    const isAgentic = store.taskType === "agentic";
 
     if (isWorkflow && store.nodes.length > 0) {
       const { json: canvasJson } = serializeFlowForLLM(store.nodes, store.edges);
-      store.addChatMessage({ id: uuidv4(), role: "assistant", content: "方案已提交，正在自动生成技术配置...", timestamp: new Date().toISOString() });
-      try {
-        const res = await fetch("/api/generate-flow", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "generate_workflow_tech", currentFlow: canvasJson }),
-          signal: AbortSignal.timeout(180000),
-        });
-        const result = await res.json();
-        if (result.success && result.data?.nodes) {
-          const merged = mergeWorkflowTechConfig(store.nodes, result.data.nodes);
-          useFlowAgentStore.setState({ nodes: merged });
-          store.addChatMessage({ id: uuidv4(), role: "assistant", content: `已为 ${result.data.nodes.length} 个节点自动生成技术配置，技术方可开始评审。`, timestamp: new Date().toISOString() });
-          toast.success("技术配置已自动生成");
-        } else {
-          store.addChatMessage({ id: uuidv4(), role: "assistant", content: `技术配置自动生成失败（${result.error || "未知错误"}），技术方可手动补充。`, timestamp: new Date().toISOString() });
-        }
-      } catch { /* silent — tech can fill manually */ }
-    } else if (isAgentic && store.agenticConfig) {
+
+      store.resetTechConfig();
+
+      const tabs: TechTabId[] = ["overview", "documents", "externals", "guards", "deployment"];
+
+      tabs.forEach((tab) => store.setTechTabStatus(tab, "generating"));
+
+      store.addChatMessage({
+        id: uuidv4(),
+        role: "assistant",
+        content: "方案已提交，正在并行生成技术配置（流程总览、文档契约、外部系统、质量守护、部署配置）...",
+        timestamp: new Date().toISOString(),
+      });
+
+      const results = await Promise.allSettled(
+        tabs.map(async (tab) => {
+          try {
+            const res = await fetch("/api/generate-tech", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action: tab, flow: canvasJson, prompt: store.originalPrompt }),
+              signal: AbortSignal.timeout(180000),
+            });
+            const result = await res.json();
+            if (result.success && result.data) {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const setters: Record<TechTabId, (data: any) => void> = {
+                overview: store.setTechOverview,
+                documents: store.setTechDocuments,
+                externals: store.setTechExternals,
+                guards: store.setTechGuards,
+                deployment: store.setTechDeployment,
+              };
+              setters[tab](result.data);
+              return { tab, success: true };
+            } else {
+              store.setTechTabStatus(tab, "error", result.error || "生成失败");
+              return { tab, success: false, error: result.error };
+            }
+          } catch (err) {
+            store.setTechTabStatus(tab, "error", err instanceof Error ? err.message : "网络错误");
+            return { tab, success: false, error: String(err) };
+          }
+        })
+      );
+
+      const successCount = results.filter(
+        (r) => r.status === "fulfilled" && r.value.success
+      ).length;
+
+      const notification: AppNotification = {
+        id: uuidv4(),
+        type: "tech_config_ready",
+        title: "技术方案生成完成",
+        content: `${successCount}/5 个模块已生成完成`,
+        timestamp: new Date().toISOString(),
+        read: false,
+        relatedProject: store.project.name,
+      };
+      store.addNotification(notification);
+
+      store.addChatMessage({
+        id: uuidv4(),
+        role: "assistant",
+        content: successCount === 5
+          ? "已为所有模块生成技术配置，技术方可开始评审。"
+          : `技术配置生成完成（${successCount}/5 成功），部分模块可能需要手动补充。`,
+        timestamp: new Date().toISOString(),
+      });
+
+      if (successCount > 0) {
+        toast.success(`技术配置已生成（${successCount}/5）`);
+      } else {
+        toast.error("技术配置生成失败，请重试");
+      }
+    } else if (store.taskType === "agentic" && store.agenticConfig) {
+      // Keep existing agentic logic unchanged
       const config = store.agenticConfig;
       if (config.skills.length === 0) {
         store.addChatMessage({ id: uuidv4(), role: "assistant", content: "方案已提交，正在自动生成技术配置...", timestamp: new Date().toISOString() });
@@ -215,6 +275,7 @@ export default function TopBar() {
       snapshotToReview();
       setProjectStatus("tech_reviewing");
       toast.success("已提交技术评审");
+      setShowTechProgress(true);
       generateTechConfig();
     }
   };
@@ -233,6 +294,7 @@ export default function TopBar() {
     snapshotToReview();
     setProjectStatus("tech_reviewing");
     toast.success("已重新提交评审");
+    setShowTechProgress(true);
     generateTechConfig();
   };
 
@@ -243,6 +305,11 @@ export default function TopBar() {
     chatPhase === "agentic_ready" &&
     project.status !== "confirmed" && project.status !== "tech_reviewing";
   const canConfirm = canConfirmWorkflow || canConfirmAgentic;
+  const unansweredCount = allNodeConfidence.filter((nc) => {
+    if (nc.confidence === "high" || !nc.questions || nc.questions.length === 0) return false;
+    const answers = collectedAnswers[nc.nodeId] || [];
+    return nc.questions.some((q) => !answers.some((a) => a.question === q.question && (a.answer || "").trim() !== ""));
+  }).length;
 
   const diffs = showConfirmModal
     ? computeDiff(initialSnapshot?.nodes as Node<FlowNodeData>[] | undefined, nodes as Node<FlowNodeData>[])
@@ -257,7 +324,16 @@ export default function TopBar() {
     setProjectStatus("tech_reviewing");
     setShowConfirmModal(false);
     toast.success("方案已确认并提交技术评审");
+    setShowTechProgress(true);
     generateTechConfig();
+  };
+
+  const openConfirmFlow = () => {
+    if (unansweredCount > 0) {
+      setShowUnansweredReminder(true);
+      return;
+    }
+    setShowConfirmModal(true);
   };
 
   const handleExportJSON = () => {
@@ -318,7 +394,7 @@ export default function TopBar() {
         "",
         ...typedNodes.map((n, i) => {
           const d = n.data as unknown as FlowNodeData;
-          const modeLabel: Record<string, string> = { ai_auto: "AI 自动", human_confirm: "需人工确认", human_manual: "人工操作" };
+          const modeLabel: Record<string, string> = { pending: "待技术选择", ai_auto: "AI 自动", human_confirm: "需人工确认", human_manual: "人工操作" };
           return `### ${i + 1}. ${d.label}\n\n- **描述**：${d.description}\n- **执行模式**：${modeLabel[d.executionMode] || d.executionMode}\n- **预估耗时**：${d.estimatedTime}\n`;
         }),
       );
@@ -415,32 +491,20 @@ export default function TopBar() {
           onClick={() => {
             const next = !showKnowledgePanel;
             setShowKnowledgePanel(next);
-            if (next) setShowAnnotationPanel(false);
           }}
         >
           <BookOpen className="w-3.5 h-3.5 mr-1" /> {knowledgeLabel}
         </Button>
-        {isTech && (
-          <Button
-            size="sm"
-            variant={showAnnotationPanel ? "default" : "outline"}
-            className={`h-8 text-xs relative ${!showAnnotationPanel ? "border-slate-600 text-slate-300 hover:bg-slate-800" : ""}`}
-            onClick={() => {
-              const next = !showAnnotationPanel;
-              setShowAnnotationPanel(next);
-              if (next) setShowKnowledgePanel(false);
-            }}
-          >
-            <MessageSquare className="w-3.5 h-3.5 mr-1" /> 批注
-            {unresolvedAnnotations > 0 && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center">
-                {unresolvedAnnotations}
-              </span>
-            )}
-          </Button>
+        {isTech && unresolvedAnnotations > 0 && (
+          <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-900/30 border border-purple-700/40 text-purple-300 text-xs">
+            <MessageSquare className="w-3 h-3" />
+            {unresolvedAnnotations} 条批注（点击节点查看）
+          </span>
         )}
 
         <div className={`w-px h-6 ${isTech ? "bg-slate-700" : "bg-zinc-200"} mx-1`} />
+
+        <NotificationBell isTech={isTech} />
 
         {/* Export */}
         {hasContent && (
@@ -471,7 +535,7 @@ export default function TopBar() {
 
         {/* Context-aware actions */}
         {canConfirm && (
-          <Button size="sm" className="h-8 text-xs bg-green-600 hover:bg-green-700" onClick={() => setShowConfirmModal(true)}>
+          <Button size="sm" className="h-8 text-xs bg-green-600 hover:bg-green-700" onClick={openConfirmFlow}>
             <FileCheck className="w-3.5 h-3.5 mr-1" /> 确认方案
           </Button>
         )}
@@ -505,6 +569,37 @@ export default function TopBar() {
           </Badge>
         )}
       </div>
+
+      {/* Unanswered reminder */}
+      {showUnansweredReminder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl w-[440px]">
+            <div className="px-5 py-4 border-b border-zinc-100">
+              <h3 className="text-sm font-semibold text-zinc-900">还有待确认信息</h3>
+            </div>
+            <div className="px-5 py-4">
+              <p className="text-sm text-zinc-700">
+                当前还有 <span className="font-semibold text-amber-600">{unansweredCount}</span> 个节点追问未补充，可能影响技术实现准确性。
+              </p>
+            </div>
+            <div className="flex gap-2 px-5 py-4 border-t border-zinc-100">
+              <Button variant="outline" size="sm" className="flex-1 h-9 text-xs" onClick={() => setShowUnansweredReminder(false)}>
+                继续补充
+              </Button>
+              <Button
+                size="sm"
+                className="flex-1 h-9 text-xs bg-green-600 hover:bg-green-700"
+                onClick={() => {
+                  setShowUnansweredReminder(false);
+                  setShowConfirmModal(true);
+                }}
+              >
+                直接确认提交
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Confirm scheme modal */}
       {showConfirmModal && (
@@ -582,6 +677,18 @@ export default function TopBar() {
             </div>
           </div>
         </div>
+      )}
+
+      {showTechProgress && (
+        <TechGenerationProgress
+          visible={showTechProgress}
+          onClose={() => setShowTechProgress(false)}
+          onStayOnPage={() => setShowTechProgress(false)}
+          onGoToList={() => {
+            setShowTechProgress(false);
+            window.location.href = isTech ? "/tech" : "/";
+          }}
+        />
       )}
     </header>
   );

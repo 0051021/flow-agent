@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FlowAgent — 产品全景 v12</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/white.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/monokai.css">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap');
+  :root {
+    --r-background-color: #f8fafc;
+    --r-main-font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --r-heading-font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --r-code-font: 'JetBrains Mono', monospace;
+    --r-main-font-size: 28px;
+    --r-main-color: #1e293b;
+    --r-heading-color: #0f172a;
+    --r-link-color: #4f46e5;
+    --accent: #4f46e5; --accent2: #7c3aed; --accent3: #059669;
+    --accent4: #d97706; --accent5: #db2777;
+    --muted: #64748b; --border: #e2e8f0; --surface: #fff; --surface2: #f1f5f9;
+  }
+  .reveal { font-weight: 400; }
+  .reveal h1,.reveal h2,.reveal h3 { font-weight: 700; letter-spacing: -0.02em; }
+  .reveal h1 { font-size: 2em; }
+  .reveal h2 { font-size: 1.25em; margin-bottom: 0.25em; color: #0f172a; }
+  .reveal h3 { font-size: 0.85em; color: var(--muted); font-weight: 500; }
+  .reveal .slides { text-align: left; }
+  .reveal .slides section { padding: 24px 10px; }
+  .reveal .slides section.center-slide { text-align: center; }
+
+  .title-slide { text-align: center !important; padding-top: 90px !important; }
+  .title-slide h1 { font-size: 2.6em; font-weight: 900; line-height: 1.1; color: #0f172a; }
+  .title-slide .subtitle { font-size: 0.78em; color: var(--muted); margin-top: 0.4em; line-height: 1.7; max-width: 680px; margin-left: auto; margin-right: auto; }
+  .title-slide .version { display: inline-block; background: var(--accent); color: #fff; padding: 3px 14px; border-radius: 20px; font-size: 0.5em; font-weight: 600; margin-top: 0.6em; }
+
+  .section-divider { text-align: center !important; padding-top: 120px !important; position: relative; }
+  .section-divider::before { content:''; position: absolute; inset: 0; background: radial-gradient(ellipse 50% 40% at 50% 50%, rgba(79,70,229,0.06), transparent 70%); pointer-events: none; }
+  .section-divider h2 { color: #fff !important; font-size: 1.7em !important; position: relative; }
+  .section-divider h3 { color: #cbd5e1 !important; font-size: 0.72em !important; max-width: 620px; margin: 0.3em auto 0; line-height: 1.6; position: relative; }
+  .section-divider .section-num { font-size: 5em; font-weight: 900; color: rgba(255,255,255,0.07); position: absolute; top: 16px; right: 36px; }
+
+  .desc { font-size: 0.58em; color: #475569; line-height: 1.7; margin: 6px 0 12px 0; }
+  .desc strong { color: var(--accent); }
+  .desc em { font-style: normal; background: #eef2ff; padding: 1px 5px; border-radius: 3px; color: #4338ca; }
+
+  .callout { background: #fffbeb; border-left: 3px solid #f59e0b; border-radius: 0 6px 6px 0; padding: 8px 12px; margin: 8px 0; font-size: 0.52em; line-height: 1.6; color: #78350f; }
+  .callout.blue { background: #eef2ff; border-color: var(--accent); color: #312e81; }
+  .callout.green { background: #ecfdf5; border-color: var(--accent3); color: #064e3b; }
+  .callout strong { font-weight: 700; }
+
+  .card-row { display: flex; gap: 8px; margin-top: 8px; }
+  .card { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px; min-width: 0; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+  .card h4 { margin: 0 0 3px 0; font-size: 0.62em; font-weight: 700; color: #0f172a; }
+  .card p,.card li { font-size: 0.5em; color: var(--muted); line-height: 1.5; margin: 0; }
+  .card ul { padding-left: 1em; margin: 3px 0 0 0; }
+  .card.blue { border-top: 2px solid var(--accent); }
+  .card.purple { border-top: 2px solid var(--accent2); }
+  .card.green { border-top: 2px solid var(--accent3); }
+  .card.amber { border-top: 2px solid var(--accent4); }
+  .card.pink { border-top: 2px solid var(--accent5); }
+
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 0.46em; font-weight: 600; margin-right: 3px; }
+  .tag-blue { background: #eef2ff; color: #4338ca; }
+  .tag-green { background: #ecfdf5; color: #065f46; }
+  .tag-amber { background: #fffbeb; color: #92400e; }
+  .tag-red { background: #fef2f2; color: #991b1b; }
+  .tag-purple { background: #f5f3ff; color: #6d28d9; }
+
+  .reveal table { font-size: 0.46em; border-collapse: collapse; width: 100%; margin-top: 6px; }
+  .reveal table th { background: var(--surface2); font-weight: 600; text-align: left; padding: 5px 7px; border-bottom: 2px solid var(--border); color: #0f172a; }
+  .reveal table td { padding: 5px 7px; border-bottom: 1px solid var(--border); color: #475569; }
+
+  .reveal pre { font-size: 0.42em; border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); border: 1px solid var(--border); }
+  .reveal pre code { padding: 10px !important; line-height: 1.4; }
+
+  .flow-steps { display: flex; align-items: center; justify-content: center; gap: 0; margin: 10px 0; flex-wrap: wrap; }
+  .flow-step { background: var(--surface); border: 1.5px solid var(--accent); border-radius: 6px; padding: 4px 9px; font-size: 0.46em; font-weight: 600; color: var(--accent); white-space: nowrap; }
+  .flow-step.green { border-color: var(--accent3); color: var(--accent3); }
+  .flow-step.purple { border-color: var(--accent2); color: var(--accent2); }
+  .flow-step.amber { border-color: var(--accent4); color: var(--accent4); }
+  .flow-arrow { font-size: 0.85em; color: #cbd5e1; margin: 0 3px; }
+
+  .stat { text-align: center; }
+  .stat .num { font-size: 1.6em; font-weight: 900; line-height: 1; }
+  .stat .label { font-size: 0.5em; color: var(--muted); margin-top: 2px; }
+
+  .vs { display: flex; gap: 10px; align-items: stretch; margin-top: 8px; }
+  .vs > div { flex: 1; padding: 10px; border-radius: 8px; }
+  .vs .before { background: #fef2f2; border: 1px solid #fecaca; }
+  .vs .after { background: #ecfdf5; border: 1px solid #a7f3d0; }
+  .vs h4 { margin: 0 0 5px 0; font-size: 0.62em; color: #0f172a; }
+  .vs p,.vs li { font-size: 0.5em; line-height: 1.5; color: #475569; }
+  .vs ul { padding-left: 1em; margin: 0; }
+
+  .flywheel { display: flex; align-items: center; justify-content: center; gap: 5px; margin: 10px 0; flex-wrap: wrap; }
+  .flywheel .step { background: var(--accent); color: #fff; padding: 5px 11px; border-radius: 6px; font-size: 0.5em; font-weight: 600; }
+  .flywheel .arrow { font-size: 0.9em; color: #cbd5e1; }
+
+  .timeline { position: relative; padding-left: 22px; margin-top: 8px; }
+  .timeline::before { content:''; position: absolute; left: 5px; top: 0; bottom: 0; width: 2px; background: var(--border); }
+  .timeline .item { position: relative; margin-bottom: 10px; }
+  .timeline .item::before { content:''; position: absolute; left: -20px; top: 3px; width: 8px; height: 8px; border-radius: 50%; border: 2px solid var(--accent); background: #fff; }
+  .timeline .item.active::before { background: var(--accent); }
+  .timeline .item h4 { font-size: 0.58em; margin: 0 0 2px 0; color: #0f172a; }
+  .timeline .item p { font-size: 0.46em; color: var(--muted); margin: 0; }
+  .timeline .item .detail { font-size: 0.44em; color: #64748b; margin-top: 2px; line-height: 1.5; }
+
+  .small { font-size: 0.5em; color: var(--muted); }
+  .smaller { font-size: 0.44em; color: var(--muted); }
+  .reveal .progress { height: 3px; color: var(--accent); }
+  .reveal .controls { color: var(--accent); }
+  .reveal .slide-number { font-size: 11px; color: var(--muted); font-family: var(--r-code-font); }
+  kbd { background: var(--surface2); border: 1px solid var(--border); border-radius: 3px; padding: 1px 4px; font-size: 0.85em; }
+</style>
+</head>
+<body>
+<div class="reveal">
+<div class="slides">
+
+<!-- TITLE -->
+<section class="center-slide title-slide">
+  <h1>FlowAgent</h1>
+  <p class="subtitle">AI 驱动的业务翻译平台 &amp; 企业知识容器<br>让自然语言描述的业务场景被 AI 翻译成结构化的可执行方案蓝图，<br>技术方在同一个平台上直接评审和确认。从"描述"到"方案确认"，从周级缩短到小时级。</p>
+  <div class="version">v12 · 2026-04-20</div>
+  <p class="small" style="margin-top:1.2em;">← → 翻页 &nbsp;|&nbsp; ↑ ↓ 深入子页 &nbsp;|&nbsp; <kbd>O</kbd> 全局导航 &nbsp;|&nbsp; <kbd>F</kbd> 全屏</p>
+</section>
+
+<!-- 01 PROBLEM -->
+<section>
+  <section class="section-divider center-slide" data-background-gradient="linear-gradient(135deg, #0f172a 0%, #1e293b 100%)">
+    <span class="section-num">01</span><h2>问题</h2>
+    <h3>业务人员有想法但说不清楚，技术人员能做但不知道做什么。<br>传统做法需要 1-2 周，信息在每次传递中失真。</h3>
+  </section>
+  <section>
+    <h2>传统需求传递链路</h2>
+    <p class="desc">一个业务需求从产生到被技术方理解，要经过<strong>至少 3 个角色</strong>的转手。每次转手都是一次信息压缩和失真。更糟糕的是，当技术方发现理解有误时，整个链路要重新走一遍。</p>
+    <div class="flow-steps">
+      <div class="flow-step amber">业务方口述</div><span class="flow-arrow">→</span>
+      <div class="flow-step amber">产品经理翻译</div><span class="flow-arrow">→</span>
+      <div class="flow-step amber">写 PRD</div><span class="flow-arrow">→</span>
+      <div class="flow-step amber">技术方评估</div><span class="flow-arrow">→</span>
+      <div class="flow-step amber">反复沟通</div>
+    </div>
+    <div class="card-row">
+      <div class="card" style="text-align:center;"><div class="stat"><div class="num" style="color:var(--accent4);">1-2 周</div><div class="label">从需求到方案确认</div></div></div>
+      <div class="card" style="text-align:center;"><div class="stat"><div class="num" style="color:var(--accent5);">3-5 次</div><div class="label">信息传递轮次</div></div></div>
+      <div class="card" style="text-align:center;"><div class="stat"><div class="num" style="color:#ef4444;">每次失真</div><div class="label">信息在传递中衰减</div></div></div>
+    </div>
+    <div class="callout"><strong>会议金句：</strong>"不要指望业务方直接给 AI 讲明白"——业务方的表达天然是模糊的、非结构化的。问题不在业务方，而在于缺少一个高效的翻译机制。</div>
+  </section>
+  <section>
+    <h2>FlowAgent 的解法</h2>
+    <p class="desc">FlowAgent 把中间的<strong>信息传递成本和格式转换成本</strong>压缩到接近零。AI 不改变工作本身，只是让业务方和技术方在同一个平台上、对着同一个可视化方案对话，消除了"传话"环节。</p>
+    <div class="flow-steps">
+      <div class="flow-step green">业务方口述</div><span class="flow-arrow">→</span>
+      <div class="flow-step">AI 翻译</div><span class="flow-arrow">→</span>
+      <div class="flow-step green">即时评审确认</div>
+    </div>
+    <div class="card-row">
+      <div class="card green" style="text-align:center;"><div class="stat"><div class="num" style="color:var(--accent3);">数小时</div><div class="label">从需求到方案确认</div></div></div>
+      <div class="card blue" style="text-align:center;"><div class="stat"><div class="num" style="color:var(--accent);">1 个平台</div><div class="label">业务方+技术方同屏协作</div></div></div>
+      <div class="card purple" style="text-align:center;"><div class="stat"><div class="num" style="color:var(--accent2);">0 失真</div><div class="label">原始描述→结构化方案</div></div></div>
+    </div>
+    <div class="callout green"><strong>核心价值：</strong>FlowAgent 的核心价值不是"替代产品经理"，而是<strong>压缩从需求到可执行方案的时间</strong>。</div>
+  </section>
+</section>
+
+<!-- 02 WHAT IS -->
+<section>
+  <section class="section-divider center-slide" data-background-gradient="linear-gradient(135deg, #0f172a 0%, #1e293b 100%)">
+    <span class="section-num">02</span><h2>FlowAgent 是什么</h2>
+    <h3>双重身份：工具 + 知识容器。工具解决效率，知识解决质量，效率+质量构成飞轮。</h3>
+  </section>
+  <section>
+    <h2>产品的双重身份</h2>
+    <p class="desc">FlowAgent 不只是一个"AI 生成流程图"的工具。每一次使用都在自然产生结构化的业务知识——企业私有的、经过技术验证的决策记录。<strong>竞品可以抄 UI，但抄不走积累的知识。</strong></p>
+    <div class="card-row">
+      <div class="card blue"><h4>🔧 工具身份</h4><p>帮人更快地把业务需求翻译成技术方案。<strong>压缩时间，不是替代人。</strong>AI 给出 80% 的草稿，技术方修正 20%。</p></div>
+      <div class="card purple"><h4>🧠 容器身份</h4><p>每一次翻译-确认的过程，都在沉淀企业私有的业务知识。用得越多→知识越丰富→AI 越准→审核越轻松→用得更多。</p></div>
+    </div>
+    <div class="callout blue"><strong>从"工具"到"平台"的关键：</strong>当知识积累到一定量级，FlowAgent 从"帮技术方设计方案"进化为"帮业务方自助生成方案"——因为 AI 已经学会了这个企业的做事方式。</div>
+  </section>
+  <section>
+    <h2>三个平台，各司其职</h2>
+    <p class="desc">FlowAgent 生态由三个独立但深度集成的产品组成。<strong>FlowAgent 定义"做什么"，Skill 平台定义"用什么做"，执行引擎负责"怎么做"。</strong></p>
+    <div class="card-row">
+      <div class="card blue"><h4>FlowAgent（业务翻译工具）</h4><p>核心产品。自然语言→结构化方案，流程图编辑器，人机分工标注，知识工作台。<strong>当前全部开发精力在这里。</strong></p></div>
+      <div class="card green"><h4>管控后台（治理控制塔）</h4><p>Agent 运行时的<strong>上帝视角</strong>：观察全局、被动审批、主动干预、因果归因。不只是"看 Agent 跑得怎样"，而是"在关键时刻改变运行条件并观察结果"。</p></div>
+      <div class="card purple"><h4>Skill 平台（能力基础设施）</h4><p>原子能力的注册、管理、复用。<strong>Skill 标准化程度决定自动化程度</strong>——从阶段二到阶段三的关键跳板。</p></div>
+    </div>
+  </section>
+  <section>
+    <h2>当前阶段：技术方的方案设计工具</h2>
+    <p class="desc">FlowAgent 当前处于<strong>阶段一</strong>，核心用户是技术方。AI 生成的方案不保证正确，业务方缺乏判断能力，但技术方知道哪些步骤不通、哪些工具接不上。</p>
+    <table>
+      <tr><th>时机</th><th>场景</th><th>角色</th></tr>
+      <tr><td>第一次沟通中</td><td>业务方描述需求，技术方当场生成初版方案</td><td><span class="tag tag-blue">沟通工具</span></td></tr>
+      <tr><td>两次沟通之间</td><td>技术方回去细化方案，发现新问题记下来</td><td><span class="tag tag-purple">工作台</span></td></tr>
+      <tr><td>第二次沟通前</td><td>带着修改后的方案确认剩余问题</td><td><span class="tag tag-green">协作载体</span></td></tr>
+    </table>
+    <div class="callout"><strong>核心交互模型：方案是草稿，迭代完成。</strong>confirm 是最后一步，在此之前方案永远是草稿。</div>
+  </section>
+</section>
+
+<!-- 03 PRINCIPLES -->
+<section>
+  <section class="section-divider center-slide" data-background-gradient="linear-gradient(135deg, #0f172a 0%, #1e293b 100%)">
+    <span class="section-num">03</span><h2>设计原则</h2>
+    <h3>来源于学术研究验证与产品实践反馈。不是"我们觉得应该这样"，而是"研究证明了这样更好"。</h3>
+  </section>
+  <section>
+    <h2>增强而非替代 + 数据安全</h2>
+    <p class="desc">CMU/Stanford 2025：AI 增强模式效率提升 24.3%，AI 自动化模式效率<em>下降</em> 17.7%。纯自动化方案下 AI 产出质量比人低 32-50%。</p>
+    <div class="card-row">
+      <div class="card green" style="text-align:center;"><div class="stat"><div class="num" style="color:var(--accent3);">+24.3%</div><div class="label">AI 增强模式效率提升</div></div></div>
+      <div class="card" style="text-align:center;border-top:2px solid #ef4444;"><div class="stat"><div class="num" style="color:#ef4444;">-17.7%</div><div class="label">AI 自动化模式效率下降</div></div></div>
+      <div class="card blue"><h4>数据安全（v10 新增）</h4><p>数据隔离 · 最小暴露 · 用户可控 · LLM 调用安全 · 审计可追溯 · 生命周期管理。Demo 阶段文件不离开浏览器。</p></div>
+    </div>
+    <div class="callout blue"><strong>方案必须体现人机分工：</strong>不允许生成"全自动化"方案。AI 做数据处理/内容初稿，人做质量判断/方向决策/审美把控。典型 6 节点方案应有 2-3 个人工确认节点。</div>
+  </section>
+</section>
+
+<!-- 04 CORE -->
+<section>
+  <section class="section-divider center-slide" data-background-gradient="linear-gradient(135deg, #0f172a 0%, #1e293b 100%)">
+    <span class="section-num">04</span><h2>核心能力</h2>
+    <h3>AI 翻译 · 可行性 Gate · 人机协作模型 · 治理框架 · 阶段制方案 · 三层评估<br>v12 新增：Routing+Gate 模式 · Human in/on the loop · 运行时干预 · 多层治理体系</h3>
+  </section>
+  <section>
+    <h2>AI 业务翻译 — 完整流程 (v12)</h2>
+    <p class="desc">参考 Anthropic Agent 设计模式：<strong>Routing（分类）→ Gate（可行性判断）→ Generation（方案生成）→ Gate（confidence 检查）→ Confirmation（确认）</strong>。v12 关键新增：在方案生成之前加入可行性评估——AI 先判断"做还是不做、做到什么程度"，而非直接给出怎么做。</p>
+    <div class="flow-steps">
+      <div class="flow-step">输入需求</div><span class="flow-arrow">→</span>
+      <div class="flow-step amber">澄清?</div><span class="flow-arrow">→</span>
+      <div class="flow-step" style="border-color:#059669;color:#059669;">分类</div><span class="flow-arrow">→</span>
+      <div class="flow-step purple">可行性 Gate</div><span class="flow-arrow">→</span>
+      <div class="flow-step">生成方案</div><span class="flow-arrow">→</span>
+      <div class="flow-step amber">标记 Gate</div><span class="flow-arrow">→</span>
+      <div class="flow-step green">确认</div>
+    </div>
+    <div class="card-row">
+      <div class="card amber"><h4>1. 需求澄清</h4><p>模糊时弹出澄清卡片。AI 先展示理解，再问 1-3 个关键问题。可跳过。</p></div>
+      <div class="card green"><h4>2. Routing 分类</h4><p>自动判断 Workflow / Agentic。<strong>先判断"是什么"，再决定走哪条路。</strong></p></div>
+      <div class="card purple"><h4>3. 可行性 Gate <span class="tag tag-purple">v12</span></h4><p><strong>先判断"做不做"，再决定"怎么做"。</strong>评估自动化 ROI、数据/系统条件、建议自动化程度。</p></div>
+      <div class="card blue"><h4>4. 生成 + 标记 + 确认</h4><p>生成方案→直接展示→confidence 标记→自由编辑→diff 摘要确认。</p></div>
+    </div>
+  </section>
+  <section>
+    <h2>可行性 Gate：先判断"做不做" (v12)</h2>
+    <p class="desc">来自 Anthropic 的 Agent 设计原则：<strong>不是用户说什么 AI 就做什么，而是 AI 先判断这件事应不应该做、应该做到什么程度</strong>。一个真正靠谱的助手会先告诉你"这件事该不该做"。这嵌入在生成前的评估中，不是单独的拦截步骤。</p>
+    <div class="card-row">
+      <div class="card green">
+        <h4>✅ 适合自动化</h4>
+        <p style="font-size:0.46em;">"此场景适合自动化，预计可节省 70% 人工操作。已生成完整方案。"</p>
+        <p style="font-size:0.42em;color:var(--muted);margin-top:3px;">→ 正常进入方案生成</p>
+      </div>
+      <div class="card amber">
+        <h4>⚠️ 部分适合</h4>
+        <p style="font-size:0.46em;">"建议仅自动化数据采集+校验环节，申报提交因涉及海关系统无 API 接口，建议保持人工操作。"</p>
+        <p style="font-size:0.42em;color:var(--muted);margin-top:3px;">→ 生成部分自动化方案 + 标注人工环节的原因</p>
+      </div>
+      <div class="card" style="border-top:2px solid #ef4444;">
+        <h4>❌ 不适合</h4>
+        <p style="font-size:0.46em;">"该审批流程涉及法律签章，监管要求 100% 人工操作，自动化 ROI 为负。建议用模板+提醒代替。"</p>
+        <p style="font-size:0.42em;color:var(--muted);margin-top:3px;">→ 不生成方案，给出替代建议</p>
+      </div>
+    </div>
+    <table>
+      <tr><th>评估维度</th><th>AI 判断什么</th><th>举例</th></tr>
+      <tr><td>自动化 ROI</td><td>搭建成本 vs 节省成本，值不值得做</td><td>"该流程月均执行 3 次，自动化投入不划算"</td></tr>
+      <tr><td>系统/数据条件</td><td>有没有 API 接口、数据源是否可用</td><td>"ERP 系统无开放 API，无法自动拉取数据"</td></tr>
+      <tr><td>合规约束</td><td>监管是否允许自动化</td><td>"金融审批法规要求人工签字，不可自动化"</td></tr>
+      <tr><td>自动化程度</td><td>全流程还是部分环节</td><td>"前 3 步可自动化，第 4 步需人工判断"</td></tr>
+    </table>
+    <div class="callout blue"><strong>设计原则：</strong>可行性评估不拦截用户。结论嵌入生成结果的顶部，用户一眼看到"AI 觉得这个场景适合到什么程度"。如果 AI 建议"不适合"，用户仍可以选择继续生成——<strong>AI 给判断，人做决策</strong>。这本身就是"增强而非替代"的最佳体现。</div>
+  </section>
+  <section>
+    <h2>Workflow 演示</h2>
+    <p class="desc">从业务描述到结构化流程图的完整过程：AI 自动分类 → 生成节点与连线 → 标注人机分工 → 节点详情编辑。</p>
+    <video controls style="width:100%;max-height:460px;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.12);margin-top:8px;">
+      <source src="workflow-demo.mov" type="video/quicktime">
+      <source src="workflow-demo.mp4" type="video/mp4">
+      您的浏览器不支持视频播放
+    </video>
+    <p class="smaller" style="margin-top:6px;">提示：如视频无法播放，请使用 Safari 打开本文件</p>
+  </section>
+  <section>
+    <h2>两步生成：业务先行，技术跟进 (v11)</h2>
+    <p class="desc">v11 核心架构变化：<strong>无论 Workflow 还是 Agentic，AI 都分两步生成</strong>。第一步只生成业务方看得懂的内容，业务确认后再自动生成技术配置。这解决了"业务方被技术细节吓到"和"技术方在业务没定之前做无用功"两个问题。</p>
+    <div class="card-row">
+      <div class="card blue">
+        <h4>第一步：业务侧生成</h4>
+        <p><strong>Workflow：</strong>节点名称、描述、人机分工、输入输出、连接关系<br><strong>Agentic：</strong>阶段时间线、行动、成功标准、审批点</p>
+        <p style="margin-top:4px;font-size:0.45em;color:var(--accent);">业务方审查、编辑、确认</p>
+      </div>
+      <div class="card purple">
+        <h4>第二步：技术侧自动生成</h4>
+        <p><strong>Workflow：</strong>执行类型、执行规则、异常处理、Skill 绑定、数据类型<br><strong>Agentic：</strong>Skill 编排、决策循环、上下文架构、调度策略</p>
+        <p style="margin-top:4px;font-size:0.45em;color:var(--accent2);">业务确认后自动触发，技术方审查调整</p>
+      </div>
+    </div>
+    <div class="flow-steps" style="margin-top:10px;">
+      <div class="flow-step">用户描述</div><span class="flow-arrow">→</span>
+      <div class="flow-step">AI 生成业务方案</div><span class="flow-arrow">→</span>
+      <div class="flow-step green">业务确认</div><span class="flow-arrow">→</span>
+      <div class="flow-step purple">AI 自动生成技术配置</div><span class="flow-arrow">→</span>
+      <div class="flow-step green">技术评审</div>
+    </div>
+    <div class="callout blue"><strong>为什么不一次性生成？</strong>①业务方看到技术细节会困惑 ②技术配置依赖业务方案定稿，业务没确认前生成技术配置是浪费 ③分两步让 AI 每步的上下文更聚焦，生成质量更高。</div>
+  </section>
+  <section>
+    <h2>为什么分 Workflow 和 Agentic？</h2>
+    <p class="desc">核心认知：<strong>人类做任何任务都有结构</strong>——即使是"做小红书运营"这种开放目标，人类也会先定大步骤（调研→策略→执行→复盘→调整），然后在每步内灵活发挥。所谓"Agentic 任务"不是"没有步骤"，而是<strong>"步骤不是预先固定的，每一步的选择取决于上一步的结果"</strong>。</p>
+    <div class="card-row">
+      <div class="card blue">
+        <h4>Workflow — 追求每步准确</h4>
+        <p>步骤明确，输入输出确定。<strong>失败模式：某一步错→后面全错。</strong>所以需要逐节点确认。人工介入是节点级的。</p>
+        <p style="margin-top:3px;"><em>报关、报销、审批——SOP 明确，步骤不会因为跑了 10 次就需要改</em></p>
+      </div>
+      <div class="card purple">
+        <h4>Agentic — 追求目标达成</h4>
+        <p>有目标但路径不固定。<strong>失败模式：可能走弯路但最终可能达到。</strong>所以需要阶段级确认。人工介入是里程碑级的。</p>
+        <p style="margin-top:3px;"><em>运营、分析、招聘——天然需要迭代，方案本身预期会根据执行结果进化</em></p>
+      </div>
+    </div>
+    <div class="callout"><strong>为什么混合型不再是第三种类型？</strong>大部分真实业务都是"部分步骤确定、部分步骤自主"。与其强行分类，不如让 Agentic 天然包含确定性步骤——在阶段制方案中，有些阶段行动是确定的，有些是 Agent 自主的。</div>
+  </section>
+  <section>
+    <h2>Workflow：节点级的精确控制</h2>
+    <p class="desc">Workflow 方案的核心是<strong>每个节点都有明确的输入/输出/执行方式</strong>。但"精确"不等于"死板"——v11 新增了执行规则和确认策略，让节点从"布尔式确认"进化为"智能介入"。</p>
+    <div class="card-row">
+      <div class="card blue"><h4>执行规则（v11 已实现）</h4><p>每个节点 0-3 条策略性规则，和 description 分离。description 说"做什么"，executionRules 说"怎么做"。<br><em>例："文件名容错：支持 .xlsx/.csv/.xls 三种格式"</em></p></div>
+      <div class="card purple"><h4>确认策略（v11 已实现）</h4><p>人工确认不是布尔值（要/不要），而是一个<strong>策略</strong>。5 种策略：always / threshold / sampling / rule_based / combined。<br><em>例：置信度&lt;95% 或 VIP 客户 或 5%抽检 → 确认</em></p></div>
+    </div>
+    <div class="callout blue"><strong>为什么需要确认策略？</strong>如果每一份报关单的每个字段都要人工确认，AI 自动化就没有意义。策略有生命周期：初始部署期 always → 稳定期 threshold+sampling → 成熟期仅 rule_based+抽检。<strong>随着 AI 准确率提升，系统自动建议降低确认频率。</strong></div>
+  </section>
+  <section>
+    <h2>Agentic：从配置表到阶段制的三次进化</h2>
+    <p class="desc">Agentic 方案经历了三次重设计，每次都是因为<strong>上一版"用户看不懂"或"无法判断方案跑起来会怎样"</strong>。</p>
+    <div class="card-row">
+      <div class="card" style="border-top:2px solid #ef4444;"><h4>v1 配置表（4 个 Tab）</h4><p>目标/技能/约束/评估器。<strong>问题：</strong>业务方完全看不懂"技能配置"和"评估器指标权重"。技术方也难以判断"这个配置跑起来会怎样"。</p></div>
+      <div class="card amber"><h4>v9 策略卡片</h4><p>目标+简化流程图+约束+成功标准。<strong>改善：</strong>业务方能看懂了。<strong>但：</strong>流程图太抽象，缺少时间维度和阶段感。</p></div>
+      <div class="card green"><h4>v3/v11 阶段制（当前）</h4><p>多阶段时间线+三档评判+审批点。<strong>解决：</strong>业务方能看到"第几天做什么、什么算好什么算差"。技术方看 Agent 运行架构。</p></div>
+    </div>
+    <div class="callout green"><strong>核心洞察：</strong>Agentic 任务的确认不是"这步对不对"（Workflow 式），而是<strong>"方向对不对"</strong>。所以确认触发条件完全不同：milestone（阶段完成）、drift_detect（行为偏离）、budget_gate（预算阈值）、time_gate（定期复盘）、anomaly（异常指标）。</div>
+  </section>
+  <section>
+    <h2>阶段制方案：业务方和技术方看到不同的东西</h2>
+    <p class="desc">同一份方案，<strong>业务方看"做什么、怎么判断好坏"，技术方看"Agent 怎么运行"</strong>。这是因为两个角色的审查维度完全不同——业务方关心"我要不要给 Agent 花钱的能力"，技术方关心"Skill 的 schema 和质量够不够"。</p>
+    <div class="card-row">
+      <div class="card blue" style="flex:1.3;">
+        <h4 style="font-size:0.55em;">📋 示例：小红书运营（4 阶段 · 90 天）</h4>
+        <p style="font-size:0.46em;margin-top:4px;"><span class="tag tag-green">1-7天</span> <strong>冷启动</strong> 每天1条测评，测试标题风格，收集基线</p>
+        <p style="font-size:0.46em;"><span class="tag tag-blue">8-21天</span> <strong>策略验证</strong> 每天2条，A/B测试发布时间 <span class="tag tag-amber">需审批</span></p>
+        <p style="font-size:0.46em;"><span class="tag tag-purple">22-60天</span> <strong>规模化产出</strong> 每日3条，评论互动，每周复盘</p>
+        <p style="font-size:0.46em;"><span class="tag tag-red">61-90天</span> <strong>增长冲刺</strong> 热点追踪+合作互推 <span class="tag tag-amber">需审批</span></p>
+        <p style="font-size:0.42em;margin-top:4px;color:var(--muted);">每阶段含三档评判：✅好/⚠️警告/❌差+对策 | 退出条件 | 追问</p>
+      </div>
+      <div style="flex:1;">
+        <div class="card"><h4>业务方看到的</h4><p>阶段时间线 · 目标指标(KPI+推理依据) · 执行规则 · 权限边界(哪些事 Agent 能自主决定) · 汇报机制(日报/周报示例) · 内容示例 · 风险评估</p></div>
+        <div class="card" style="margin-top:6px;"><h4>技术方看到的</h4><p>决策循环(OODA：观察→评估→行动→反馈) · Skill 编排(依赖链路/并行分组/失败策略) · 上下文架构(短期/长期/外部) · 触发器与调度</p></div>
+      </div>
+    </div>
+  </section>
+  <section>
+    <h2>Workflow vs Agentic：驳回语义不同</h2>
+    <p class="desc">驳回不是简单的"拒绝"。<strong>Workflow 的"退回上一步"是线性回退</strong>（因为步骤独立），<strong>Agentic 的"重新规划"是策略级回退</strong>（因为步骤之间有策略依赖，局部退回没有意义）。这个区别决定了两种方案的确认 UI 必须不同。</p>
+    <div class="vs">
+      <div class="before"><h4>Workflow 驳回</h4><ul><li><strong>修正继续</strong> — 改当前步骤结果，继续</li><li><strong>退回上一步</strong> — 线性回退重新执行</li><li><strong>人工接管</strong> — 整个节点转人工</li></ul></div>
+      <div class="after"><h4>Agentic 驳回</h4><ul><li><strong>修正继续</strong> — 局部修正，继续当前策略</li><li><strong>重新规划</strong> — 回到决策点，重新选择策略</li><li><strong>人工接管</strong> — Agent 暂停，人工处理</li></ul></div>
+    </div>
+  </section>
+  <section>
+    <h2>人机协作模型：in / on / off the loop</h2>
+    <p class="desc">企业 AI 产品的核心问题不是"AI 能不能做"，而是<strong>"人应该站在哪里"</strong>。业界有三种经典模式，FlowAgent 的 Workflow 和 Agentic 分别对应前两种。第三种在当前技术条件下不可行。</p>
+    <div class="card-row">
+      <div class="card blue">
+        <h4>Human in the loop</h4>
+        <p>人在流程<strong>里面</strong>，关键步骤必须经过人。</p>
+        <p style="margin-top:3px;font-size:0.45em;color:var(--accent);">→ <strong>Workflow 模式</strong></p>
+        <p style="font-size:0.44em;">逐节点验收、白盒可审计、每一步有据可查。<br><em>报关单证解析 → [人确认] → 合规校验 → [人确认] → 海关申报</em></p>
+      </div>
+      <div class="card purple">
+        <h4>Human on the loop</h4>
+        <p>人在流程<strong>上方</strong>监督，正常时不介入，异常时拉回来。</p>
+        <p style="margin-top:3px;font-size:0.45em;color:var(--accent2);">→ <strong>Agentic 模式</strong></p>
+        <p style="font-size:0.44em;">阶段审批、异常告警、兜底机制、主动干预。人始终可以接管。<br><em>Agent 自主运营 → 人看数据 → 发现潜力账号 → 追加预算</em></p>
+      </div>
+      <div class="card" style="border-top:2px solid #ef4444;">
+        <h4>Human off the loop</h4>
+        <p>人完全不在，全自动运行。</p>
+        <p style="margin-top:3px;font-size:0.45em;color:#ef4444;">→ <strong>当前不可行</strong></p>
+        <p style="font-size:0.44em;">AI 单步准确率 85-90%，5 步串联成功率仅 59%。企业场景出错代价高，"出了事谁负责"没有答案。</p>
+      </div>
+    </div>
+    <div class="callout blue"><strong>核心洞察：</strong>人的存在不是瓶颈，是合规要求。解法不是把人移走，而是把人从 in the loop 的每一步移到 on the loop 的关键点——<strong>释放带宽但不丢责任</strong>。确认策略的演进路径（always → threshold → sampling → rule_based）就是从 in 向 on 逐步迁移。</div>
+  </section>
+  <section>
+    <h2>人造大自然 — 产品的治理框架 (v12)</h2>
+    <p class="desc">FlowAgent 不是一个"工具"，而是一套<strong>治理体系</strong>。类比：FlowAgent 造世界（定义规则），Agent 是生态系统在自行运转，管控后台是上帝视角——<strong>观察全局，克制干预，归因结果</strong>。</p>
+    <div class="card-row">
+      <div class="card blue"><h4>🌍 FlowAgent — 造世界</h4><p><strong>设计时（Design-time）</strong><br>定义规则、画蓝图、设约束。产出物是"这个世界的宪法"——方案蓝图。经过审核的规则不允许热修改。</p></div>
+      <div class="card green"><h4>⚡ 执行引擎 — 世界运转</h4><p><strong>运行时（Run-time）</strong><br>Agent 按方案蓝图自主执行。像生态系统一样自行演化——采集、创作、发布、复盘、调整策略。</p></div>
+      <div class="card purple"><h4>👁 管控后台 — 上帝视角</h4><p><strong>治理时（Govern-time）</strong><br>观察全局 + 有能力干预但克制使用。不是在循环里推齿轮，是在上面看整个系统运行，偶尔拨一下参数。</p></div>
+    </div>
+    <div class="flow-steps" style="margin-top:10px;">
+      <div class="flow-step">造世界</div><span class="flow-arrow">→</span>
+      <div class="flow-step green">世界运转</div><span class="flow-arrow">→</span>
+      <div class="flow-step purple">观察</div><span class="flow-arrow">→</span>
+      <div class="flow-step amber">干预?</div><span class="flow-arrow">→</span>
+      <div class="flow-step green">Agent 响应</div><span class="flow-arrow">→</span>
+      <div class="flow-step purple">归因</div>
+    </div>
+    <div class="callout"><strong>"干预"和"改方案"是两件事：</strong>干预改运行时参数（"预算 5000→10000"），不改规则本身。方案是经过审核的"宪法"，干预是宪法框架内的"行政命令"。要改规则本身，回 FlowAgent 走版本控制。</div>
+  </section>
+  <section>
+    <h2>三种人类介入方式 (v12)</h2>
+    <p class="desc">Agent 运行时，人类有三种本质不同的介入方式。前两种在方案设计阶段就预设好了，第三种是人基于观察主动发起的。</p>
+    <div class="card-row">
+      <div class="card blue">
+        <h4>① Approval（审批）</h4>
+        <p><strong>Agent 请求人确认，人说 Yes/No</strong></p>
+        <p style="font-size:0.44em;margin-top:3px;">"这篇内容可以发吗？" → "可以"<br>被动 · 节点级 · 不改变环境<br><span class="tag tag-blue">设计时预设</span></p>
+      </div>
+      <div class="card amber">
+        <h4>② Fallback（兜底）</h4>
+        <p><strong>系统检测到异常，拉人回来</strong></p>
+        <p style="font-size:0.44em;margin-top:3px;">"连续3天涨粉不足" → 人决定怎么办<br>被动 · 异常驱动 · 可能改变策略<br><span class="tag tag-amber">设计时预设</span></p>
+      </div>
+      <div class="card purple">
+        <h4>③ Intervention（干预）<span class="tag tag-purple" style="margin-left:4px;">v12 新增</span></h4>
+        <p><strong>人基于观察，主动注入新条件</strong></p>
+        <p style="font-size:0.44em;margin-top:3px;">"这个账号潜力大，追加 5 万预算"<br>主动 · 参数级 · 改变运行环境<br><span class="tag tag-purple">运行时发起</span></p>
+      </div>
+    </div>
+    <div class="callout green"><strong>Intervention 的完整链路：</strong>①感知（Agent 收到事件）→ ②评估影响（"预算翻倍意味着什么"）→ ③生成调整方案（不是直接改，是提出方案）→ ④权限判断（是否需要再确认）→ ⑤执行调整 → ⑥复盘归因（"干预后涨粉 +2200，占 73%"）。</div>
+  </section>
+  <section>
+    <h2>多层治理：不止一个"上帝" (v12)</h2>
+    <p class="desc">企业不是扁平的。不同层级的人看到的视图不同，能干预的范围也不同。<strong>Agent 运行在一个有组织层级、有权力结构的企业环境里</strong>——这是纯 Agentic 框架（CrewAI、LangGraph）没有建模的维度。</p>
+    <div class="card-row" style="gap:6px;">
+      <div class="card" style="border-top:2px solid #ef4444;flex:1;"><h4 style="font-size:0.56em;">VP / 老板</h4><p style="font-size:0.44em;">看：整体 ROI、战略方向<br>能改：目标、大额预算、优先级<br>能停：整个项目</p></div>
+      <div class="card purple" style="flex:1;"><h4 style="font-size:0.56em;">部门主管</h4><p style="font-size:0.44em;">看：阶段进展、资源效率<br>能改：约束、阶段策略、追加资源<br>能停：本部门 Agent</p></div>
+      <div class="card blue" style="flex:1;"><h4 style="font-size:0.56em;">运营 / 业务方</h4><p style="font-size:0.44em;">看：每日执行、内容质量<br>能做：审批内容、微调参数<br>能停：紧急暂停（舆情风险）</p></div>
+      <div class="card green" style="flex:1;"><h4 style="font-size:0.56em;">Agent</h4><p style="font-size:0.44em;">在规则内自主执行<br>感知干预并重新规划<br>标记"因干预导致的变更"</p></div>
+    </div>
+    <div class="callout blue"><strong>权限不只是"谁能看什么"，还包括"谁能在运行时改什么"。</strong>静态权限（管控后台角色）+ 动态干预权限（方案中标注的可干预性）= 完整的治理模型。</div>
+  </section>
+  <section>
+    <h2>三层改造：干预穿透整个产品栈 (v12)</h2>
+    <p class="desc">干预不是"只改管控后台就行"——一个 VP 说"追加预算"，要从设计层穿透到执行层再回到治理层，<strong>涉及三个产品的联动</strong>。</p>
+    <div class="card-row">
+      <div class="card blue">
+        <h4>FlowAgent（设计时）</h4>
+        <p><strong>新增：约束的"可干预性"标注</strong></p>
+        <ul style="font-size:0.44em;">
+          <li>每个约束/参数标记：可干预 ✅ / 红线不可改 ❌</li>
+          <li>干预范围上下限（预算 0~50000）</li>
+          <li>最低权限要求（部门主管 / VP）</li>
+        </ul>
+        <p style="font-size:0.42em;color:var(--muted);margin-top:3px;">技术方审核哪些参数允许运行时干预，红线约束在设计时锁死</p>
+      </div>
+      <div class="card green">
+        <h4>执行引擎（运行时）</h4>
+        <p><strong>新增：运行时事件注入 + 重规划</strong></p>
+        <ul style="font-size:0.44em;">
+          <li>接收 Intervention 事件</li>
+          <li>校验干预是否在允许范围内</li>
+          <li>注入 Agent context，触发重规划</li>
+          <li>标记"因干预导致的策略变更"</li>
+        </ul>
+      </div>
+      <div class="card purple">
+        <h4>管控后台（治理时）</h4>
+        <p><strong>新增：干预面板 + 归因分析</strong></p>
+        <ul style="font-size:0.44em;">
+          <li>只展示当前方案允许干预的参数</li>
+          <li>权限校验（对照方案定义）</li>
+          <li>干预记录（谁/何时/改了什么/为什么）</li>
+          <li>复盘归因（干预前 vs 干预后）</li>
+        </ul>
+      </div>
+    </div>
+    <div class="callout"><strong>类比：</strong>FlowAgent 定义"哪些物理常数可以调"，执行引擎负责"上帝拨了一下后世界怎么响应"，管控后台是"上帝的控制台"。三层联动，缺一不可。</div>
+  </section>
+  <section>
+    <h2>三层评估体系 — 为什么需要三层？</h2>
+    <p class="desc">一个问题：Agent 跑完了，怎么知道"做得好不好"？如果只看最终目标（粉丝涨了没），出了问题不知道哪步出的。如果只看每步工具输出，不知道整体方向对不对。<strong>所以需要三层：工具→步骤→目标，从下往上汇总，从上往下定位。</strong></p>
+    <div class="card-row">
+      <div class="card blue"><h4>第一层：工具级</h4><p>"这个工具跑成功了吗"<br>纯代码逻辑，不需要 LLM。检查输出格式/完整性/质量。<br><em>例：采集50条数据，3条时间字段为空</em></p></div>
+      <div class="card purple"><h4>第二层：步骤级</h4><p>"这步的结果质量行不行"<br>LLM 从用户约束中<strong>自动推导</strong>评估标准，用户只需审查。<br><em>例：内容符合"活泼年轻化"调性吗？</em></p></div>
+      <div class="card green"><h4>第三层：目标级</h4><p>"整体目标达成了吗"<br>用户只需说"什么算成功"，AI 自动转化为结构化指标。<br><em>例：粉丝增长(0.4)+互动率(0.4)+合规率(0.2)</em></p></div>
+    </div>
+    <div class="callout blue"><strong>对用户来说，评估器就是"成功标准"。</strong>策略卡片中只展示通俗的成功标准，技术方展开后能看到完整的三层评估配置。用户不需要理解"评估器"这个概念。</div>
+  </section>
+  <section>
+    <h2>v6 核心变化：从"强制拦截"到"标记提醒"</h2>
+    <p class="desc">之前 AI 生成后强制弹出反问卡片，用户必须逐个回答才能看流程图。<strong>三个问题</strong>：缺乏掌控感（没看全局就被迫答细节）、重复劳动（反问和画布编辑做同一件事）、不尊重专业判断（技术方看一眼就知道怎么改）。</p>
+    <div class="vs">
+      <div class="before"><h4>❌ 之前 (v3/v4)</h4><ul><li>生成后<strong>强制弹出反问卡片</strong></li><li>必须逐个回答/跳过才能看流程图</li><li>缺乏掌控感、重复劳动</li></ul></div>
+      <div class="after"><h4>✅ 之后 (v6 已实现)</h4><ul><li>生成后<strong>直接展示流程图</strong></li><li>不确定节点黄/红标记 + 摘要</li><li>用户自由选择处理方式</li><li>确认时安全检查兜底</li></ul></div>
+    </div>
+    <div class="callout"><strong>反问真正有价值的场景：</strong>AI 不确定该用什么工具、不确定是否需要人工确认、不确定数据从哪来——这些用户在流程图上看不出来。已经有把握的节点细节？让用户自己在画布上看就行。</div>
+  </section>
+</section>
+
+<!-- 05 KNOWLEDGE -->
+<section>
+  <section class="section-divider center-slide" data-background-gradient="linear-gradient(135deg, #0f172a 0%, #1e293b 100%)">
+    <span class="section-num">05</span><h2>知识容器 &amp; 工作台</h2>
+    <h3>FlowAgent 的工具能力可以被替代，但沉淀在里面的企业私有知识无法被替代。<br>知识工作台让数据验证在平台内完成，不断裂。</h3>
+  </section>
+  <section>
+    <h2>自进化机制 — 越用越准 (v6)</h2>
+    <p class="desc">类比员工经验积累：新员工做 50 次才能形成的经验，FlowAgent 压缩到 5 次。核心是三层进化——从记住错误，到归纳规则，到主动质疑。<strong>这是 to B 产品的核心护城河。</strong></p>
+    <div class="card-row">
+      <div class="card blue"><h4>第一层：记忆</h4><p>记录 AI 初版 vs 用户终版的 Diff。下次不犯同样的错。实现：修正后方案作为 few-shot。</p></div>
+      <div class="card purple"><h4>第二层：归纳</h4><p>从多次修正中提炼通用规则。"涉及客户沟通的步骤默认人工"。LLM 定期归纳。</p></div>
+      <div class="card green"><h4>第三层：判断</h4><p>初期标记多→中期只标关键的→后期主动质疑："根据过往案例，这步需要审批"。</p></div>
+    </div>
+    <div class="flywheel" style="margin-top:8px;">
+      <div class="step">用户使用</div><div class="arrow">→</div>
+      <div class="step">数据沉淀</div><div class="arrow">→</div>
+      <div class="step">知识提炼</div><div class="arrow">→</div>
+      <div class="step">生成增强</div><div class="arrow">→</div>
+      <div class="step">更好的方案</div><div class="arrow">↩</div>
+    </div>
+  </section>
+  <section>
+    <h2>知识工作台 (v10 新增)</h2>
+    <p class="desc">方案设计依赖真实数据和规则，但业务方给的规则往往是理想化的。<strong>知识工作台让数据验证在平台内完成</strong>：上传文件→描述分析需求→AI 生成代码并执行→结果直接应用到方案。技术方可查看/修改代码（Cursor 式掌控感），业务方只看结果。</p>
+    <div class="card-row">
+      <div class="card blue"><h4>核心能力</h4><p>文件管理（通用/方案专属） · AI 代码生成 · 沙箱执行（Pyodide/Docker） · 结构化报告 · "应用到方案"按钮</p></div>
+      <div class="card amber"><h4>应用场景</h4><p>规则验证 · 数据探索 · 格式转换 · SOP 提取 · 模拟测试</p></div>
+      <div class="card green"><h4>分阶段</h4><p>Demo：纯 LLM 分析<br>Phase 1：Pyodide 浏览器沙箱<br>Phase 2：Docker 服务端沙箱</p></div>
+    </div>
+    <pre><code class="language-text" data-trim>
+业务方说："报关金额超过 5 万需要主管审批"
+技术方拿到历史数据一跑：3% 金额为 0 · 8% 外币 · 2 条标记"免审"
+→ 规则不完整，方案需要覆盖这些边界情况
+    </code></pre>
+  </section>
+  <section>
+    <h2>AI 验证模式 (v11 新增设计)</h2>
+    <p class="desc">业务方定义的规则只覆盖"正常情况"，真实数据中的边界情况（if-else 的 else）因出现频率低而被忽略。<strong>验证模式让技术方在平台内用真实数据验证规则完备性</strong>，发现漏洞后直接补全方案——不需要离开 FlowAgent 去写脚本。</p>
+    <div class="card-row">
+      <div class="card blue">
+        <h4>模式切换（类 Cursor）</h4>
+        <p>AI 助手面板顶部切换：<strong>生成模式</strong>（当前）/ <strong>验证模式</strong>（新增）。不是独立页面，而是同一个 AI 助手的不同能力。</p>
+      </div>
+      <div class="card purple">
+        <h4>@ 数据引用（类 Cursor）</h4>
+        <p>企业数据已"挂载"在平台上。用 <code>@文件名</code> 或 <code>@文件夹/</code> 引用数据，AI 自动读取作为验证上下文。无需手动上传。</p>
+      </div>
+      <div class="card green">
+        <h4>两种验证方式</h4>
+        <p><strong>直接分析</strong>：规则简单/数据少，AI 直接看数据给结论。<br><strong>脚本验证</strong>：规则复杂/数据大，AI 生成 Python/SQL，技术确认后执行。</p>
+      </div>
+    </div>
+    <div class="callout green"><strong>闭环：</strong>验证发现的问题不停留在对话里——AI 建议补充规则 → 用户确认 → 自动更新节点的执行规则/新增条件分支/插入新节点。<strong>"验证"直接驱动方案完善。</strong></div>
+  </section>
+</section>
+
+<!-- 06 SKILL -->
+<section>
+  <section class="section-divider center-slide" data-background-gradient="linear-gradient(135deg, #0f172a 0%, #1e293b 100%)">
+    <span class="section-num">06</span><h2>Skill 架构</h2>
+    <h3>Skill = 一个业务可验收的原子能力单元。<br>不是"最小技术单元"，而是"最小业务验收单元"。</h3>
+  </section>
+  <section>
+    <h2>Skill 切割原则：以"业务可验收点"为边界</h2>
+    <p class="desc">Skill 的边界 = 从上一个"业务方能看懂并验收的输出"到下一个。<strong>业务方能回答"到这里为止，结果对不对"这个问题。</strong>人工确认节点放在 Skill 之间，不是 Skill 内部。</p>
+    <div class="vs">
+      <div class="before"><h4>❌ 太厚</h4><p>"报关处理" = 解析+校验+提交+跟踪<br>→ 业务方只看到"处理完了"，中间出问题不知道</p></div>
+      <div class="after"><h4>✅ 正确切法</h4><p>单证解析→[人工确认]→合规校验→[人工确认]→海关申报<br>→ 每步输出业务方都能看懂、能判断对不对</p></div>
+    </div>
+    <div class="callout"><strong>Workflow vs Agentic 中 Skill 的角色不同：</strong>Workflow 中 Skill 是<strong>预先绑定</strong>（"第 3 步用合规校验 v2.1"）；Agentic 中 Skill 是<strong>授权</strong>（"给 Agent 这些能力，它自己决定什么时候用"）。</div>
+  </section>
+  <section>
+    <h2>Skill 平台 + 试运行</h2>
+    <p class="desc">Skill 有两种形态：原子 Skill（单个能力单元）和 Skill 编排（多个 Skill 组合）。<strong>对 FlowAgent 来说两者没有区别</strong>——都是一个输入 schema + 一个输出 schema。Skill 内部是 1 个 API 还是 50 步子流程，那是 Skill 平台的事。</p>
+    <table>
+      <tr><th>阶段</th><th>Skill 标准化</th><th>FlowAgent 能力</th><th>体验</th></tr>
+      <tr><td><span class="tag tag-amber">当前</span></td><td>只有名字和描述</td><td>标注"建议使用 XX Skill"</td><td>技术方手动搭建</td></tr>
+      <tr><td><span class="tag tag-blue">Phase 2</span></td><td>有 I/O schema</td><td>AI 自动匹配 + 参数映射</td><td>蓝图+Skill 绑定建议</td></tr>
+      <tr><td><span class="tag tag-green">Phase 3</span></td><td>完整标准化</td><td>试运行联动</td><td>蓝图+试运行报告</td></tr>
+    </table>
+    <div class="callout blue"><strong>试运行（v10）：</strong>模拟演练而非生产执行。用模拟数据跑一遍方案，业务方看到交互预览。AI 生成可执行工作流在企业生产环境中不可靠（10 步工作流成功率仅 35%），所以 FlowAgent 输出是方案蓝图，技术方参考蓝图搭建。</div>
+  </section>
+</section>
+
+<!-- 07 NEW FEATURES -->
+<section>
+  <section class="section-divider center-slide" data-background-gradient="linear-gradient(135deg, #0f172a 0%, #1e293b 100%)">
+    <span class="section-num">07</span><h2>新增功能模块</h2>
+    <h3>方案列表页 · 版本控制 · 模板市场 · 通知系统 · 权限模型<br>从 Demo 走向可用产品的基础设施</h3>
+  </section>
+  <section>
+    <h2>方案管理 + 版本控制</h2>
+    <p class="desc">有后端后，方案列表页替代当前首页，成为两个角色的入口。版本只在用户主动操作时产生（AI 首次生成/手动保存/提交评审/打回/确认），不是每次编辑都存版本。多人协作用乐观锁。</p>
+    <div class="card-row">
+      <div class="card blue"><h4>方案列表页</h4><p>业务方（/）：我的方案<br>技术方（/tech）：我创建的 / 待我审核 / 全部<br>同一组件，角色参数控制筛选。</p></div>
+      <div class="card purple"><h4>版本控制</h4><p>5 种触发：AI 生成 · 手动保存 · 提交评审 · 打回 · 确认。回滚=复制为新草稿。任意两版本可 diff。</p></div>
+      <div class="card green"><h4>乐观锁</h4><p>保存时检测版本号。冲突→提示"方案已被修改"→查看最新版 or 强制覆盖。历史版本都在，不丢数据。</p></div>
+    </div>
+  </section>
+  <section>
+    <h2>模板市场 + 通知 + 权限</h2>
+    <p class="desc">模板来源于已确认的方案，不需要用户手动创建。通知系统覆盖评审/批注/确认/异常等场景。权限模型 RBAC：业务方/业务主管/技术方/管理员。</p>
+    <div class="card-row">
+      <div class="card amber"><h4>模板市场</h4><p>手动：确认时勾选"保存为模板"<br>自动：同类 3+ 方案→系统建议生成<br>新建方案时可"从模板开始"。模板和 AI 生成互补。</p></div>
+      <div class="card blue"><h4>通知系统</h4><p>站内通知 + 飞书/钉钉扩展<br>类型：评审提交/通过/打回 · 批注回复 · 方案确认 · Agent 异常 · 人工确认触发</p></div>
+      <div class="card purple"><h4>权限模型</h4><p>4 角色：business / business_lead / tech / admin<br>管控后台数据按部门过滤（业务方只看本部门）</p></div>
+    </div>
+  </section>
+</section>
+
+<!-- 08 ROADMAP -->
+<section>
+  <section class="section-divider center-slide" data-background-gradient="linear-gradient(135deg, #0f172a 0%, #1e293b 100%)">
+    <span class="section-num">08</span><h2>三阶段演进 &amp; 路线图</h2>
+    <h3>从技术方主导→业务方自助→自动编排。<br>每个阶段的跳板不同：知识积累→Skill 标准化。</h3>
+  </section>
+  <section>
+    <h2>演进路径</h2>
+    <p class="desc">三个阶段不是"功能越来越多"，而是<strong>核心用户在变</strong>。阶段一技术方用 AI 辅助设计；阶段二业务方能自己生成（AI 学会了企业的做事方式）；阶段三常见场景直接自动编排（Skill 标准化到可自动执行）。</p>
+    <div class="card-row">
+      <div class="card blue"><h4>阶段一（当前）</h4><p><strong>技术方主导。</strong>生成+修正方案，确认后参考蓝图搭建。</p><p style="font-size:0.45em;color:var(--accent);margin-top:3px;">→ 跳板：已确认方案模板积累</p></div>
+      <div class="card purple"><h4>阶段二</h4><p><strong>业务方自助+技术方审核。</strong>AI 参考历史方案，技术方从设计者变为审核者。</p><p style="font-size:0.45em;color:var(--accent2);margin-top:3px;">→ 跳板：Skill 标准化+执行层对接</p></div>
+      <div class="card green"><h4>阶段三</h4><p><strong>自动编排+试运行。</strong>常见场景匹配已验证方案，自动编排 Skill 并试运行。</p></div>
+    </div>
+  </section>
+  <section>
+    <h2>路线图</h2>
+    <div class="timeline">
+      <div class="item active">
+        <h4><span class="tag tag-blue">Phase 1</span> 技术方工具完善 · 1-2 周</h4>
+        <p><strong>已完成：</strong>v6 标记提醒 · Agentic v3 阶段制 · Agent 运行架构面板 · 执行规则/确认策略 · 6 个预置示例 · Few-shot</p>
+        <div class="detail"><strong>待做：</strong>澄清卡片 · 用户系统 · 数据持久化 · 知识工作台轻量版 · 方案列表页+版本控制 · 通知集成</div>
+      </div>
+      <div class="item">
+        <h4><span class="tag tag-purple">Phase 2</span> 知识容器+执行层+治理基础 · 2-4 周</h4>
+        <p>方案沉淀 · AI 参考历史 · 混合任务 · Agent 运行时对接 · 自进化机制 · 模板市场</p>
+        <div class="detail">知识工作台完整版（Pyodide） · 管控后台真实数据 · 试运行引擎 · Skill 平台只读查询<br><span class="tag tag-purple">v12</span> <strong>约束可干预性标注</strong>（FlowAgent 方案设计中标记哪些参数允许运行时干预）· <strong>管控后台干预面板</strong>（基础版：参数调整+记录）</div>
+      </div>
+      <div class="item">
+        <h4><span class="tag tag-green">Phase 3</span> 规模化+完整治理体系 · 1-3 月</h4>
+        <p>Skill 平台集成 · 多租户 · 企业级安全 · 数据驾驶舱 · 复盘-调整循环</p>
+        <div class="detail">知识工作台服务端（Docker） · RBAC 权限 · Skill 参数映射+试运行联动<br><span class="tag tag-purple">v12</span> <strong>执行引擎 context 热更新</strong>（Agent 感知干预并重规划）· <strong>多层治理权限</strong>（VP/主管/运营分级干预权限）· <strong>干预归因分析</strong>（复盘报告区分自然增长 vs 干预增长）</div>
+      </div>
+    </div>
+  </section>
+</section>
+
+<!-- 09 STATUS -->
+<section>
+  <section class="section-divider center-slide" data-background-gradient="linear-gradient(135deg, #0f172a 0%, #1e293b 100%)">
+    <span class="section-num">09</span><h2>当前状态 (v12)</h2>
+    <h3>已完成 15+ 核心模块 · v12 新增治理框架与干预机制设计</h3>
+  </section>
+  <section>
+    <h2>已完成 &amp; 新实现</h2>
+    <table style="font-size:0.42em;">
+      <tr><th>模块</th><th>状态</th><th>说明</th></tr>
+      <tr><td>AI 翻译（Workflow+Agentic）</td><td><span class="tag tag-green">✅</span></td><td>输入→分类→生成→标记→编辑→确认</td></tr>
+      <tr><td>流程图编辑器+批注系统</td><td><span class="tag tag-green">✅</span></td><td>拖拽/增删/编辑/缩放/节点级批注</td></tr>
+      <tr><td>双角色+评审+确认Diff</td><td><span class="tag tag-green">✅</span></td><td>独立入口/批注回复/通过打回/diff摘要</td></tr>
+      <tr><td>管控后台+产品级UI(v5)</td><td><span class="tag tag-green">✅</span></td><td>仪表盘/监控/Agent团队/Toast/骨架屏/暗色/响应式</td></tr>
+      <tr><td>v6 标记提醒</td><td><span class="tag tag-green">✅ 已实现</span></td><td>生成后直接展示，黄/红标记+摘要提示，不拦截</td></tr>
+      <tr><td>Agentic v3 阶段制</td><td><span class="tag tag-green">✅ 已实现</span></td><td>阶段时间线+三档评判+审批点+追问+兜底机制</td></tr>
+      <tr><td>Agent 运行架构面板</td><td><span class="tag tag-green">✅ 已实现</span></td><td>决策循环/Skill编排/上下文/调度（替代旧4-Tab面板）</td></tr>
+      <tr><td>执行规则+确认策略</td><td><span class="tag tag-green">✅ 已实现</span></td><td>节点级执行规则 + 5种确认策略（always/threshold/sampling/rule/combined）</td></tr>
+      <tr><td>8 个预置示例方案</td><td><span class="tag tag-green">✅ 已实现</span></td><td>小红书/竞品分析/报关/报销/项目管理/客服/招聘/TikTok矩阵</td></tr>
+      <tr><td>Few-shot 动态注入</td><td><span class="tag tag-green">✅ 已实现</span></td><td>API 根据用户输入匹配场景模板，提升生成质量</td></tr>
+      <tr><td>两步生成（业务→技术）</td><td><span class="tag tag-green">✅ 已实现</span></td><td>Workflow/Agentic 均先生成业务侧方案，确认后自动生成技术配置</td></tr>
+      <tr><td>节点详情可拖拽面板</td><td><span class="tag tag-green">✅ 已实现</span></td><td>底部面板支持上拉拖拽扩大展示区域</td></tr>
+      <tr><td>Agentic 方案内联编辑</td><td><span class="tag tag-green">✅ 已实现</span></td><td>业务方可直接编辑阶段名称/行动/成功标准/审批说明等</td></tr>
+      <tr><td>Routing+Gate 翻译流程</td><td><span class="tag tag-purple">v12 设计</span></td><td>参考 Anthropic Agent 设计：分类→可行性Gate→生成→标记Gate→确认，AI先判断"做不做"</td></tr>
+      <tr><td>Human in/on the loop 模型</td><td><span class="tag tag-purple">v12 设计</span></td><td>Workflow=in the loop（逐步验收），Agentic=on the loop（监督+干预）</td></tr>
+      <tr><td>运行时干预（Intervention）</td><td><span class="tag tag-purple">v12 设计</span></td><td>Approval/Fallback/Intervention 三种介入方式，干预完整链路6步</td></tr>
+      <tr><td>多层治理体系</td><td><span class="tag tag-purple">v12 设计</span></td><td>VP/主管/运营/Agent 四层权限，分级干预范围，约束可干预性标注</td></tr>
+      <tr><td>三层产品改造方案</td><td><span class="tag tag-purple">v12 设计</span></td><td>FlowAgent（可干预性）+ 执行引擎（context 热更新）+ 管控后台（干预面板+归因）</td></tr>
+    </table>
+    <div class="card-row" style="margin-top:6px;">
+      <div class="card blue"><h4>设计完成待实现</h4>
+        <p>澄清卡片 · 知识工作台 · AI 验证模式 · 方案列表页 · 版本控制 · 模板市场 · 试运行 · 通知系统 · RBAC 权限 · 数据安全 · 自进化机制<br><span class="tag tag-purple">v12</span> 可行性 Gate（生成前评估做不做） · 约束可干预性标注 · 运行时干预面板 · 多层治理权限 · 干预归因分析 · 执行引擎 context 热更新</p>
+      </div>
+      <div class="card amber"><h4>当前限制</h4>
+        <p>无真实后端（Mock） · 无用户系统 · 数据存 localStorage · 无历史方案参考 · AI 方案质量依赖 prompt</p>
+      </div>
+    </div>
+  </section>
+</section>
+
+<!-- 10 RESEARCH -->
+<section>
+  <section class="section-divider center-slide" data-background-gradient="linear-gradient(135deg, #0f172a 0%, #1e293b 100%)">
+    <span class="section-num">10</span><h2>学术支撑</h2>
+    <h3>设计原则基于两篇核心论文的研究发现</h3>
+  </section>
+  <section>
+    <h2>参考研究</h2>
+    <p class="desc">CogTwin 启发了知识体系双层架构和管控后台主动检测；CMU/Stanford 直接验证了"增强而非替代"原则和"工作流步骤为协作单元"的设计。</p>
+    <div class="card-row">
+      <div class="card pink"><h4>CogTwin (IJCAI-25)</h4><p><strong>关键发现：</strong>双重知识图谱（静态 DKR + 动态 DIKG）+ 元认知层持续监控。</p><p style="margin-top:4px;"><strong>→ 指导：</strong>知识双层架构；管控后台主动检测能力。</p></div>
+      <div class="card blue"><h4>How Do AI Agents Do Human Work? (CMU/Stanford 2025)</h4><p><strong>关键发现：</strong>AI 增强 +24.3% vs 自动化 -17.7%；Agent 成功率比人低 32-50%。</p><p style="margin-top:4px;"><strong>→ 指导：</strong>增强而非替代；方案必须标注人机分工；节点级协作。</p></div>
+    </div>
+  </section>
+</section>
+
+<!-- CLOSING -->
+<section class="center-slide" data-background-gradient="linear-gradient(135deg, #0f172a 0%, #1e293b 100%)">
+  <h1 style="color:#fff;font-size:2.2em;">FlowAgent</h1>
+  <p style="color:#94a3b8;font-size:0.8em;margin-top:0.3em;max-width:600px;margin-left:auto;margin-right:auto;line-height:1.6;">让业务需求不再迷失在传递中。<br>工具解决效率，知识解决质量，效率+质量构成飞轮。</p>
+  <div style="margin-top:1.2em;"><span class="tag" style="background:rgba(79,70,229,0.15);color:#818cf8;font-size:0.6em;padding:4px 12px;">flow-agent-iota.vercel.app</span></div>
+  <p style="color:#475569;font-size:0.5em;margin-top:1.5em;">v12 · 2026-04-20</p>
+</section>
+
+</div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/highlight.js"></script>
+<script>
+Reveal.initialize({
+  hash: true, slideNumber: 'c/t', showSlideNumber: 'all',
+  transition: 'slide', transitionSpeed: 'default', backgroundTransition: 'fade',
+  center: false, width: 960, height: 700, margin: 0.12,
+  minScale: 0.2, maxScale: 2.0,
+  plugins: [RevealHighlight], highlight: { highlightOnLoad: true }
+});
+</script>
+</body>
+</html>

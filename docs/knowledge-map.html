@@ -316,12 +316,12 @@ svg .node-label-bg {
 </div>
 
 <div id="legend">
-  <div class="legend-item"><div class="legend-dot" style="background:#4a9eff"></div>FlowAgent</div>
-  <div class="legend-item"><div class="legend-dot" style="background:#34d399"></div>管控后台</div>
-  <div class="legend-item"><div class="legend-dot" style="background:#a78bfa"></div>Skill 平台</div>
-  <div class="legend-item"><div class="legend-dot" style="background:#fb923c"></div>设计原则</div>
-  <div class="legend-item"><div class="legend-dot" style="background:#f472b6"></div>论文洞察</div>
-  <div class="legend-item"><div class="legend-dot" style="background:#64748b"></div>路线图</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#3b82f6"></div>FlowAgent</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#10b981"></div>管控后台</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#8b5cf6"></div>Skill 平台</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#f59e0b"></div>设计原则</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#ec4899"></div>论文洞察</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#6b7280"></div>路线图</div>
 </div>
 
 <div id="hint">按住 Shift + 拖拽节点可固定位置</div>
@@ -407,35 +407,35 @@ nodes: [
     }
   },
   {
-    id: "agentic", label: "Agentic", level: 2, group: "flowagent",
-    status: "已实现",
+    id: "agentic", label: "Agentic（阶段制）", level: 2, group: "flowagent",
+    status: "v3 已实现",
     detail: {
-      summary: "目标导向，本质是 ReAct / Tree of Thought。给一个目标，Agent 自主规划路径，过程中可能尝试多种方法。",
+      summary: "v3 重设计：从配置表→策略卡片→阶段制方案。每个阶段有时间范围、行动列表、三档评判标准、退出条件和审批点。业务方看阶段时间线，技术方看 Agent 运行架构。",
       points: [
-        "类比 ReAct：给目标，自主规划怎么做",
-        "确认方式：确认目标/约束/评估器（\"方向对不对\"）",
-        "失败模式：可能走弯路但最终可能达到目标",
-        "人工介入：阶段级 — 关键里程碑暂停",
-        "适用场景：小红书运营、竞品分析、内容生成",
-        "会议分类：运营类、分析类、专业生成类、协作类"
+        "阶段制：3-7 个阶段，每阶段有 dayRange/actions/successCriteria(三档)/exitCondition",
+        "审批点：标记需要人工审批的阶段（requiresApproval）",
+        "追问：对不确定的阶段生成追问（questions），每阶段最多 2 个",
+        "业务侧：目标指标/执行规则/权限边界/汇报机制/内容示例/风险评估",
+        "技术侧：决策循环(OODA)/Skill编排/上下文架构/触发器调度",
+        "兜底机制：fallbacks（触发条件+应对措施+严重程度）",
+        "6 个预置示例：小红书/竞品分析/项目管理/客服/招聘/TikTok矩阵"
       ],
-      tags: ["ReAct", "目标导向", "自主规划"]
+      tags: ["阶段制", "三档评判", "OODA", "已实现"]
     }
   },
   {
-    id: "hybrid", label: "混合型", level: 2, group: "flowagent",
-    status: "分类已支持",
+    id: "hybrid", label: "混合型（已合并）", level: 2, group: "flowagent",
+    status: "已合并到 Agentic",
     detail: {
-      summary: "一个业务同时包含 Workflow 和 Agentic 节点。真实业务的常态——部分步骤确定性，部分需要 AI 自主发挥。",
+      summary: "v8 起混合型不再是第三种类型。TaskType 只剩 workflow/agentic。有目标驱动的部分（即使也有固定流程）→ agentic。",
       points: [
-        "Agentic 节点共享整个任务执行上下文，不是独立 Agent",
-        "Agentic 节点是流程图中的\"自由发挥区间\"",
-        "前后有确定性 Workflow 步骤约束输入输出格式",
-        "UI 设计：流程图上 Agentic 节点用紫色双层边框区分",
-        "从 Phase 3 提前到 Phase 2（论文二证明真实业务大多混合）",
-        "当前 AI 分类已支持 hybrid，但前端降级为 workflow 渲染"
+        "v8 重设计：混合型是常态，不需要单独分类",
+        "大部分真实业务场景都是'部分步骤确定、部分步骤自主'",
+        "在流程图中用不同节点样式区分即可",
+        "代码已实现：TaskType = 'workflow' | 'agentic'，去掉 hybrid",
+        "API 分类如果返回 hybrid，自动转为 agentic"
       ],
-      tags: ["混合", "共享上下文", "Phase 2"]
+      tags: ["已合并", "不再独立"]
     }
   },
   {
@@ -447,8 +447,8 @@ nodes: [
         "会议金句：\"不要指望业务直接给 AI 讲明白\"",
         "翻译准确性 = 业务专家准确性 × AI 翻译能力",
         "输出标准需明确设计，作为验收/交付/执行的统一依据",
-        "当前实现：AI 生成 → 逐项确认 → 自由对话修改",
-        "缺失：初始输入阶段的引导式追问（已有提示词，追问未做）",
+        "v6 重设计：生成后直接展示流程图，不拦截，不确定节点用黄/红标记",
+        "引导式输入：需求模糊时弹出澄清卡片（AI 理解摘要 + 1-3 个关键问题）",
         "远期：从 SOP 文档/Wiki 自动提取 Workflow 草稿"
       ],
       tags: ["核心价值", "引导式输入", "SOP 提取"]
@@ -463,12 +463,11 @@ nodes: [
         "核心原则：增强而非替代（论文二核心发现）",
         "方案中自动标注人机分工（executionMode 字段）",
         "AI 生成方案时主动插入人工确认节点",
-        "数据校验后 → 人工确认（防捏造）",
-        "内容生成后 → 人工确认（审美把控）",
-        "不可逆操作前 → 人工确认（发布/付款/删除）",
+        "v6 标记提醒：不确定节点黄/红标记，用户按需查看，不强制拦截",
+        "确认方案时安全检查：未处理的标记节点会弹出提醒",
         "典型 6 节点方案应有 2-3 个确认节点"
       ],
-      tags: ["增强模式", "人工确认节点", "executionMode"]
+      tags: ["增强模式", "人工确认节点", "标记提醒"]
     }
   },
   {
@@ -597,15 +596,15 @@ nodes: [
     id: "feedback_loop", label: "反馈闭环", level: 2, group: "principle",
     status: "设计完成",
     detail: {
-      summary: "知识沉淀由系统和技术方驱动，不由业务方填表。",
+      summary: "知识沉淀由系统和技术方驱动，不由业务方填表。v6 新增自进化机制作为具体实现。",
       points: [
-        "系统自动采集：执行日志、每个节点成功/失败/耗时",
+        "系统自动采集：方案 Diff（AI 初版 vs 用户终版）、执行日志",
         "技术方标注：异常归因（搭建质量 vs 链路设计 vs 环境问题）",
-        "业务方自然反馈：通过下一次对话输入（不是填问卷）",
+        "自进化飞轮：记忆 → 归纳 → 判断，越用越准",
         "CogTwin 启发：静态知识(DKR) + 动态知识(DIKG)",
-        "AI 翻译时参考技术方已确认的历史方案"
+        "核心护城河：竞品可以抄 UI，但抄不走积累的知识"
       ],
-      tags: ["知识沉淀", "CogTwin", "异常归因"]
+      tags: ["知识沉淀", "自进化", "数据飞轮"]
     }
   },
 
@@ -727,8 +726,8 @@ nodes: [
         "✅ Agentic 完整链路（输入→分类→配置→确认→输出）",
         "✅ AI 自动判断 Workflow/Agentic/混合型",
         "✅ 方案中自动标注人机分工",
-        "⚠️ 引导式输入（有提示词，追问未做）",
-        "⚠️ 反问异步流转（暂缓/跳过/转给业务方，设计完成未实现）",
+        "⚠️ 引导式输入 — v6 澄清卡片设计完成，待实现",
+        "⚠️ v6 标记提醒机制（替代强制反问卡片）— 设计完成，待实现",
         "❌ 用户系统 + 数据持久化（替代 localStorage）"
       ],
       tags: ["当前", "核心链路"]
@@ -745,7 +744,7 @@ nodes: [
         "知识沉淀（技术方确认方案自动沉淀为模板）",
         "SOP 文档提取（上传 SOP → AI 自动提取为 Workflow 草稿）",
         "管控后台真实数据（对接 Agent 运行时）",
-        "引导式追问（需求不清晰时 AI 先追问再生成）"
+        "自进化机制（方案 Diff 沉淀 → 规则归纳 → 动态 prompt 增强）"
       ],
       tags: ["混合型", "Dify", "知识沉淀"]
     }
@@ -769,17 +768,17 @@ nodes: [
   // ── 第三层：关键细节 ──
   {
     id: "guided_input", label: "引导式输入", level: 3, group: "flowagent",
-    status: "部分实现",
+    status: "v6 设计完成",
     detail: {
-      summary: "帮用户结构化描述需求。类比 Cursor 的 Plan 模式，但更靠前——在理解需求阶段做信息补全。",
+      summary: "帮用户结构化描述需求。类比 Cursor 的 Plan 模式——AI 先暴露自己的理解，再针对性追问。",
       points: [
-        "首页已有引导提示词（你要解决什么/现在怎么做/期望结果）",
         "快思考：需求清晰 → 直接生成（类似 Cursor Agent 模式）",
-        "慢思考：需求模糊 → 先追问再生成（类似 Cursor Plan 模式）",
-        "追问最多 2-3 个关键问题，避免\"这个工具好麻烦\"",
-        "引导式输入在 Plan 之前：确认\"题目\"→ 确认\"思路\"→ 执行"
+        "慢思考：需求模糊 → 弹出澄清卡片（类似 Cursor Plan 模式）",
+        "澄清卡片 = AI 理解摘要 + 1-3 个关键问题 + 跳过/确认按钮",
+        "AI 先展示理解（\"我理解你想要...\"），让用户确认方向没跑偏",
+        "只问影响方案结构的关键问题，提供\"跳过，直接生成\"选项"
       ],
-      tags: ["引导", "快慢思考", "Cursor 类比"]
+      tags: ["引导", "澄清卡片", "Cursor 类比"]
     }
   },
   {
@@ -832,15 +831,15 @@ nodes: [
     id: "knowledge_system", label: "双层知识架构", level: 3, group: "research",
     status: "设计完成",
     detail: {
-      summary: "来自 CogTwin 的启发。静态知识 + 动态知识，双层协同。",
+      summary: "来自 CogTwin 的启发。静态知识 + 动态知识，双层协同。v6 新增自进化机制——越用越准。",
       points: [
         "静态层(DKR)：行业模板、最佳实践、API 文档、技术方确认的方案",
         "动态层(DIKG)：执行日志、评审批注、异常归因标注",
-        "沉淀格式：方案骨架 + 关键决策点 JSON",
-        "检索方式：语义相似度匹配 scenario 字段",
-        "初期用简单向量检索，不需要复杂 RAG"
+        "自进化三层：记忆（记住修正）→ 归纳（提炼规则）→ 判断（知道何时该问）",
+        "数据飞轮：用户使用 → 数据沉淀 → 知识提炼 → 生成增强 → 更好的方案",
+        "核心护城河：竞品可以抄 UI，但抄不走积累的知识"
       ],
-      tags: ["DKR", "DIKG", "向量检索"]
+      tags: ["DKR", "DIKG", "自进化", "数据飞轮"]
     }
   },
   {
@@ -856,6 +855,114 @@ nodes: [
         "技术选型未定：自建 vs Dify vs LangGraph vs 混合"
       ],
       tags: ["DAG", "Dify", "LangGraph"]
+    }
+  },
+  {
+    id: "self_evolution", label: "自进化机制", level: 3, group: "flowagent",
+    status: "v6 设计完成",
+    detail: {
+      summary: "越用越准的核心飞轮。从用户修正中学习，让 AI 不犯同样的错。这是 to B 产品的核心护城河。",
+      points: [
+        "第一层-记忆：记录 AI 初版 vs 用户终版的 Diff，下次不犯同样的错",
+        "第二层-归纳：从多次修正中提炼通用规则（如\"涉及资金操作默认人工\"）",
+        "第三层-判断：从被动回答到主动质疑需求（\"根据过往案例，这步需要审批\"）",
+        "数据飞轮：使用 → 沉淀 → 提炼 → 增强 → 更好的方案",
+        "分阶段：Demo 手动 few-shot → 有后端后自动存储 → 数据积累后 LLM 归纳 → 成熟期主动建议"
+      ],
+      tags: ["数据飞轮", "护城河", "few-shot", "规则归纳"]
+    }
+  },
+  {
+    id: "clarify_card", label: "澄清卡片", level: 3, group: "flowagent",
+    status: "v6 设计完成",
+    detail: {
+      summary: "需求模糊时弹出的结构化卡片。AI 先展示理解摘要，再针对性追问 1-3 个关键问题。参考 Cursor Plan 模式。",
+      points: [
+        "卡片上半部：AI 理解摘要（\"我理解你想要...\"）+ 识别的关键环节",
+        "卡片下半部：1-3 个关键问题，只问影响方案结构的",
+        "提供\"跳过，直接生成\"选项——不强制回答",
+        "用户回答后，原始输入 + 回答合并为增强 prompt",
+        "和节点详情面板中的 AI 疑问卡片保持一致的交互范式"
+      ],
+      tags: ["澄清", "结构化卡片", "Cursor Plan"]
+    }
+  },
+  {
+    id: "mark_remind", label: "标记提醒", level: 3, group: "flowagent",
+    status: "v11 已实现",
+    detail: {
+      summary: "v6 核心变化：生成后直接展示流程图，不拦截。不确定节点用黄/红标记，用户按需查看。替代原来的强制反问卡片。",
+      points: [
+        "confidence=high → 不标记；medium → 黄点；low → 红点",
+        "ChatPanel 输出摘要提示：列出标记节点及原因",
+        "点击标记节点 → NodeDetailPanel 显示 AI 疑问和建议选项",
+        "确认方案时安全检查：未处理标记节点弹出提醒",
+        "核心理念：尊重专业判断，不强制回答 AI 的问题"
+      ],
+      tags: ["confidence", "黄红标记", "不拦截"]
+    }
+  },
+  {
+    id: "exec_rules", label: "执行规则", level: 3, group: "flowagent",
+    status: "v11 已实现",
+    detail: {
+      summary: "节点级执行规则（ExecutionRule）。AI 推断或用户确认的策略性规则，和 description 分离——description 只说'做什么'，executionRules 说'怎么做'。",
+      points: [
+        "每个节点 0-3 条执行规则",
+        "来源标记：ai_inferred（AI 推断）或 user_confirmed（用户确认）",
+        "refine_batch 时，策略性回答写入 executionRules 而非 description",
+        "NodeDetailPanel 中可编辑/添加/删除",
+        "示例：'文件名容错：支持 .xlsx/.csv/.xls 三种格式'"
+      ],
+      tags: ["executionRules", "策略分离", "已实现"]
+    }
+  },
+  {
+    id: "confirm_strategy", label: "确认策略", level: 3, group: "flowagent",
+    status: "v11 已实现",
+    detail: {
+      summary: "human_confirm 节点的 5 种确认策略，从'每次都确认'到'智能抽检'。让人机分工更精细。",
+      points: [
+        "always：每次都需人工确认",
+        "threshold：AI 置信度低于阈值时确认",
+        "sampling：按比例随机抽检",
+        "rule_based：满足特定条件时确认（如 VIP 客户、金额>10万）",
+        "combined：多种策略组合使用",
+        "NodeDetailPanel 中可切换和配置"
+      ],
+      tags: ["ConfirmStrategy", "智能抽检", "已实现"]
+    }
+  },
+  {
+    id: "agent_arch_panel", label: "Agent 运行架构", level: 3, group: "flowagent",
+    status: "v11 已实现",
+    detail: {
+      summary: "AgenticConfigPanel 完全重写。从 4-Tab 配置面板变成技术视角的 Agent 运行架构面板，可折叠 Section 式布局。",
+      points: [
+        "业务目标概览（always visible）",
+        "技能编排：依赖链路 + 并行分组 + 失败策略",
+        "决策循环(OODA)：观察→评估→行动→反馈",
+        "阶段→技能映射",
+        "上下文架构：短期记忆/长期记忆/外部上下文",
+        "触发器与调度：cron/event/threshold",
+        "评估体系 + 兜底与审批"
+      ],
+      tags: ["运行架构", "OODA", "Skill编排", "已实现"]
+    }
+  },
+  {
+    id: "few_shot", label: "Few-shot 动态注入", level: 3, group: "flowagent",
+    status: "v11 已实现",
+    detail: {
+      summary: "API 根据用户输入关键词匹配场景模板（审批类/数据处理类/运营类），将 few-shot 示例动态注入 prompt，提升生成质量。",
+      points: [
+        "3 类场景模板：审批类、数据处理类、运营类",
+        "关键词匹配：从用户输入中提取关键词，匹配最佳模板",
+        "注入方式：在 unified_draft prompt 末尾追加参考示例",
+        "示例内容：好的方案特征（节点数/executionMode分布/条件分支/数据格式）",
+        "Claude 兼容：检测模型名，Claude 不使用 response_format"
+      ],
+      tags: ["few-shot", "prompt增强", "已实现"]
     }
   }
 ],
@@ -877,6 +984,15 @@ links: [
   { source: "agentic", target: "hybrid", label: "组合", type: "relation" },
   { source: "translation", target: "guided_input", label: "", type: "contains" },
   { source: "translation", target: "sop_extract", label: "", type: "contains" },
+  { source: "guided_input", target: "clarify_card", label: "模糊时弹出", type: "relation" },
+  { source: "human_ai_collab", target: "mark_remind", label: "v6 核心", type: "contains" },
+  { source: "human_ai_collab", target: "exec_rules", label: "策略分离", type: "contains" },
+  { source: "human_ai_collab", target: "confirm_strategy", label: "精细化", type: "contains" },
+  { source: "agentic", target: "agent_arch_panel", label: "技术视角", type: "contains" },
+  { source: "translation", target: "few_shot", label: "质量提升", type: "relation" },
+  { source: "knowledge_system", target: "self_evolution", label: "驱动", type: "relation" },
+  { source: "feedback_loop", target: "self_evolution", label: "实现", type: "relation" },
+  { source: "phase2", target: "self_evolution", label: "", type: "relation" },
 
   // 任务分类
   { source: "agentic", target: "task_ops", label: "", type: "contains" },
@@ -934,7 +1050,8 @@ const STATUS_COLORS = {
   "已完成": "#34d399", "直接指导": "#f472b6", "理论参考": "#a78bfa",
   "进行中": "#facc15", "部分实现": "#facc15", "分类已支持": "#facc15",
   "Mock 集成": "#facc15",
-  "规划中": "#64748b", "远期": "#64748b", "设计完成": "#818cf8",
+  "规划中": "#64748b", "远期": "#64748b", "设计完成": "#818cf8", "v6 设计完成": "#818cf8",
+  "v3 已实现": "#34d399", "v11 已实现": "#34d399", "已合并到 Agentic": "#94a3b8",
   "工程层(未做)": "#64748b",
   "Agentic": "#a78bfa", "Workflow": "#4a9eff",
 };
@@ -999,19 +1116,13 @@ const svg = d3.select("#graph-svg");
 
 const defs = svg.append("defs");
 
-// Glow filter
-const glowFilter = defs.append("filter").attr("id", "glow");
-glowFilter.append("feGaussianBlur").attr("stdDeviation", "6").attr("result", "blur");
-const glowMerge = glowFilter.append("feMerge");
-glowMerge.append("feMergeNode").attr("in", "blur");
-glowMerge.append("feMergeNode").attr("in", "SourceGraphic");
+// Soft shadow for level-1 nodes
+const glowFilter = defs.append("filter").attr("id", "glow").attr("x", "-50%").attr("y", "-50%").attr("width", "200%").attr("height", "200%");
+glowFilter.append("feDropShadow").attr("dx", "0").attr("dy", "2").attr("stdDeviation", "6").attr("flood-color", "#00000020");
 
-// Strong glow for hover
-const glowStrong = defs.append("filter").attr("id", "glow-strong");
-glowStrong.append("feGaussianBlur").attr("stdDeviation", "12").attr("result", "blur");
-const glowStrongMerge = glowStrong.append("feMerge");
-glowStrongMerge.append("feMergeNode").attr("in", "blur");
-glowStrongMerge.append("feMergeNode").attr("in", "SourceGraphic");
+// Stronger shadow for hover
+const glowStrong = defs.append("filter").attr("id", "glow-strong").attr("x", "-50%").attr("y", "-50%").attr("width", "200%").attr("height", "200%");
+glowStrong.append("feDropShadow").attr("dx", "0").attr("dy", "3").attr("stdDeviation", "10").attr("flood-color", "#00000030");
 
 // Arrow marker
 defs.append("marker")
@@ -1121,7 +1232,7 @@ function drawLinkParticles() {
     const b = parseInt(p.color.slice(5,7), 16);
     pCtx.fillStyle = `rgba(${r},${gg},${b},${alpha})`;
     pCtx.shadowColor = p.color;
-    pCtx.shadowBlur = 8;
+    pCtx.shadowBlur = 4;
     pCtx.fill();
     pCtx.shadowBlur = 0;
   }
@@ -1195,11 +1306,11 @@ nodeGs.on("mouseenter", function(event, d) {
     if (sid === d.id) connected.add(tid);
     if (tid === d.id) connected.add(sid);
   });
-  nodeGs.transition().duration(200).attr("opacity", n => connected.has(n.id) ? 1 : 0.2);
+  nodeGs.transition().duration(200).attr("opacity", n => connected.has(n.id) ? 1 : 0.15);
   linkLines.transition().duration(200).attr("opacity", l => {
     const sid = typeof l.source === "object" ? l.source.id : l.source;
     const tid = typeof l.target === "object" ? l.target.id : l.target;
-    return (sid === d.id || tid === d.id) ? 0.8 : 0.06;
+    return (sid === d.id || tid === d.id) ? 1 : 0.08;
   });
 });
 

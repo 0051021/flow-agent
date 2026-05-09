@@ -2,10 +2,9 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { toast } from "sonner";
-import { useFlowAgentStore, type ChatMessage, type ChatPhase } from "@/lib/store";
+import { useFlowAgentStore, type ChatMessage, type ChatPhase, type ChatAttachment } from "@/lib/store";
 import { Textarea } from "@/components/ui/textarea";
-import { Button } from "@/components/ui/button";
-import { Bot, Send, User, Sparkles, Loader2, RotateCcw } from "lucide-react";
+import { Send, Loader2, RotateCcw, Paperclip, X, FileText, FileSpreadsheet, Image as ImageIcon, File as FileIcon } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
 import { parseLLMResponse, serializeFlowForLLM } from "@/lib/flow-parser";
 import { generateDemoFlow } from "@/lib/mock-data";
@@ -13,6 +12,19 @@ import NodeQuestionPage, { CompletionCard } from "./QuestionCard";
 import AgenticConfirmCard from "./AgenticConfirmCard";
 import type { NodeConfidence } from "@/lib/store";
 import type { AgenticTaskConfig, AgenticConfirmItem } from "@/lib/types";
+
+function fileIcon(ext: string) {
+  if ([".pdf", ".doc", ".docx", ".txt", ".md"].includes(ext)) return <FileText className="w-3.5 h-3.5" />;
+  if ([".xlsx", ".xls", ".csv"].includes(ext)) return <FileSpreadsheet className="w-3.5 h-3.5" />;
+  if ([".png", ".jpg", ".jpeg"].includes(ext)) return <ImageIcon className="w-3.5 h-3.5" />;
+  return <FileIcon className="w-3.5 h-3.5" />;
+}
+
+function formatFileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
 
 export default function ChatPanel() {
   const {
@@ -28,14 +40,49 @@ export default function ChatPanel() {
     agenticConfirmIdx, setAgenticConfirmIdx,
     setCollectedAnswers,
     setInitialSnapshot, setAllNodeConfidence, setDeferredNodeIds,
-    showNodeQuestions, selectedNodeId, allNodeConfidence,
+    showNodeQuestions, selectedNodeId,
   } = useFlowAgentStore();
   const [input, setInput] = useState("");
   const [showCompletion, setShowCompletion] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<ChatAttachment[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const initTriggered = useRef(false);
   const inFlightRef = useRef(false);
+  const lastDraftHadFilesRef = useRef(false);
+
+  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files?.length) return;
+    setUploading(true);
+    const newAttachments: ChatAttachment[] = [];
+
+    for (const file of Array.from(files)) {
+      const form = new FormData();
+      form.append("file", file);
+      try {
+        const res = await fetch("/api/upload", { method: "POST", body: form });
+        const result = await res.json();
+        if (result.success) {
+          newAttachments.push(result.file);
+        } else {
+          toast.error(`上传失败：${file.name}`, { description: result.error });
+        }
+      } catch {
+        toast.error(`上传失败：${file.name}`);
+      }
+    }
+
+    setPendingFiles((prev) => [...prev, ...newAttachments]);
+    setUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }, []);
+
+  const removePendingFile = useCallback((storedName: string) => {
+    setPendingFiles((prev) => prev.filter((f) => f.storedName !== storedName));
+  }, []);
 
   const hasFlow = nodes.length > 0;
   const hasAgenticConfig = agenticConfig !== null;
@@ -57,8 +104,10 @@ export default function ChatPanel() {
       const q = s.initQuery;
       if (q && !initTriggered.current && s.chatPhase === "idle") {
         initTriggered.current = true;
+        const files = s.initFiles.length > 0 ? [...s.initFiles] : undefined;
         s.setInitQuery(null);
-        triggerUnifiedDraft(q);
+        s.setInitFiles([]);
+        triggerUnifiedDraft(q, files);
       }
     };
     tryInit();
@@ -75,7 +124,7 @@ export default function ChatPanel() {
   // Phase 0+1: Unified draft (classify + draft in one LLM call)
   // ============================================================
 
-  const triggerUnifiedDraft = useCallback(async (prompt: string) => {
+  const triggerUnifiedDraft = useCallback(async (prompt: string, files?: ChatAttachment[]) => {
     if (inFlightRef.current) return;
     inFlightRef.current = true;
     setPhase("drafting");
@@ -87,101 +136,335 @@ export default function ChatPanel() {
     setInitialSnapshot(null);
     setAllNodeConfidence([]);
     setDeferredNodeIds([]);
+    useFlowAgentStore.getState().setGenerationStage("idle");
+    useFlowAgentStore.getState().setEnrichProgress({ total: 0, done: 0, status: "idle" });
+
+    const filePaths = files?.map((f) => f.path) || [];
+    lastDraftHadFilesRef.current = filePaths.length > 0;
+    const progressMsgId = uuidv4();
+
+    addChatMessage({
+      id: progressMsgId,
+      role: "assistant",
+      content: "正在分析...",
+      timestamp: new Date().toISOString(),
+    });
 
     try {
       const res = await fetch("/api/generate-flow", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, action: "unified_draft" }),
-        signal: AbortSignal.timeout(180000),
+        body: JSON.stringify({ prompt, action: "unified_draft", filePaths }),
+        signal: AbortSignal.timeout(300000),
       });
-      const result = await res.json();
 
-      if (!result.success) {
-        setPhase("idle");
-        addChatMessage({
-          id: uuidv4(),
-          role: "assistant",
-          content: `生成失败：${result.error || "未知错误"}`,
-          timestamp: new Date().toISOString(),
-        });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        throw new Error(errData.error || `HTTP ${res.status}`);
+      }
+
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("text/event-stream")) {
+        const result = await res.json();
+        if (!result.success) throw new Error(result.error || "未知错误");
+        const rawType = result.taskType as string;
+        const effectiveType: "workflow" | "agentic" = rawType === "agentic" ? "agentic" : "workflow";
+        setTaskType(effectiveType);
+        useFlowAgentStore.getState().updateChatMessage(progressMsgId, `判断为 **${effectiveType === "agentic" ? "智能体" : "工作流"}** 类型。`);
+        if (effectiveType === "agentic") handleAgenticResult(result, prompt);
+        else handleWorkflowResult(result);
         return;
       }
 
-      const rawType = result.taskType as string;
-      let effectiveType: "workflow" | "agentic" = rawType === "agentic" ? "agentic" : "workflow";
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let classified = false;
+      let gotDone = false;
 
-      if (effectiveType === "workflow" && result.data && !result.data.nodes && result.data.phases) {
-        effectiveType = "agentic";
-      }
-      setTaskType(effectiveType);
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
 
-      const typeLabels: Record<string, string> = {
-        workflow: "工作流（Workflow）",
-        agentic: "智能体（Agentic）",
-      };
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
 
-      addChatMessage({
-        id: uuidv4(),
-        role: "assistant",
-        content: `判断为 **${typeLabels[effectiveType]}** 类型。${result.classifyReason || ""}`,
-        timestamp: new Date().toISOString(),
-      });
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const jsonStr = line.slice(6).trim();
+          if (!jsonStr) continue;
 
-      try {
-        if (effectiveType === "agentic") {
-          handleAgenticResult(result, prompt);
-        } else {
-          handleWorkflowResult(result);
+          let event: Record<string, unknown>;
+          try { event = JSON.parse(jsonStr); } catch { continue; }
+
+          if (event.type === "progress") {
+            useFlowAgentStore.getState().updateChatMessage(progressMsgId, event.message as string);
+          } else if (event.type === "stage") {
+            const stage = event.stage as "classify_start" | "classify_done" | "draft_start" | "draft_done";
+            useFlowAgentStore.getState().setGenerationStage(stage);
+          } else if (event.type === "classify") {
+            classified = true;
+            const tt = (event.taskType as string) || "workflow";
+            const typeLabel = tt === "agentic" ? "智能体（Agentic）" : "工作流（Workflow）";
+            const reason = (event.classifyReason as string) || "";
+            useFlowAgentStore.getState().updateChatMessage(progressMsgId, `判断为 **${typeLabel}** 类型。${reason}`);
+            setTaskType(tt === "agentic" ? "agentic" : "workflow");
+          } else if (event.type === "text") {
+            if (!classified) {
+              useFlowAgentStore.getState().updateChatMessage(progressMsgId, "正在生成流程图...");
+            }
+          } else if (event.type === "done") {
+            gotDone = true;
+            const result = event as Record<string, unknown>;
+            const rawType = (result.taskType as string) || "workflow";
+            let effectiveType: "workflow" | "agentic" = rawType === "agentic" ? "agentic" : "workflow";
+
+            if (effectiveType === "workflow" && result.data && !(result.data as Record<string, unknown>).nodes && (result.data as Record<string, unknown>).phases) {
+              effectiveType = "agentic";
+            }
+            setTaskType(effectiveType);
+
+            if (!classified) {
+              const typeLabel = effectiveType === "agentic" ? "智能体（Agentic）" : "工作流（Workflow）";
+              useFlowAgentStore.getState().updateChatMessage(progressMsgId, `判断为 **${typeLabel}** 类型。`);
+            }
+
+            try {
+              if (effectiveType === "agentic") {
+                handleAgenticResult(result as Record<string, unknown>, prompt);
+                useFlowAgentStore.getState().updateChatMessage(progressMsgId, "Agentic 方案生成完成 ✅");
+              } else {
+                handleWorkflowResult(result as Record<string, unknown>);
+                useFlowAgentStore.getState().updateChatMessage(progressMsgId, "流程图已生成，正在补全操作清单…");
+              }
+              useFlowAgentStore.getState().setGenerationStage("draft_done");
+            } catch (parseErr) {
+              console.error("Failed to parse AI result:", parseErr);
+              setPhase("idle");
+              addChatMessage({ id: uuidv4(), role: "assistant", content: `AI 返回了结果但解析失败，请重试。`, timestamp: new Date().toISOString() });
+            }
+          } else if (event.type === "error") {
+            throw new Error(event.error as string);
+          }
         }
-      } catch (parseErr) {
-        console.error("Failed to parse AI result:", parseErr);
-        setPhase("idle");
-        addChatMessage({
-          id: uuidv4(),
-          role: "assistant",
-          content: `AI 返回了结果但解析失败，请重试。${parseErr instanceof Error ? parseErr.message : ""}`,
-          timestamp: new Date().toISOString(),
-        });
-        return;
+      }
+
+      if (!gotDone) {
+        throw new Error("生成中断：未收到完成事件");
       }
     } catch (err: unknown) {
       const raw = err instanceof Error ? err.message : "网络错误";
       const isAbort = raw.includes("aborted") || raw.includes("AbortError");
-      const msg = isAbort ? "AI 生成超时，请稍后重试（复杂需求可能需要更长时间）" : raw;
+      const msg = isAbort ? "AI 生成超时，请稍后重试" : raw;
 
       const storeType = useFlowAgentStore.getState().taskType;
       const hasAgConfig = useFlowAgentStore.getState().agenticConfig !== null;
       if (storeType === "agentic" || hasAgConfig) {
-        toast.error("Agentic 方案生成失败", { description: msg });
-        addChatMessage({
-          id: uuidv4(),
-          role: "assistant",
-          content: `Agentic 方案生成出错（${msg}）。请重新描述你的需求，或者查看预置的示例方案。`,
-          timestamp: new Date().toISOString(),
-        });
+        useFlowAgentStore.getState().updateChatMessage(progressMsgId, `Agentic 方案生成出错（${msg}）。请重新描述你的需求。`);
         setPhase("idle");
       } else {
-        toast.error("生成失败，已加载离线演示数据", { description: msg });
         const demo = generateDemoFlow();
         loadGeneratedFlow(demo.nodes, demo.edges);
         setInitialSnapshot({ nodes: demo.nodes, edges: demo.edges });
         setTaskType("workflow");
-        useFlowAgentStore.setState((s) => ({
-          project: { ...s.project, name: "小红书账号运营（离线演示）" },
-        }));
-        addChatMessage({
-          id: uuidv4(),
-          role: "assistant",
-          content: `AI 服务暂时不可用（${msg}），已加载离线演示流程图。你可以在画布上查看和编辑。`,
-          timestamp: new Date().toISOString(),
-        });
+        useFlowAgentStore.setState((s) => ({ project: { ...s.project, name: "小红书账号运营（离线演示）" } }));
+        useFlowAgentStore.getState().updateChatMessage(progressMsgId, `AI 服务暂时不可用（${msg}），已加载离线演示流程图。`);
         setPhase("ready");
       }
     } finally {
+      useFlowAgentStore.getState().setGenerationStage("idle");
       inFlightRef.current = false;
     }
   }, [addChatMessage, loadGeneratedFlow, setPhase, setOriginalPrompt, setTaskType, setPendingNodes, setCurrentNodeIdx, setCollectedAnswers, setInitialSnapshot, setAllNodeConfidence, setDeferredNodeIds]);
+
+  const enrichWorkflowNodeDetails = useCallback(async (sourceFlow: Record<string, unknown>, originalReq: string) => {
+    try {
+      const targetTotal = Array.isArray(sourceFlow?.nodes) ? sourceFlow.nodes.length : 0;
+      useFlowAgentStore.getState().setEnrichProgress({ total: targetTotal, done: 0, status: "running" });
+      const res = await fetch("/api/generate-flow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "enrich_node_details_batch",
+          prompt: originalReq,
+          currentFlow: sourceFlow,
+          strictTerminology: lastDraftHadFilesRef.current,
+        }),
+        signal: AbortSignal.timeout(180000),
+      });
+      const result = await res.json();
+      if (!result.success || !result.data?.nodes) return;
+
+      const enrichMap = new Map<string, {
+        briefDescription?: string;
+        operationSteps?: string[];
+        requiredCheckFields?: string[];
+        doneCriteria?: string;
+      }>();
+
+      for (const item of result.data.nodes as Array<Record<string, unknown>>) {
+        const nodeId = String(item.nodeId || "");
+        if (!nodeId) continue;
+        enrichMap.set(nodeId, {
+          briefDescription: typeof item.briefDescription === "string" ? item.briefDescription : undefined,
+          operationSteps: Array.isArray(item.operationSteps) ? item.operationSteps.filter((x) => typeof x === "string") as string[] : undefined,
+          requiredCheckFields: Array.isArray(item.requiredCheckFields) ? item.requiredCheckFields.filter((x) => typeof x === "string") as string[] : undefined,
+          doneCriteria: typeof item.doneCriteria === "string" ? item.doneCriteria : undefined,
+        });
+      }
+
+      const applyEnrichment = () => {
+        const s = useFlowAgentStore.getState();
+        // 避免与“节点流式上屏”竞争：若画布暂时为空，不做覆盖写回
+        if (!s.nodes || s.nodes.length === 0) return false;
+
+        const patched = s.nodes.map((n) => {
+          const e = enrichMap.get(n.id);
+          if (!e) return n;
+          const d = n.data as unknown as Record<string, unknown>;
+          const next = { ...d };
+
+          // 用户已改过就不覆盖：仅在空值时补全
+          if ((!d.description || String(d.description).trim() === "") && e.briefDescription) next.description = e.briefDescription;
+          if ((!Array.isArray(d.operationSteps) || (d.operationSteps as unknown[]).length === 0) && e.operationSteps) next.operationSteps = e.operationSteps;
+          if ((!Array.isArray(d.requiredCheckFields) || (d.requiredCheckFields as unknown[]).length === 0) && e.requiredCheckFields) next.requiredCheckFields = e.requiredCheckFields;
+          if ((!d.doneCriteria || String(d.doneCriteria).trim() === "") && e.doneCriteria) next.doneCriteria = e.doneCriteria;
+          return { ...n, data: next };
+        });
+
+        loadGeneratedFlow(patched, s.edges);
+        useFlowAgentStore.getState().setEnrichProgress({
+          total: targetTotal,
+          done: targetTotal,
+          status: "done",
+        });
+        return true;
+      };
+
+      // 先尝试一次；若仍处于上屏阶段则稍后再试，避免清空画布
+      if (!applyEnrichment()) {
+        setTimeout(() => { applyEnrichment(); }, 400);
+      }
+    } catch {
+      // 节点补全是增强能力，失败不阻塞主流程
+      useFlowAgentStore.getState().setEnrichProgress({ total: 0, done: 0, status: "idle" });
+    }
+  }, [loadGeneratedFlow]);
+
+  const mergeBusinessDetailFields = useCallback((
+    nextNodes: import("@xyflow/react").Node<import("@/lib/types").FlowNodeData>[],
+    prevNodes: import("@xyflow/react").Node<import("@/lib/types").FlowNodeData>[]
+  ) => {
+    const normalizeLabel = (raw: string) =>
+      String(raw || "")
+        .trim()
+        .replace(/^\s*\d+\s*[.,、，:：)\]\-]\s*/u, "")
+        .replace(/^\s*[一二三四五六七八九十百千]+\s*[.,、，:：)\]\-]\s*/u, "")
+        .replace(/\s+/g, "")
+        .toLowerCase();
+
+    const prevById = new Map(prevNodes.map((n) => [n.id, n.data]));
+    const prevByLabel = new Map<string, import("@/lib/types").FlowNodeData>();
+    const prevByStep = new Map<number, import("@/lib/types").FlowNodeData>();
+    for (const n of prevNodes) {
+      const d = n.data;
+      const norm = normalizeLabel(String(d?.label || ""));
+      if (norm && !prevByLabel.has(norm)) prevByLabel.set(norm, d);
+      if (typeof d?.stepIndex === "number" && !prevByStep.has(d.stepIndex)) prevByStep.set(d.stepIndex, d);
+    }
+
+    const resolvePrev = (n: import("@xyflow/react").Node<import("@/lib/types").FlowNodeData>) => {
+      const byId = prevById.get(n.id);
+      if (byId) return byId;
+      const norm = normalizeLabel(String(n.data?.label || ""));
+      if (norm && prevByLabel.has(norm)) return prevByLabel.get(norm);
+      if (typeof n.data?.stepIndex === "number" && prevByStep.has(n.data.stepIndex)) return prevByStep.get(n.data.stepIndex);
+      return undefined;
+    };
+
+    return nextNodes.map((n) => {
+      const prev = resolvePrev(n);
+      if (!prev) return n;
+      const d = n.data as Record<string, unknown>;
+      const p = prev as Record<string, unknown>;
+      const merged = { ...d } as Record<string, unknown>;
+      if (!Array.isArray(d.operationSteps) || (d.operationSteps as unknown[]).length === 0) {
+        if (Array.isArray(p.operationSteps) && (p.operationSteps as unknown[]).length > 0) merged.operationSteps = p.operationSteps;
+      }
+      if (!Array.isArray(d.requiredCheckFields) || (d.requiredCheckFields as unknown[]).length === 0) {
+        if (Array.isArray(p.requiredCheckFields) && (p.requiredCheckFields as unknown[]).length > 0) merged.requiredCheckFields = p.requiredCheckFields;
+      }
+      if (!d.doneCriteria || String(d.doneCriteria).trim() === "") {
+        if (p.doneCriteria && String(p.doneCriteria).trim() !== "") merged.doneCriteria = p.doneCriteria;
+      }
+      return { ...n, data: merged as import("@/lib/types").FlowNodeData };
+    });
+  }, []);
+
+  const forcePendingExecutionMode = useCallback((
+    targetNodes: import("@xyflow/react").Node<import("@/lib/types").FlowNodeData>[]
+  ) => {
+    return targetNodes.map((n) => ({
+      ...n,
+      data: {
+        ...(n.data as import("@/lib/types").FlowNodeData),
+        executionMode: "pending",
+      },
+    }));
+  }, []);
+
+  const preserveExecutionModeFromCurrent = useCallback((
+    nextNodes: import("@xyflow/react").Node<import("@/lib/types").FlowNodeData>[],
+    currentNodes: import("@xyflow/react").Node<import("@/lib/types").FlowNodeData>[]
+  ) => {
+    const modeById = new Map(currentNodes.map((n) => [n.id, n.data.executionMode]));
+    return nextNodes.map((n) => ({
+      ...n,
+      data: {
+        ...(n.data as import("@/lib/types").FlowNodeData),
+        executionMode: modeById.get(n.id) ?? (n.data as import("@/lib/types").FlowNodeData).executionMode,
+      },
+    }));
+  }, []);
+
+  const applyNodeDeltaUpdates = useCallback((
+    currentNodes: import("@xyflow/react").Node<import("@/lib/types").FlowNodeData>[],
+    updates: Array<Record<string, unknown>>
+  ) => {
+    const updateMap = new Map<string, Record<string, unknown>>();
+    for (const item of updates) {
+      const nodeId = typeof item.nodeId === "string" ? item.nodeId : "";
+      if (nodeId) updateMap.set(nodeId, item);
+    }
+    if (updateMap.size === 0) return currentNodes;
+
+    return currentNodes.map((node) => {
+      const upd = updateMap.get(node.id);
+      if (!upd) return node;
+
+      const data = node.data as Record<string, unknown>;
+      const next: Record<string, unknown> = { ...data };
+
+      const patchScalar = (key: string) => {
+        if (typeof upd[key] === "string" && String(upd[key]).trim() !== "") {
+          next[key] = upd[key];
+        }
+      };
+
+      patchScalar("label");
+      patchScalar("description");
+      patchScalar("estimatedTime");
+      patchScalar("doneCriteria");
+
+      if (Array.isArray(upd.inputs)) next.inputs = upd.inputs;
+      if (Array.isArray(upd.outputs)) next.outputs = upd.outputs;
+      if (Array.isArray(upd.operationSteps)) next.operationSteps = upd.operationSteps;
+      if (Array.isArray(upd.requiredCheckFields)) next.requiredCheckFields = upd.requiredCheckFields;
+
+      return { ...node, data: next as import("@/lib/types").FlowNodeData };
+    });
+  }, []);
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const handleWorkflowResult = useCallback((result: Record<string, any>) => {
@@ -190,14 +473,15 @@ export default function ChatPanel() {
 
     const { projectName, nodes: parsedNodes, edges: parsedEdges } =
       parseLLMResponse(data);
+    const normalizedNodes = forcePendingExecutionMode(parsedNodes);
 
-    setInitialSnapshot({ nodes: parsedNodes, edges: parsedEdges });
+    setInitialSnapshot({ nodes: normalizedNodes, edges: parsedEdges });
 
     // Stream nodes in one by one
     const STAGGER_MS = 300;
-    parsedNodes.forEach((_, i) => {
+    normalizedNodes.forEach((_, i) => {
       setTimeout(() => {
-        const visibleNodes = parsedNodes.slice(0, i + 1);
+        const visibleNodes = normalizedNodes.slice(0, i + 1);
         const visibleNodeIds = new Set(visibleNodes.map((n) => n.id));
         const visibleEdges = parsedEdges.filter(
           (e) => visibleNodeIds.has(e.source) && visibleNodeIds.has(e.target)
@@ -225,27 +509,30 @@ export default function ChatPanel() {
     );
 
     // Show summary after all nodes have streamed in
-    const streamDoneMs = parsedNodes.length * STAGGER_MS + 200;
+    const streamDoneMs = normalizedNodes.length * STAGGER_MS + 200;
     setTimeout(() => {
       useFlowAgentStore.setState({
         pendingNodes: needConfirm,
         currentNodeIdx: 0,
       });
 
-      const aiAutoNodes = parsedNodes.filter((n) => n.data?.executionMode === "ai_auto");
-      const humanConfirmNodes = parsedNodes.filter((n) => n.data?.executionMode === "human_confirm");
-      const humanManualNodes = parsedNodes.filter((n) => n.data?.executionMode === "human_manual");
-      const humanTotal = humanConfirmNodes.length + humanManualNodes.length;
-
       const humanSummaryParts: string[] = [];
       humanSummaryParts.push(`**「${projectName}」梳理完成 ✅**`);
-      humanSummaryParts.push(`\n这件事共分 **${parsedNodes.length} 步**：`);
-      if (aiAutoNodes.length > 0) {
-        humanSummaryParts.push(`• 🤖 **AI 自动完成 ${aiAutoNodes.length} 步**（你不用管）`);
-      }
-      if (humanTotal > 0) {
-        humanSummaryParts.push(`• 👤 **需要你参与 ${humanTotal} 步**（确认或手动操作）`);
-      }
+      humanSummaryParts.push(`\n这件事共分 **${normalizedNodes.length} 步**：`);
+      const normalizeStepLabel = (raw: string) =>
+        raw
+          // 先去掉阿拉伯数字前缀：1. / 1、 / 1，等
+          .replace(/^\s*\d+\s*[.,、，:：)\]\-]\s*/u, "")
+          // 再去掉中文数字前缀：一、 / 一， / 十：等
+          .replace(/^\s*[一二三四五六七八九十百千]+\s*[.,、，:：)\]\-]\s*/u, "")
+          .trim();
+
+      const stepLines = normalizedNodes.map((n, i) => {
+        const label = String(n.data?.label || n.id || "").trim();
+        const cleanLabel = normalizeStepLabel(label) || label;
+        return `${i + 1}. ${cleanLabel}`;
+      });
+      humanSummaryParts.push(stepLines.join("\n"));
 
       if (needConfirm.length > 0) {
         const lowNodes = needConfirm.filter((nc) => nc.confidence === "low");
@@ -261,10 +548,14 @@ export default function ChatPanel() {
       }
 
       humanSummaryParts.push(`\n**💡 小改自己动手，大改告诉我：**`);
-      humanSummaryParts.push(`• 改「谁来做」→ 点卡片底部的标签直接切换`);
+      humanSummaryParts.push(`• 执行方式（AI/人工）→ 技术评审阶段统一配置`);
       humanSummaryParts.push(`• 改描述/补信息 → 点击卡片查看详情`);
       humanSummaryParts.push(`• 加减步骤/改方向 → 在这里告诉我`);
 
+      // 保留最新一条“梳理完成”总结，避免重复堆叠
+      useFlowAgentStore.setState((s) => ({
+        chatMessages: s.chatMessages.filter((m) => !(m.role === "assistant" && m.content.includes("梳理完成 ✅"))),
+      }));
       addChatMessage({
         id: uuidv4(),
         role: "assistant",
@@ -272,8 +563,9 @@ export default function ChatPanel() {
         timestamp: new Date().toISOString(),
       });
       setPhase("ready");
+      enrichWorkflowNodeDetails(data as Record<string, unknown>, useFlowAgentStore.getState().originalPrompt);
     }, streamDoneMs);
-  }, [addChatMessage, loadGeneratedFlow, setPhase, setNodeLabelMap, setInitialSnapshot, setAllNodeConfidence]);
+  }, [addChatMessage, loadGeneratedFlow, setPhase, setNodeLabelMap, setInitialSnapshot, setAllNodeConfidence, enrichWorkflowNodeDetails, forcePendingExecutionMode]);
 
   const handleAgenticResult = useCallback((result: Record<string, any>, prompt: string) => {
     const data = result.data;
@@ -365,8 +657,11 @@ export default function ChatPanel() {
 
   const handleBatchSubmit = useCallback(
     async (collected: Record<string, { question: string; answer: string }[]>) => {
-      const { pendingNodes: pn, nodeLabelMap: lm, originalPrompt: op } =
+      const { allNodeConfidence: allConf, nodeLabelMap: lm, originalPrompt: op } =
         useFlowAgentStore.getState();
+
+      const collectedNodeIds = Object.keys(collected);
+      if (collectedNodeIds.length === 0) return;
 
       const answeredSummary = Object.entries(collected)
         .map(([nodeId, answers]) => {
@@ -378,7 +673,7 @@ export default function ChatPanel() {
       addChatMessage({
         id: uuidv4(),
         role: "user",
-        content: `已确认 ${Object.keys(collected).length} 个节点：\n${answeredSummary}`,
+        content: `已确认 ${collectedNodeIds.length} 个节点：\n${answeredSummary}`,
         timestamp: new Date().toISOString(),
       });
 
@@ -389,44 +684,126 @@ export default function ChatPanel() {
           useFlowAgentStore.getState();
         const { json: canvasJson } = serializeFlowForLLM(currentNodes, currentEdges);
 
-        const nodeAnswers = pn.map((nc) => ({
-          nodeId: nc.nodeId,
-          nodeLabel: lm[nc.nodeId] || nc.nodeId,
-          answers: collected[nc.nodeId] || nc.questions.map((q) => ({
+        const confMap = new Map(allConf.map((nc) => [nc.nodeId, nc]));
+        const nodeAnswers = collectedNodeIds.map((nodeId) => ({
+          nodeId,
+          nodeLabel: lm[nodeId] || nodeId,
+          answers: collected[nodeId] || confMap.get(nodeId)?.questions.map((q) => ({
             question: q.question,
             answer: q.defaultSuggestion,
-          })),
+          })) || [],
         }));
 
-        const res = await fetch("/api/generate-flow", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "refine_batch",
-            prompt: op,
-            currentFlow: canvasJson,
-            nodeAnswers,
-          }),
-          signal: AbortSignal.timeout(180000),
-        });
-        const result = await res.json();
+        let applied = false;
+        let fallbackReason = "";
 
-        if (result.success && result.data) {
-          const { projectName, nodes: parsedNodes, edges: parsedEdges } =
-            parseLLMResponse(result.data);
-          loadGeneratedFlow(parsedNodes, parsedEdges);
-          if (projectName) {
-            useFlowAgentStore.setState((s) => ({
-              project: { ...s.project, name: projectName },
-            }));
+        // Fast path: only patch answered nodes
+        try {
+          const deltaRes = await fetch("/api/generate-flow", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "refine_batch_delta",
+              prompt: op,
+              currentFlow: canvasJson,
+              nodeAnswers,
+            }),
+            signal: AbortSignal.timeout(120000),
+          });
+          const deltaResult = await deltaRes.json();
+          if (deltaResult.success && deltaResult.data) {
+            const deltaData = deltaResult.data as {
+              requiresFullRefine?: boolean;
+              reason?: string;
+              updates?: Array<Record<string, unknown>>;
+            };
+            if (deltaData.requiresFullRefine) {
+              fallbackReason = deltaData.reason || "本次回答涉及流程结构调整";
+            } else {
+              const updates = Array.isArray(deltaData.updates) ? deltaData.updates : [];
+              const deltaNodes = applyNodeDeltaUpdates(currentNodes, updates);
+              const mergedNodes = mergeBusinessDetailFields(deltaNodes, currentNodes);
+              loadGeneratedFlow(mergedNodes, currentEdges);
+
+              const newLabelMap: Record<string, string> = { ...lm };
+              for (const n of mergedNodes) {
+                newLabelMap[n.id] = String(n.data?.label || newLabelMap[n.id] || n.id);
+              }
+              setNodeLabelMap(newLabelMap);
+
+              applied = true;
+              addChatMessage({
+                id: uuidv4(),
+                role: "assistant",
+                content: updates.length > 0
+                  ? `已快速更新 ${updates.length} 个节点细节。`
+                  : "这些确认与当前内容一致，节点无需改动。",
+                timestamp: new Date().toISOString(),
+              });
+            }
+          } else {
+            fallbackReason = deltaResult.error || "快速更新不可用";
           }
+        } catch {
+          fallbackReason = "快速更新请求失败";
+        }
 
-          const newLabelMap: Record<string, string> = { ...lm };
-          for (const n of result.data.nodes || []) {
-            newLabelMap[n.id] = n.label;
+        // Fallback: full refine (for structural changes or fast-path failure)
+        if (!applied) {
+          const res = await fetch("/api/generate-flow", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "refine_batch",
+              prompt: op,
+              currentFlow: canvasJson,
+              nodeAnswers,
+            }),
+            signal: AbortSignal.timeout(300000),
+          });
+          const result = await res.json();
+
+          if (result.success && result.data) {
+            const { projectName, nodes: parsedNodes, edges: parsedEdges } =
+              parseLLMResponse(result.data);
+            const withModePreserved = preserveExecutionModeFromCurrent(parsedNodes, currentNodes);
+            const mergedNodes = mergeBusinessDetailFields(withModePreserved, currentNodes);
+            loadGeneratedFlow(mergedNodes, parsedEdges);
+            if (projectName) {
+              useFlowAgentStore.setState((s) => ({
+                project: { ...s.project, name: projectName },
+              }));
+            }
+
+            const newLabelMap: Record<string, string> = { ...lm };
+            for (const n of result.data.nodes || []) {
+              newLabelMap[n.id] = n.label;
+            }
+            setNodeLabelMap(newLabelMap);
+
+            applied = true;
+            addChatMessage({
+              id: uuidv4(),
+              role: "assistant",
+              content: fallbackReason
+                ? `${fallbackReason}，已切换为完整更新并优化了 ${nodeAnswers.length} 个节点。`
+                : `已根据你的确认优化了 ${nodeAnswers.length} 个节点。你可以继续调整，或告诉我还有什么需要修改的。`,
+              timestamp: new Date().toISOString(),
+            });
+
+            // 保险兜底：完整更新后再做一次节点细节补全，防止模型漏返 operationSteps 等字段
+            enrichWorkflowNodeDetails(result.data as Record<string, unknown>, op || "");
+          } else {
+            addChatMessage({
+              id: uuidv4(),
+              role: "assistant",
+              content: `批量优化失败：${result.error || "未知错误"}，流程图保持不变。`,
+              timestamp: new Date().toISOString(),
+            });
           }
-          setNodeLabelMap(newLabelMap);
+        }
 
+        if (applied) {
           const confirmedIds = new Set(Object.keys(collected));
           const { allNodeConfidence: prevConf } = useFlowAgentStore.getState();
           setAllNodeConfidence(
@@ -436,21 +813,8 @@ export default function ChatPanel() {
                 : nc
             )
           );
-
-          addChatMessage({
-            id: uuidv4(),
-            role: "assistant",
-            content: `已根据你的确认优化了 ${nodeAnswers.length} 个节点。你可以继续调整，或告诉我还有什么需要修改的。`,
-            timestamp: new Date().toISOString(),
-          });
-        } else {
-          addChatMessage({
-            id: uuidv4(),
-            role: "assistant",
-            content: `批量优化失败：${result.error || "未知错误"}，流程图保持不变。`,
-            timestamp: new Date().toISOString(),
-          });
         }
+
         setShowCompletion(true);
         setPhase("ready");
         useFlowAgentStore.setState({ pendingNodes: [], currentNodeIdx: 0 });
@@ -466,7 +830,7 @@ export default function ChatPanel() {
         setPhase("ready");
       }
     },
-    [addChatMessage, loadGeneratedFlow, setPhase, setNodeLabelMap]
+    [addChatMessage, loadGeneratedFlow, setPhase, setNodeLabelMap, mergeBusinessDetailFields, applyNodeDeltaUpdates, enrichWorkflowNodeDetails, preserveExecutionModeFromCurrent]
   );
 
   const handleDeferNode = useCallback((nodeId: string) => {
@@ -611,15 +975,18 @@ export default function ChatPanel() {
   // ============================================================
 
   const handleSend = async () => {
-    if (!input.trim() || isLoading) return;
+    if ((!input.trim() && pendingFiles.length === 0) || isLoading) return;
     const userInput = input.trim();
+    const attachments = pendingFiles.length > 0 ? [...pendingFiles] : undefined;
     addChatMessage({
       id: uuidv4(),
       role: "user",
-      content: userInput,
+      content: userInput || (attachments ? `上传了 ${attachments.length} 个文件` : ""),
       timestamp: new Date().toISOString(),
+      attachments,
     });
     setInput("");
+    setPendingFiles([]);
 
     const { isReviewMode } = useFlowAgentStore.getState();
     if (isReviewMode) {
@@ -628,7 +995,7 @@ export default function ChatPanel() {
 
     try {
       if (!hasFlow && !hasAgenticConfig && phase !== "questioning") {
-        await triggerUnifiedDraft(userInput);
+        await triggerUnifiedDraft(userInput, attachments);
         return;
       }
 
@@ -640,6 +1007,7 @@ export default function ChatPanel() {
         const { json: canvasJson } = serializeFlowForLLM(currentNodes, currentEdges);
         const refineAction = currentRole === "tech" ? "refine" : "refine_business";
 
+        const filePaths = attachments?.map((f) => f.path) || [];
         const res = await fetch("/api/generate-flow", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -648,14 +1016,20 @@ export default function ChatPanel() {
             prompt: originalPrompt,
             currentFlow: canvasJson,
             feedback: userInput,
+            filePaths,
           }),
-          signal: AbortSignal.timeout(180000),
+          signal: AbortSignal.timeout(300000),
         });
         const result = await res.json();
 
         if (result.success && result.data) {
           const { projectName, nodes: parsedNodes, edges: parsedEdges } =
             parseLLMResponse(result.data);
+          const businessNodes =
+            refineAction === "refine_business"
+              ? preserveExecutionModeFromCurrent(parsedNodes, currentNodes)
+              : parsedNodes;
+          const mergedNodes = mergeBusinessDetailFields(businessNodes, currentNodes);
           const nodeList = (result.data.nodes || [])
             .map((n: { label: string }, i: number) => `${i + 1}. **${n.label}**`)
             .join("\n");
@@ -667,7 +1041,7 @@ export default function ChatPanel() {
             timestamp: new Date().toISOString(),
           });
 
-          loadGeneratedFlow(parsedNodes, parsedEdges);
+          loadGeneratedFlow(mergedNodes, parsedEdges);
           if (projectName) {
             useFlowAgentStore.setState((s) => ({
               project: { ...s.project, name: projectName },
@@ -695,6 +1069,7 @@ export default function ChatPanel() {
       if (taskType === "agentic" && hasAgenticConfig && phase === "agentic_ready") {
         setPhase("refining_agentic");
 
+        const filePaths = attachments?.map((f) => f.path) || [];
         const res = await fetch("/api/generate-flow", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -703,8 +1078,9 @@ export default function ChatPanel() {
             prompt: originalPrompt,
             currentConfig: agenticConfig,
             feedback: userInput,
+            filePaths,
           }),
-          signal: AbortSignal.timeout(180000),
+          signal: AbortSignal.timeout(300000),
         });
         const result = await res.json();
 
@@ -830,34 +1206,35 @@ export default function ChatPanel() {
   const renderMessage = (msg: ChatMessage) => (
     <div
       key={msg.id}
-      className={`flex gap-2.5 animate-slide-up ${msg.role === "user" ? "flex-row-reverse" : ""}`}
+      className={`animate-slide-up ${msg.role === "user" ? "flex justify-end" : ""}`}
     >
-      <div
-        className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0
-        ${msg.role === "assistant" ? "bg-zinc-900" : "bg-blue-500"}`}
-      >
-        {msg.role === "assistant" ? (
-          <Bot className="w-3.5 h-3.5 text-white" />
-        ) : (
-          <User className="w-3.5 h-3.5 text-white" />
-        )}
-      </div>
-      <div className="max-w-[270px]">
-        <div
-          className={`rounded-xl px-3 py-2.5 text-sm leading-relaxed
-          ${msg.role === "assistant" ? "bg-zinc-50 text-zinc-700" : "bg-blue-500 text-white"}`}
-        >
+      {msg.role === "user" ? (
+        <div className="max-w-[88%] rounded-2xl bg-zinc-100 px-3.5 py-2.5 text-[13px] leading-relaxed text-zinc-800">
+          {msg.attachments && msg.attachments.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-1.5">
+              {msg.attachments.map((f) => (
+                <span key={f.storedName} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-200/80 text-[11px] text-zinc-500">
+                  {fileIcon(f.ext)}
+                  <span className="truncate max-w-[120px]">{f.originalName}</span>
+                </span>
+              ))}
+            </div>
+          )}
           {renderMarkdown(msg.content, msg.id)}
         </div>
-        {msg.role === "assistant" && isErrorMessage(msg.content) && originalPrompt && (
-          <button
-            onClick={() => triggerUnifiedDraft(originalPrompt)}
-            className="flex items-center gap-1 mt-1.5 text-[11px] text-red-500 hover:text-red-700 transition-colors"
-          >
-            <RotateCcw className="w-3 h-3" /> 重试
-          </button>
-        )}
-      </div>
+      ) : (
+        <div className="text-[13px] leading-relaxed text-zinc-700">
+          {renderMarkdown(msg.content, msg.id)}
+          {isErrorMessage(msg.content) && originalPrompt && (
+            <button
+              onClick={() => triggerUnifiedDraft(originalPrompt)}
+              className="flex items-center gap-1 mt-1.5 text-[11px] text-red-500 hover:text-red-700 transition-colors"
+            >
+              <RotateCcw className="w-3 h-3" /> 重试
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 
@@ -893,78 +1270,37 @@ export default function ChatPanel() {
   const inputDisabled = isLoading;
 
   return (
-    <div className="w-[340px] border-r border-zinc-200 bg-white flex flex-col h-full" data-onboarding="chat-panel">
-      {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-100">
-        <Sparkles className="w-4 h-4 text-amber-500" />
-        <h3 className="text-sm font-semibold text-zinc-900">AI 助手</h3>
-        {isLoading && (
-          <span className="flex items-center gap-1 text-[10px] text-amber-600 ml-auto">
-            <Loader2 className="w-3 h-3 animate-spin" /> {phaseLabel[phase]}
-          </span>
-        )}
-        {hasPendingQuestions && !isLoading && (
-          <span className="flex items-center gap-1 text-[10px] text-amber-600 ml-auto">
-            {pendingNodes.length} 个节点可优化
-          </span>
-        )}
-        {phase === "ready" && !showCompletion && (
-          <span className="text-[10px] text-zinc-400 ml-auto">可对话修改</span>
-        )}
-        {phase === "confirming_agentic" && currentAgenticConfirm && (
-          <span className="flex items-center gap-1 text-[10px] text-violet-600 ml-auto">
-            确认 {agenticConfirmIdx + 1}/{agenticConfirmItems.length}
-          </span>
-        )}
-        {phase === "agentic_ready" && (
-          <span className="text-[10px] text-violet-500 ml-auto">Agent 配置就绪</span>
-        )}
-      </div>
-
+    <div className="w-full border-r border-zinc-200 bg-white flex flex-col h-full flex-1 min-h-0" data-onboarding="chat-panel">
       {/* Chat area */}
       <div className="flex-1 overflow-y-auto" ref={scrollRef}>
-        <div className="p-4 space-y-4">
+        <div className="px-4 py-5 space-y-5">
           {showWelcome && (
-            <div className="flex gap-2.5">
-              <div className="w-7 h-7 rounded-full bg-zinc-900 flex items-center justify-center shrink-0">
-                <Bot className="w-3.5 h-3.5 text-white" />
-              </div>
-              <div className="max-w-[270px] rounded-xl px-3 py-2.5 text-sm leading-relaxed bg-zinc-50 text-zinc-700">
-                你好！我是 FlowAgent AI 助手。
-                <br /><br />
-                描述你的业务场景，我会：
-                <br />
-                1. 自动判断任务类型并生成方案
-                <br />
-                2. 标注人机分工
-                <br />
-                3. 确认和优化细节
-              </div>
+            <div className="text-[13px] leading-relaxed text-zinc-500">
+              描述你的业务场景，我会自动生成方案、标注人机分工并确认细节。
             </div>
           )}
 
           {chatMessages.map(renderMessage)}
 
-          {/* On-demand node question (triggered by clicking confidence marker on canvas) */}
-          {showNodeQuestions && selectedNodeId && (() => {
-            const nodeConf = allNodeConfidence.find((nc) => nc.nodeId === selectedNodeId);
-            if (!nodeConf || nodeConf.confidence === "high" || nodeConf.questions.length === 0) return null;
+          {/* 集中追问卡：业务侧统一在左侧回答，可暂缓/跳过，再一次性更新流程 */}
+          {hasPendingQuestions && (() => {
+            const prioritized = (() => {
+              if (!showNodeQuestions || !selectedNodeId) return pendingNodes;
+              const selected = pendingNodes.find((n) => n.nodeId === selectedNodeId);
+              if (!selected) return pendingNodes;
+              return [selected, ...pendingNodes.filter((n) => n.nodeId !== selectedNodeId)];
+            })();
             return (
               <div className="ml-9">
                 <NodeQuestionPage
-                  pendingNodes={[nodeConf]}
+                  pendingNodes={prioritized}
                   nodeLabelMap={nodeLabelMap}
                   onSubmitAll={(collected) => {
                     useFlowAgentStore.setState({ showNodeQuestions: false });
                     handleBatchSubmit(collected);
                   }}
-                  onSkipAll={() => {
-                    useFlowAgentStore.setState({ showNodeQuestions: false });
-                  }}
-                  onDeferNode={(nodeId) => {
-                    useFlowAgentStore.setState({ showNodeQuestions: false });
-                    handleDeferNode(nodeId);
-                  }}
+                  onSkipAll={handleSkipAll}
+                  onDeferNode={handleDeferNode}
                   disabled={isLoading}
                 />
               </div>
@@ -993,49 +1329,78 @@ export default function ChatPanel() {
           )}
 
           {isLoading && (
-            <div className="flex gap-2.5">
-              <div className="w-7 h-7 rounded-full bg-zinc-900 flex items-center justify-center shrink-0">
-                <Bot className="w-3.5 h-3.5 text-white" />
-              </div>
-              <div className="bg-zinc-50 rounded-xl px-4 py-3">
-                <div className="flex items-center gap-3 text-xs text-zinc-500">
-                  <span className="flex gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 animate-bounce" style={{ animationDelay: "0ms" }} />
-                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 animate-bounce" style={{ animationDelay: "150ms" }} />
-                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 animate-bounce" style={{ animationDelay: "300ms" }} />
-                  </span>
-                  <span>{phaseLabel[phase]}</span>
-                </div>
-              </div>
+            <div className="flex items-center gap-2 text-xs text-zinc-400 py-1">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <span>{phaseLabel[phase]}</span>
             </div>
           )}
         </div>
       </div>
 
       {/* Input area */}
-      <div className="border-t border-zinc-200 p-3">
-        <Textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              handleSend();
-            }
-          }}
-          placeholder={placeholder[phase]}
-          className="text-sm min-h-[60px] max-h-[120px] resize-none"
-          disabled={inputDisabled}
-        />
-        <div className="flex justify-end mt-2">
-          <Button
-            size="sm"
-            onClick={handleSend}
-            disabled={!input.trim() || inputDisabled}
+      <div className="border-t border-zinc-100 px-3 py-3">
+        {/* Pending file chips */}
+        {pendingFiles.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {pendingFiles.map((f) => (
+              <div
+                key={f.storedName}
+                className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-zinc-100 text-xs text-zinc-600 max-w-[200px]"
+              >
+                {fileIcon(f.ext)}
+                <span className="truncate flex-1">{f.originalName}</span>
+                <span className="text-zinc-400 shrink-0">{formatFileSize(f.size)}</span>
+                <button
+                  type="button"
+                  onClick={() => removePendingFile(f.storedName)}
+                  className="shrink-0 text-zinc-400 hover:text-zinc-600 transition-colors"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="relative">
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            accept=".pdf,.xlsx,.xls,.docx,.txt,.csv,.md,.json,.png,.jpg,.jpeg"
+            multiple
+            onChange={handleFileSelect}
+          />
+          <Textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
+            placeholder={placeholder[phase]}
+            className="text-[13px] min-h-[44px] max-h-[120px] resize-none rounded-xl border-zinc-200 bg-zinc-50 pl-10 pr-10 focus:bg-white transition-colors"
+            disabled={inputDisabled}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={inputDisabled || uploading}
+            className="absolute left-2 bottom-2 flex h-7 w-7 items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors disabled:opacity-30"
+            title="上传文件"
           >
-            <Send className="w-3.5 h-3.5 mr-1" />
-            {hasFlow || hasAgenticConfig ? "修改" : "生成"}
-          </Button>
+            {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Paperclip className="w-3.5 h-3.5" />}
+          </button>
+          <button
+            type="button"
+            onClick={handleSend}
+            disabled={(!input.trim() && pendingFiles.length === 0) || inputDisabled}
+            className="absolute right-2 bottom-2 flex h-7 w-7 items-center justify-center rounded-lg bg-zinc-900 text-white transition-opacity disabled:opacity-30 hover:bg-zinc-800"
+          >
+            <Send className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
     </div>

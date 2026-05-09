@@ -22,33 +22,33 @@ export default function ConsoleDashboard() {
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="px-8 py-6">
-        <h1 className="text-xl font-bold text-zinc-900">仪表盘</h1>
-        <p className="text-sm text-zinc-400 mt-1">平台运营概览</p>
+        <h1 className="text-xl font-bold text-zinc-900">总览</h1>
+        <p className="text-sm text-zinc-400 mt-1">你的 AI 助手正在处理业务，这是当前的实时状况</p>
 
         {/* Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
           <StatCard
-            label="活跃 Agent"
+            label="正在工作的助手"
             value={CONSOLE_STATS.activeAgents}
             icon={<Bot className="w-4 h-4 text-blue-500" />}
             trend="+1"
             sparkline={[2, 3, 3, 4, 3, 4, 4]}
           />
           <StatCard
-            label="本月任务量"
+            label="本月处理事务"
             value={CONSOLE_STATS.monthlyTasks}
             icon={<ListChecks className="w-4 h-4 text-violet-500" />}
             trend="+12.4%"
             sparkline={[380, 420, 460, 440, 490, 510, 517]}
           />
           <StatCard
-            label="成功率"
+            label="办事靠谱率"
             value={`${CONSOLE_STATS.successRate}%`}
             icon={<CheckCircle2 className="w-4 h-4 text-green-500" />}
             ring={CONSOLE_STATS.successRate}
           />
           <StatCard
-            label="待处理"
+            label="需要你处理"
             value={CONSOLE_STATS.pendingItems}
             icon={<AlertTriangle className="w-4 h-4 text-amber-500" />}
             highlight
@@ -59,7 +59,7 @@ export default function ConsoleDashboard() {
         {(pendingTasks.length > 0 || errorTasks.length > 0) && (
           <div className="mt-8">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold text-zinc-900">待处理事项</h2>
+              <h2 className="text-sm font-semibold text-zinc-900">需要你过目的事项</h2>
               <Link href="/console/tasks" className="text-xs text-blue-500 hover:text-blue-700 flex items-center gap-0.5">
                 查看全部 <ArrowRight className="w-3 h-3" />
               </Link>
@@ -104,7 +104,7 @@ export default function ConsoleDashboard() {
         {/* Recent tasks */}
         <div className="mt-8">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-zinc-900">最近任务</h2>
+            <h2 className="text-sm font-semibold text-zinc-900">最近在忙的事</h2>
             <Link href="/console/tasks" className="text-xs text-blue-500 hover:text-blue-700 flex items-center gap-0.5">
               查看全部 <ArrowRight className="w-3 h-3" />
             </Link>
@@ -113,12 +113,12 @@ export default function ConsoleDashboard() {
             <table className="w-full text-sm min-w-[640px]">
               <thead>
                 <tr className="border-b border-zinc-100 text-xs text-zinc-400">
-                  <th className="text-left px-4 py-2.5 font-medium">任务</th>
-                  <th className="text-left px-4 py-2.5 font-medium">Agent</th>
-                  <th className="text-left px-4 py-2.5 font-medium">当前节点</th>
+                  <th className="text-left px-4 py-2.5 font-medium">事务</th>
+                  <th className="text-left px-4 py-2.5 font-medium">负责助手</th>
+                  <th className="text-left px-4 py-2.5 font-medium">正在做什么</th>
                   <th className="text-left px-4 py-2.5 font-medium">进度</th>
                   <th className="text-left px-4 py-2.5 font-medium">状态</th>
-                  <th className="text-left px-4 py-2.5 font-medium">耗时</th>
+                  <th className="text-left px-4 py-2.5 font-medium">用时</th>
                 </tr>
               </thead>
               <tbody>
@@ -162,7 +162,7 @@ export default function ConsoleDashboard() {
         {/* Agent overview */}
         <div className="mt-8 pb-8">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-zinc-900">Agent 概览</h2>
+            <h2 className="text-sm font-semibold text-zinc-900">AI 助手</h2>
             <Link href="/console/agents" className="text-xs text-blue-500 hover:text-blue-700 flex items-center gap-0.5">
               查看全部 <ArrowRight className="w-3 h-3" />
             </Link>
@@ -179,12 +179,12 @@ export default function ConsoleDashboard() {
                 </div>
                 <div className="flex items-center gap-4 mt-3 text-xs">
                   <div>
-                    <span className="text-zinc-400">成功率</span>
+                    <span className="text-zinc-400">靠谱率</span>
                     <span className="ml-1 font-semibold text-zinc-700">{agent.successRate}%</span>
                   </div>
                   <div>
-                    <span className="text-zinc-400">任务数</span>
-                    <span className="ml-1 font-semibold text-zinc-700">{agent.taskCount.toLocaleString()}</span>
+                    <span className="text-zinc-400">已处理</span>
+                    <span className="ml-1 font-semibold text-zinc-700">{agent.taskCount.toLocaleString()} 件</span>
                   </div>
                 </div>
               </div>

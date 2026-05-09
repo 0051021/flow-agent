@@ -1,28 +1,25 @@
 "use client";
 
-import { memo } from "react";
+import { memo, useState } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import type { FlowNodeData, NodeExecutionMode } from "@/lib/types";
+import type { FlowNodeData } from "@/lib/types";
 import { useFlowAgentStore } from "@/lib/store";
+import { getEffectiveSkillCodes } from "@/lib/tech-binding-helpers";
+import NodeAnnotationBubble from "@/components/flow/NodeAnnotationBubble";
 import { Badge } from "@/components/ui/badge";
 import {
   BarChart3, Target, PenTool, ShieldCheck, Clock,
-  Activity, RefreshCw, Bot, UserCheck, User,
+  Activity, RefreshCw, UserCheck,
   MessageSquare, Search, FileText, Mail, Database,
   Zap, Eye, Settings, Upload, Download, Users, Globe, Lock, Bell,
-  Repeat2,
+  ScrollText,
 } from "lucide-react";
 
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   BarChart3, Target, PenTool, ShieldCheck, Clock,
   Activity, RefreshCw, Search, FileText, Mail, Database,
   Zap, Eye, Settings, Upload, Download, Users, Globe, Lock, Bell,
-};
-
-const EXEC_MODE_CONFIG = {
-  ai_auto: { label: "AI 自动", icon: Bot, className: "bg-blue-50 text-blue-700 border-blue-200" },
-  human_confirm: { label: "需人工确认", icon: UserCheck, className: "bg-amber-50 text-amber-700 border-amber-200" },
-  human_manual: { label: "人工操作", icon: User, className: "bg-purple-50 text-purple-700 border-purple-200" },
+  UserCheck, ScrollText,
 };
 
 const DEFAULT_TECH_CONFIG = {
@@ -30,36 +27,45 @@ const DEFAULT_TECH_CONFIG = {
   feasibility: "pending" as const,
 };
 
-const EXEC_CYCLE: NodeExecutionMode[] = ["ai_auto", "human_confirm", "human_manual"];
-
 function FlowCardNode({ data, id }: NodeProps) {
   const nodeData = data as unknown as FlowNodeData;
-  const { viewMode, currentRole, selectedNodeId, setSelectedNodeId, setShowAnnotationPanel, annotations, allNodeConfidence, deferredNodeIds, updateNodeData } = useFlowAgentStore();
+  const [showBubble, setShowBubble] = useState(false);
+  const {
+    viewMode,
+    currentRole,
+    selectedNodeId,
+    setSelectedNodeId,
+    annotations,
+    allNodeConfidence,
+    deferredNodeIds,
+    collectedAnswers,
+    techBindings,
+  } = useFlowAgentStore();
+  const nodeBinding = techBindings.nodesById[id];
+  const boundSkillCodes = nodeBinding ? getEffectiveSkillCodes(nodeBinding) : [];
   const IconComponent = ICON_MAP[nodeData.icon] || BarChart3;
-  const execConfig = EXEC_MODE_CONFIG[nodeData.executionMode] || EXEC_MODE_CONFIG.ai_auto;
-  const ExecIcon = execConfig.icon;
   const techConfig = nodeData.techConfig ?? DEFAULT_TECH_CONFIG;
   const nodeAnnotations = annotations.filter((a) => a.nodeId === id);
   const unresolvedCount = nodeAnnotations.filter((a) => a.status !== "resolved").length;
   const isSelected = selectedNodeId === id;
   const nodeConf = allNodeConfidence.find((nc) => nc.nodeId === id);
   const isDeferred = deferredNodeIds.includes(id);
+  const nodeQuestions = nodeConf?.questions || [];
+  const unansweredQuestions = nodeQuestions.filter((q) => {
+    const answers = collectedAnswers[id];
+    if (!answers) return true;
+    return !answers.some((a) => a.question === q.question);
+  });
+  const hasAnnotationContent = currentRole === "tech" && unresolvedCount > 0;
 
-  const feasibilityBorder = {
-    confirmed: "border-l-green-500",
-    partial: "border-l-amber-500",
-    infeasible: "border-l-red-500",
-    pending: "border-l-transparent",
-  };
 
   const isFirstNode = nodeData.stepIndex === 1;
 
   return (
     <div
       className={`
-        w-[320px] bg-white rounded-xl border-2 shadow-sm cursor-pointer
+        relative w-[320px] bg-white rounded-xl border-2 shadow-sm cursor-pointer
         transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md
-        border-l-[4px] ${feasibilityBorder[techConfig.feasibility]}
         ${isSelected ? "border-blue-400 ring-2 ring-blue-100" : "border-zinc-200"}
       `}
       onClick={() => {
@@ -67,6 +73,46 @@ function FlowCardNode({ data, id }: NodeProps) {
       }}
       {...(isFirstNode ? { "data-onboarding": "flow-node" } : {})}
     >
+      {hasAnnotationContent && (
+        <button
+          type="button"
+          className="absolute -top-2 -right-2 z-10 flex items-center justify-center"
+          data-annotation-trigger
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowBubble((v) => !v);
+          }}
+        >
+          <span
+            className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-md transition-transform hover:scale-110 ${
+              currentRole === "tech" && unresolvedCount > 0
+                ? "bg-purple-500"
+                : unansweredQuestions.length > 0
+                  ? "bg-blue-500"
+                  : "bg-orange-400"
+            }`}
+          >
+            {currentRole === "tech" && unresolvedCount > 0
+              ? unresolvedCount
+              : unansweredQuestions.length > 0
+                ? unansweredQuestions.length
+                : "!"}
+          </span>
+        </button>
+      )}
+      {showBubble && (
+        <div
+          className="absolute top-0 left-full ml-4 z-50"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <NodeAnnotationBubble
+            nodeId={id}
+            nodeLabel={nodeData.label}
+            position="right"
+            onClose={() => setShowBubble(false)}
+          />
+        </div>
+      )}
       <Handle type="target" position={Position.Top} id="top-in" className="!w-3 !h-3 !bg-zinc-300 !border-2 !border-white hover:!bg-blue-400 hover:!scale-125 transition-all" />
       <Handle type="source" position={Position.Top} id="top-out" className="!w-3 !h-3 !bg-zinc-300 !border-2 !border-white hover:!bg-blue-400 hover:!scale-125 transition-all" />
       <Handle type="target" position={Position.Left} id="left-in" className="!w-3 !h-3 !bg-zinc-300 !border-2 !border-white hover:!bg-blue-400 hover:!scale-125 transition-all" style={{ top: "50%" }} />
@@ -84,13 +130,27 @@ function FlowCardNode({ data, id }: NodeProps) {
         </div>
         <div className="flex items-center gap-1.5">
           {isDeferred && (
-            <span
-              className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-orange-50 text-orange-500 text-[10px] border border-orange-200"
-              title="待确认：信息待补充"
-            >
-              <Clock className="w-2.5 h-2.5" />
-              待确认
-            </span>
+            currentRole === "business" ? (
+              <button
+                className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-orange-50 text-orange-500 text-[10px] border border-orange-200 hover:bg-orange-100 transition-colors"
+                title="待确认：信息待补充"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  useFlowAgentStore.setState({ selectedNodeId: id, showNodeQuestions: true });
+                }}
+              >
+                <Clock className="w-2.5 h-2.5" />
+                待确认
+              </button>
+            ) : (
+              <span
+                className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-orange-50 text-orange-500 text-[10px] border border-orange-200"
+                title="待确认：信息待补充"
+              >
+                <Clock className="w-2.5 h-2.5" />
+                待确认
+              </span>
+            )
           )}
           {nodeConf && nodeConf.confidence !== "high" && !isDeferred && (
             <button
@@ -102,7 +162,11 @@ function FlowCardNode({ data, id }: NodeProps) {
               title={`AI ${nodeConf.confidence === "medium" ? "不太确定" : "需要补充"}：${nodeConf.reason}`}
               onClick={(e) => {
                 e.stopPropagation();
-                useFlowAgentStore.setState({ selectedNodeId: id, showNodeQuestions: true });
+                if (currentRole === "business") {
+                  useFlowAgentStore.setState({ selectedNodeId: id, showNodeQuestions: true });
+                } else {
+                  useFlowAgentStore.setState({ selectedNodeId: id, showNodeQuestions: true });
+                }
               }}
             >
               <span className={`w-1.5 h-1.5 rounded-full ${
@@ -113,11 +177,12 @@ function FlowCardNode({ data, id }: NodeProps) {
           )}
           {currentRole === "tech" && unresolvedCount > 0 && (
             <button
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-600 text-xs hover:bg-amber-100 transition-colors"
+              type="button"
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-purple-50 text-purple-600 text-xs hover:bg-purple-100 transition-colors"
+              data-annotation-trigger
               onClick={(e) => {
                 e.stopPropagation();
-                setSelectedNodeId(id);
-                setShowAnnotationPanel(true);
+                setShowBubble((v) => !v);
               }}
             >
               <MessageSquare className="w-3 h-3" />
@@ -185,15 +250,25 @@ function FlowCardNode({ data, id }: NodeProps) {
       {/* Tech config - only in tech view */}
       {viewMode === "tech" && (
         <div className="px-4 mt-2 pt-2 border-t border-dashed border-zinc-200">
-          <div className="flex items-center gap-2 text-xs">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
             <span className="text-zinc-400">执行类型:</span>
             <Badge variant="outline" className="text-[10px] h-5">
               {techConfig.executionType === "deterministic" ? "🔧 确定性" : "🧠 智能规划"}
             </Badge>
-            {techConfig.boundSkill && (
+            <span className="text-zinc-400">Skill 绑定:</span>
+            {boundSkillCodes.length > 0 ? (
+              <Badge variant="outline" className="text-[10px] h-5 font-mono max-w-[180px] truncate" title={boundSkillCodes.join(", ")}>
+                {boundSkillCodes.length === 1 ? boundSkillCodes[0] : `${boundSkillCodes.length} 项`}
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="text-[10px] h-5 border-amber-200 bg-amber-50 text-amber-800">
+                待配置
+              </Badge>
+            )}
+            {techConfig.boundSkill && boundSkillCodes.length === 0 && (
               <>
-                <span className="text-zinc-400">Skill:</span>
-                <Badge variant="outline" className="text-[10px] h-5 font-mono">
+                <span className="text-zinc-400">草稿:</span>
+                <Badge variant="outline" className="text-[10px] h-5 font-mono opacity-70">
                   {techConfig.boundSkill}
                 </Badge>
               </>
@@ -202,39 +277,10 @@ function FlowCardNode({ data, id }: NodeProps) {
         </div>
       )}
 
-      {/* Feasibility bar - tech view only */}
-      {currentRole === "tech" && techConfig.feasibility !== "pending" && (
-        <div className={`mx-4 mt-2 px-2.5 py-1.5 rounded-lg text-[11px] font-medium ${
-          techConfig.feasibility === "confirmed"
-            ? "bg-green-50 text-green-700 border border-green-200"
-            : techConfig.feasibility === "partial"
-            ? "bg-amber-50 text-amber-700 border border-amber-200"
-            : "bg-red-50 text-red-700 border border-red-200"
-        }`}>
-          {techConfig.feasibility === "confirmed" && "✅ 技术可行"}
-          {techConfig.feasibility === "partial" && "⚠️ 部分可行，需调整"}
-          {techConfig.feasibility === "infeasible" && "❌ 技术不可行"}
-        </div>
-      )}
 
       {/* Footer */}
       <div className="flex items-center justify-between px-4 py-2.5 mt-2 border-t border-zinc-100">
         <span className="text-[11px] text-zinc-400">⏱️ {nodeData.estimatedTime}</span>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            const curIdx = EXEC_CYCLE.indexOf(nodeData.executionMode);
-            const nextMode = EXEC_CYCLE[(curIdx + 1) % EXEC_CYCLE.length];
-            updateNodeData(id, { executionMode: nextMode });
-          }}
-          className={`inline-flex items-center gap-1 text-[10px] h-5 px-2 rounded-full border transition-all hover:ring-2 hover:ring-offset-1 hover:ring-blue-200 active:scale-95 ${execConfig.className}`}
-          title="点击切换：AI 自动 → 需你确认 → 人工操作"
-          {...(isFirstNode ? { "data-onboarding": "exec-badge" } : {})}
-        >
-          <ExecIcon className="w-3 h-3" />
-          {execConfig.label}
-          <Repeat2 className="w-2.5 h-2.5 ml-0.5 opacity-40" />
-        </button>
       </div>
 
       <Handle type="target" position={Position.Bottom} id="bottom-in" className="!w-3 !h-3 !bg-zinc-300 !border-2 !border-white hover:!bg-blue-400 hover:!scale-125 transition-all" />

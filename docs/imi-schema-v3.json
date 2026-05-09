@@ -1,0 +1,1018 @@
+{
+  "meta": {
+    "id": "project-imi-certificate-v3",
+    "name": "IMI证书申请流程（业务翻译 v3）",
+    "version": "3.0.0",
+    "taskType": "workflow",
+    "createdAt": "2026-04-28T09:00:00Z",
+    "updatedAt": "2026-04-28T09:00:00Z",
+    "totalNodes": 8,
+    "estimatedDuration": "约3周（含海关审批与可能的补正轮次）",
+    "businessContext": "Leader邮件触发→IMI申请大表累加填写→按BBN+PART从共享盘取最新GSDS PDF补全→中外运网页上传→邮件海关→收证全字段核验→回填并归档IMI List（按海运/空运/陆运分sheet）。阶段1业务翻译骨架，binding字段待技术确认后回填。",
+    "tags": ["IMI", "危险品", "GSDS", "海关", "中外运", "Outlook"]
+  },
+  "globalConfig": {
+    "orchestration": {
+      "type": "sequential"
+    },
+    "timezone": "Asia/Shanghai"
+  },
+  "documents": [
+    {
+      "id": "doc-leader-email",
+      "name": "Leader申请邮件",
+      "fileType": "email",
+      "role": "external_input",
+      "schema": {
+        "type": "semi_structured",
+        "knownFields": [
+          { "name": "subject", "type": "string", "description": "邮件主题" },
+          { "name": "from", "type": "string", "description": "发件人" }
+        ],
+        "extractionHints": [
+          { "field": "适用目的港", "type": "string", "description": "正文中的适用目的港", "required": false },
+          { "field": "IMI证书编号", "type": "string", "description": "正文中的IMI证书编号", "required": false },
+          { "field": "BBN", "type": "string", "description": "产品编号", "required": true },
+          { "field": "PART", "type": "string", "description": "零件号", "required": true },
+          { "field": "中文名称", "type": "string", "description": "中文名称", "required": false },
+          { "field": "英文名称", "type": "string", "description": "英文名称", "required": false },
+          { "field": "运输方式", "type": "string", "description": "运输方式（海运/空运/陆运等）", "required": true },
+          { "field": "物料号", "type": "string", "description": "物料号", "required": false }
+        ],
+        "formatDescription": "正文为文字列表；一封邮件可能含一条或多条申请记录，格式不固定"
+      },
+      "samples": [
+        {
+          "description": "单条申请示例",
+          "data": {
+            "subject": "IMI申请 - BBN-003 / Z-5590",
+            "body": "目的港：Tokyo\nIMI证书编号：IMI-2025-001\nBBN：BBN-003\nPART：Z-5590\n中文名称：工业乙醇\n英文名称：Industrial Ethanol\n运输方式：海运\n物料号：MAT-88901"
+          }
+        }
+      ],
+      "constraints": ["使用 Outlook 收取；附件可能无，信息主要在正文"]
+    },
+    {
+      "id": "doc-imi-master",
+      "name": "IMI申请大表",
+      "fileType": "xlsx",
+      "role": "working",
+      "schema": {
+        "type": "table",
+        "sheetName": "申请表",
+        "primaryKey": ["申请编号", "BBN", "PART"],
+        "columns": [
+          { "name": "申请编号", "type": "string", "description": "A列，累加：上一最大编号+1", "required": true },
+          { "name": "适用目的港", "type": "string", "description": "来自 Leader 邮件", "required": true },
+          { "name": "IMI证书编号", "type": "string", "description": "来自 Leader 邮件", "required": false },
+          { "name": "BBN", "type": "string", "description": "来自 Leader 邮件", "required": true },
+          { "name": "PART", "type": "string", "description": "来自 Leader 邮件", "required": true },
+          { "name": "中文名称", "type": "string", "description": "来自 Leader 邮件", "required": false },
+          { "name": "英文名称", "type": "string", "description": "来自 Leader 邮件", "required": false },
+          { "name": "运输方式", "type": "string", "description": "来自 Leader；用于归档 IMI List 选 sheet", "required": true, "enumValues": ["海运", "空运", "陆运"] },
+          { "name": "物料号", "type": "string", "description": "来自 Leader 邮件", "required": false },
+          { "name": "颜色", "type": "string", "description": "来自 GSDS PDF", "required": false },
+          { "name": "状态", "type": "string", "description": "来自 GSDS PDF", "required": false },
+          { "name": "正式运输名称", "type": "string", "description": "来自 GSDS PDF", "required": false },
+          { "name": "UN联合国编号", "type": "string", "description": "来自 GSDS PDF", "required": false },
+          { "name": "危险货物类别", "type": "string", "description": "来自 GSDS PDF", "required": false },
+          { "name": "包装类别", "type": "string", "description": "来自 GSDS PDF", "required": false },
+          { "name": "易燃液体类别", "type": "string", "description": "来自 GSDS PDF（GHS）", "required": false },
+          { "name": "金属腐蚀剂类别", "type": "string", "description": "来自 GSDS PDF（GHS）", "required": false },
+          { "name": "皮肤腐蚀刺激类别", "type": "string", "description": "来自 GSDS PDF（GHS）", "required": false },
+          { "name": "严重眼损伤眼刺激类别", "type": "string", "description": "来自 GSDS PDF（GHS）", "required": false },
+          { "name": "皮肤致敏类别", "type": "string", "description": "来自 GSDS PDF（GHS）", "required": false },
+          { "name": "吸入危险类别", "type": "string", "description": "来自 GSDS PDF（GHS）", "required": false },
+          { "name": "危害水生环境短期危害类别", "type": "string", "description": "来自 GSDS PDF（GHS）", "required": false },
+          { "name": "危害水生环境长期危害类别", "type": "string", "description": "来自 GSDS PDF（GHS）", "required": false },
+          { "name": "海洋污染物", "type": "string", "description": "来自 GSDS PDF", "required": false },
+          { "name": "急毒性", "type": "string", "description": "来自 GSDS PDF", "required": false },
+          { "name": "密度", "type": "string", "description": "来自 GSDS PDF", "required": false },
+          { "name": "SDS密度", "type": "string", "description": "由密度保留两位小数得到", "required": false },
+          { "name": "成分含量CAS", "type": "string", "description": "成分｜含量｜CAS，来自 GSDS PDF", "required": false },
+          { "name": "恒创编号", "type": "string", "description": "证书编号，核验通过后从 IMI 证书回填", "required": false },
+          { "name": "签发日", "type": "date", "description": "来自 IMI 证书", "format": "YYYY-MM-DD", "required": false },
+          { "name": "有效期", "type": "date", "description": "来自 IMI 证书", "format": "YYYY-MM-DD", "required": false },
+          { "name": "是否属于危险化学品目录2015版", "type": "string", "description": "来自 IMI 证书", "required": false },
+          { "name": "是否符合危险化学品目录2015版", "type": "string", "description": "来自 IMI 证书", "required": false },
+          { "name": "是否属于IMDGCode分类的危险货物", "type": "string", "description": "来自 IMI 证书", "required": false },
+          { "name": "是否属于TDG分类的危险货物", "type": "string", "description": "来自 IMI 证书（原文可能截断，以证书为准）", "required": false }
+        ]
+      },
+      "samples": [
+        {
+          "description": "一行示例（GSDS 已补全、待证书回填）",
+          "data": {
+            "申请编号": "IMI-2026-0042",
+            "适用目的港": "Tokyo",
+            "IMI证书编号": "IMI-2025-001",
+            "BBN": "BBN-003",
+            "PART": "Z-5590",
+            "中文名称": "工业乙醇",
+            "英文名称": "Industrial Ethanol",
+            "运输方式": "海运",
+            "物料号": "MAT-88901",
+            "正式运输名称": "ETHANOL",
+            "UN联合国编号": "UN1170",
+            "SDS密度": "0.79"
+          }
+        }
+      ],
+      "constraints": ["累加表：新行申请编号 = 当前最大申请编号 + 1", "同一流程内可多行（Leader 一批）"],
+      "versionStrategy": "append_only"
+    },
+    {
+      "id": "doc-gsds-pdf",
+      "name": "GSDS产品安全数据表（PDF）",
+      "fileType": "pdf",
+      "role": "reference",
+      "schema": {
+        "type": "unstructured",
+        "contentType": "mixed",
+        "structureDescription": "企业 GSDS PDF，含运输信息、GHS 分类列、成分表等",
+        "extractionHints": [
+          { "field": "颜色", "type": "string", "description": "颜色", "required": false },
+          { "field": "状态", "type": "string", "description": "状态", "required": false },
+          { "field": "正式运输名称", "type": "string", "required": false },
+          { "field": "UN联合国编号", "type": "string", "required": false },
+          { "field": "危险货物类别", "type": "string", "required": false },
+          { "field": "包装类别", "type": "string", "required": false },
+          { "field": "易燃液体类别", "type": "string", "required": false },
+          { "field": "金属腐蚀剂类别", "type": "string", "required": false },
+          { "field": "皮肤腐蚀刺激类别", "type": "string", "required": false },
+          { "field": "严重眼损伤眼刺激类别", "type": "string", "required": false },
+          { "field": "皮肤致敏类别", "type": "string", "required": false },
+          { "field": "吸入危险类别", "type": "string", "required": false },
+          { "field": "危害水生环境短期危害类别", "type": "string", "required": false },
+          { "field": "危害水生环境长期危害类别", "type": "string", "required": false },
+          { "field": "海洋污染物", "type": "string", "required": false },
+          { "field": "急毒性", "type": "string", "required": false },
+          { "field": "密度", "type": "string", "description": "原始密度值", "required": false },
+          { "field": "成分含量CAS", "type": "string", "description": "成分｜含量｜CAS", "required": false }
+        ]
+      },
+      "samples": [],
+      "constraints": [
+        "共享盘目录：一级 BBN，二级 BBN_PART，其下为该组合多版本 PDF，取最新版本",
+        "命名多为 BBN_PART 相关；以目录内最新修改时间或版本号为准（业务约定）"
+      ],
+      "versionStrategy": "append_only"
+    },
+    {
+      "id": "doc-imi-certificate",
+      "name": "海关IMI证书（PDF）",
+      "fileType": "pdf",
+      "role": "external_input",
+      "schema": {
+        "type": "unstructured",
+        "contentType": "mixed",
+        "structureDescription": "海关签发的 IMI 证书 PDF；文件名通常为 申请编号+证书编号",
+        "extractionHints": [
+          { "field": "恒创编号", "type": "string", "description": "证书编号", "required": true },
+          { "field": "签发日", "type": "date", "required": true },
+          { "field": "有效期", "type": "date", "required": true },
+          { "field": "是否属于危险化学品目录2015版", "type": "string", "required": false },
+          { "field": "是否符合危险化学品目录2015版", "type": "string", "required": false },
+          { "field": "是否属于IMDGCode分类的危险货物", "type": "string", "required": false },
+          { "field": "是否属于TDG分类的危险货物", "type": "string", "required": false }
+        ]
+      },
+      "samples": [],
+      "constraints": ["约两周由海关经邮件返回；需与大表已填字段做全字段比对"]
+    },
+    {
+      "id": "doc-imi-list",
+      "name": "IMI List 归档表",
+      "fileType": "xlsx",
+      "role": "archive",
+      "schema": {
+        "type": "table",
+        "sheetName": "海运",
+        "columns": [
+          { "name": "申请编号", "type": "string", "required": true },
+          { "name": "适用目的港", "type": "string" },
+          { "name": "BBN", "type": "string", "required": true },
+          { "name": "PART", "type": "string", "required": true },
+          { "name": "运输方式", "type": "string" },
+          { "name": "恒创编号", "type": "string" },
+          { "name": "签发日", "type": "date", "format": "YYYY-MM-DD" },
+          { "name": "有效期", "type": "date", "format": "YYYY-MM-DD" }
+        ]
+      },
+      "samples": [],
+      "constraints": [
+        "含三个 sheet：海运、空运、陆运；从 IMI 申请大表整行复制到与运输方式一致的 sheet",
+        "列结构与大表一致（整行复制）；此处列仅为示意，实现以与大表对齐为准"
+      ],
+      "versionStrategy": "append_only"
+    }
+  ],
+  "externalSystems": [
+    {
+      "id": "sys-outlook",
+      "name": "企业邮箱 Outlook",
+      "type": "email",
+      "integration": { "current": "email", "target": "api", "readiness": "partial" },
+      "auth": { "type": "oauth2" },
+      "capabilities": ["收取 Leader 申请邮件", "发送申报材料与补正材料给海关", "接收海关证书邮件"],
+      "constraints": [{ "type": "availability", "detail": "按企业邮箱策略" }],
+      "humanFallback": "用户手动在 Outlook 中收发"
+    },
+    {
+      "id": "sys-zhongwaiyun",
+      "name": "中外运报关系统",
+      "type": "web_portal",
+      "integration": { "current": "manual", "target": "manual", "readiness": "not_available" },
+      "auth": { "type": "username_password" },
+      "capabilities": ["上传 IMI 申请大表 Excel", "下载系统生成的 IMI 证书申报材料包"],
+      "constraints": [
+        { "type": "availability", "detail": "无公开 API，仅网页操作" },
+        { "type": "file_size", "detail": "上传文件大小按门户限制" }
+      ],
+      "humanFallback": "用户登录网页上传 Excel、下载申报材料"
+    },
+    {
+      "id": "sys-customs",
+      "name": "海关（邮件通道）",
+      "type": "email",
+      "integration": { "current": "email", "target": "email", "readiness": "ready" },
+      "auth": { "type": "none" },
+      "capabilities": ["接收申报材料", "返回 IMI 证书 PDF"],
+      "constraints": [{ "type": "response_time", "detail": "约两周返回证书" }],
+      "humanFallback": "邮件沟通与补正"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "node-1",
+      "identity": {
+        "label": "解析 Leader 邮件并写入大表基础列",
+        "icon": "Mail",
+        "description": "从 Outlook 收到的 Leader 邮件正文中解析一条或多条申请（适用目的港、IMI证书编号、BBN、PART、中英文名称、运输方式、物料号）；为每条生成或更新 IMI 申请大表行，申请编号为当前最大编号+1（累加）。",
+        "stepIndex": 1,
+        "totalSteps": 8,
+        "executionMode": "human_confirm",
+        "estimatedTime": "10-20 分钟"
+      },
+      "dataContract": {
+        "inputs": [
+          {
+            "id": "in-1-1",
+            "name": "Leader 申请邮件",
+            "docRef": "doc-leader-email",
+            "source": "user",
+            "required": true,
+            "kind": "document",
+            "sourceType": "inline",
+            "mediaType": "message/rfc822"
+          },
+          {
+            "id": "in-1-2",
+            "name": "IMI 申请大表（当前版本）",
+            "docRef": "doc-imi-master",
+            "source": "default",
+            "required": true,
+            "kind": "document",
+            "sourceType": "file_path",
+            "mediaType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "out-1-1",
+            "name": "已写入 Leader 字段的 IMI 申请大表",
+            "docRef": "doc-imi-master",
+            "kind": "document",
+            "intent": "含自增申请编号及 Leader 各列的新增/更新行",
+            "mutations": ["追加或更新行", "申请编号累加"],
+            "flowsTo": ["node-2"]
+          }
+        ]
+      },
+      "businessIntent": [
+        {
+          "stepIndex": 1,
+          "type": "parse",
+          "description": "解析邮件正文，提取多条或单条申请的字段",
+          "target": { "docRef": "doc-leader-email" },
+          "keyFields": ["BBN", "PART", "适用目的港", "运输方式"]
+        },
+        {
+          "stepIndex": 2,
+          "type": "transform",
+          "description": "计算申请编号：max(现有申请编号)+1 逐条分配",
+          "target": { "docRef": "doc-imi-master" }
+        },
+        {
+          "stepIndex": 3,
+          "type": "write",
+          "description": "将 Leader 字段写入 IMI 申请大表对应列",
+          "target": { "docRef": "doc-imi-master" }
+        },
+        {
+          "stepIndex": 4,
+          "type": "validate",
+          "description": "校验 BBN、PART、运输方式等必填项",
+          "onError": "human_fallback"
+        }
+      ],
+      "taskType": "agentic",
+      "humanInteraction": {
+        "type": "verify",
+        "description": "确认解析出的申请行与申请编号是否正确",
+        "reviewLayout": "card",
+        "checkItems": ["BBN/PART 是否与邮件一致", "运输方式是否正确", "申请编号是否连续正确"],
+        "timeout": { "value": 24, "unit": "hours" },
+        "timeoutAction": "pause_and_notify"
+      },
+      "qualityHint": {
+        "onFailure": { "strategy": "human_fallback", "notifyRoles": ["business"] }
+      },
+      "errorStrategy": {
+        "strategy": "human_fallback",
+        "timeout": { "totalSeconds": 3600, "onExternalTimeout": "fail" },
+        "notifyRoles": ["business"],
+        "fallbackDescription": "解析失败时由用户手工录入大表"
+      },
+      "edges": [
+        {
+          "targetNodeId": "node-2",
+          "dataFlow": [
+            { "sourceOutput": "out-1-1", "targetInput": "in-2-1", "description": "大表传递给 GSDS 补全" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "node-2",
+      "identity": {
+        "label": "按 BBN+PART 定位 GSDS 并补全大表",
+        "icon": "FileSearch",
+        "description": "在共享盘按 BBN → BBN_PART 目录查找该组合下最新版本 GSDS PDF；抽取图中列及成分｜含量｜CAS、密度；将密度保留两位小数写入 SDS密度列；其余字段写入 IMI 申请大表。",
+        "stepIndex": 2,
+        "totalSteps": 8,
+        "executionMode": "ai_auto",
+        "estimatedTime": "5-15 分钟"
+      },
+      "dataContract": {
+        "inputs": [
+          {
+            "id": "in-2-1",
+            "name": "IMI 申请大表（含 Leader 列）",
+            "docRef": "doc-imi-master",
+            "source": "previous_step",
+            "sourceNodeId": "node-1",
+            "required": true,
+            "kind": "document",
+            "sourceType": "file_path",
+            "mediaType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          },
+          {
+            "id": "in-2-2",
+            "name": "GSDS PDF（按行解析路径）",
+            "docRef": "doc-gsds-pdf",
+            "source": "external_system",
+            "required": true,
+            "kind": "document",
+            "sourceType": "file_path",
+            "mediaType": "application/pdf"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "out-2-1",
+            "name": "GSDS 已补全的 IMI 申请大表",
+            "docRef": "doc-imi-master",
+            "kind": "document",
+            "intent": "已写入 GSDS 各列及 SDS密度",
+            "mutations": ["写入颜色状态运输UN危类包装GHS列等", "写入成分含量CAS", "SDS密度=round(密度,2)"],
+            "flowsTo": ["node-3"]
+          }
+        ]
+      },
+      "businessIntent": [
+        {
+          "stepIndex": 1,
+          "type": "query",
+          "description": "按每行 BBN+PART 解析共享盘路径并选取最新版本 GSDS PDF",
+          "target": { "docRef": "doc-gsds-pdf" },
+          "keyFields": ["BBN", "PART"]
+        },
+        {
+          "stepIndex": 2,
+          "type": "parse",
+          "description": "从 PDF 抽取表格与文本中的安全数据字段及成分｜含量｜CAS",
+          "target": { "docRef": "doc-gsds-pdf" }
+        },
+        {
+          "stepIndex": 3,
+          "type": "transform",
+          "description": "将密度数值保留两位小数得到 SDS密度",
+          "target": { "docRef": "doc-imi-master" }
+        },
+        {
+          "stepIndex": 4,
+          "type": "write",
+          "description": "将抽取字段写入 IMI 申请大表对应列",
+          "target": { "docRef": "doc-imi-master" }
+        },
+        {
+          "stepIndex": 5,
+          "type": "validate",
+          "description": "检查每行是否找到 GSDS 且关键字段非空",
+          "onError": "human_fallback"
+        }
+      ],
+      "taskType": "agentic",
+      "qualityHint": {
+        "onFailure": { "strategy": "human_fallback", "notifyRoles": ["business", "tech"] }
+      },
+      "errorStrategy": {
+        "strategy": "retry",
+        "retryPolicy": { "maxRetries": 2, "backoff": "exponential", "delayMs": 1000 },
+        "timeout": { "totalSeconds": 7200, "onExternalTimeout": "fail" },
+        "notifyRoles": ["tech"],
+        "fallbackDescription": "找不到 GSDS 或解析失败时转人工处理"
+      },
+      "edges": [
+        {
+          "targetNodeId": "node-3",
+          "dataFlow": [
+            { "sourceOutput": "out-2-1", "targetInput": "in-3-1", "description": "补全后大表交人工确认" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "node-3",
+      "identity": {
+        "label": "人工确认大表（Leader+GSDS）",
+        "icon": "UserCheck",
+        "description": "业务人员核对 IMI 申请大表中 Leader 与 GSDS 补全内容是否正确，确认后进入中外运上传环节。",
+        "stepIndex": 3,
+        "totalSteps": 8,
+        "executionMode": "human_confirm",
+        "estimatedTime": "15-45 分钟"
+      },
+      "dataContract": {
+        "inputs": [
+          {
+            "id": "in-3-1",
+            "name": "GSDS 已补全的 IMI 申请大表",
+            "docRef": "doc-imi-master",
+            "source": "previous_step",
+            "sourceNodeId": "node-2",
+            "required": true,
+            "kind": "document",
+            "sourceType": "file_path",
+            "mediaType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "out-3-1",
+            "name": "确认后的 IMI 申请大表",
+            "docRef": "doc-imi-master",
+            "kind": "document",
+            "intent": "人工确认可上传版本",
+            "flowsTo": ["node-4"]
+          }
+        ]
+      },
+      "businessIntent": [
+        {
+          "stepIndex": 1,
+          "type": "human_action",
+          "description": "逐行核对 Leader 与 GSDS 字段，必要时手工修正",
+          "target": { "docRef": "doc-imi-master" }
+        }
+      ],
+      "taskType": "human_review",
+      "humanInteraction": {
+        "type": "verify",
+        "description": "确认大表可提交中外运",
+        "reviewLayout": "compare",
+        "checkItems": ["申请编号与邮件一致", "GSDS 字段与 PDF 一致", "SDS密度计算正确", "运输方式正确"],
+        "timeout": { "value": 48, "unit": "hours" },
+        "timeoutAction": "pause_and_notify"
+      },
+      "qualityHint": {
+        "acceptanceCriteria": [
+          {
+            "id": "ac-node3-signed",
+            "title": "人工确认完成",
+            "description": "审核界面完成确认",
+            "checkType": ["human"],
+            "blocking": true
+          }
+        ],
+        "onFailure": { "strategy": "human_fallback", "notifyRoles": ["business"] }
+      },
+      "errorStrategy": {
+        "strategy": "human_fallback",
+        "timeout": { "totalSeconds": 172800, "onExternalTimeout": "fail" },
+        "notifyRoles": ["business"]
+      },
+      "edges": [
+        {
+          "targetNodeId": "node-4",
+          "dataFlow": [
+            { "sourceOutput": "out-3-1", "targetInput": "in-4-1", "description": "确认大表进入中外运上传" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "node-4",
+      "identity": {
+        "label": "上传中外运系统",
+        "icon": "Upload",
+        "description": "登录中外运网页门户，上传确认后的 IMI 申请大表 Excel；无 API，纯手动操作。",
+        "stepIndex": 4,
+        "totalSteps": 8,
+        "executionMode": "human_manual",
+        "estimatedTime": "10-20 分钟"
+      },
+      "dataContract": {
+        "inputs": [
+          {
+            "id": "in-4-1",
+            "name": "确认后的 IMI 申请大表",
+            "docRef": "doc-imi-master",
+            "source": "previous_step",
+            "sourceNodeId": "node-3",
+            "required": true,
+            "kind": "document",
+            "sourceType": "file_path",
+            "mediaType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "out-4-1",
+            "name": "中外运申报材料包引用",
+            "docRef": null,
+            "kind": "structured",
+            "intent": "本地下载的申报材料文件路径或包描述",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "localPathOrBundleId": { "type": "string", "description": "下载材料本地路径或包标识" },
+                "portalReference": { "type": "string", "description": "门户侧参考号（若有）" }
+              }
+            },
+            "flowsTo": ["node-5"]
+          }
+        ]
+      },
+      "businessIntent": [
+        {
+          "stepIndex": 1,
+          "type": "human_action",
+          "description": "登录中外运系统并上传 IMI 申请大表",
+          "target": { "externalRef": "sys-zhongwaiyun" }
+        },
+        {
+          "stepIndex": 2,
+          "type": "human_action",
+          "description": "下载系统生成的 IMI 证书申报材料",
+          "target": { "externalRef": "sys-zhongwaiyun" }
+        }
+      ],
+      "taskType": "human_review",
+      "humanInteraction": {
+        "type": "manual_action",
+        "description": "完成上传与下载 checklist",
+        "reviewLayout": "checklist",
+        "checkItems": ["已上传正确 Excel", "已下载申报材料包"],
+        "timeout": { "value": 48, "unit": "hours" },
+        "timeoutAction": "pause_and_notify"
+      },
+      "qualityHint": {
+        "onFailure": { "strategy": "human_fallback", "notifyRoles": ["business"] }
+      },
+      "errorStrategy": {
+        "strategy": "human_fallback",
+        "timeout": { "totalSeconds": 86400, "onExternalTimeout": "fail" },
+        "notifyRoles": ["business"]
+      },
+      "edges": [
+        {
+          "targetNodeId": "node-5",
+          "dataFlow": [
+            { "sourceOutput": "out-4-1", "targetInput": "in-5-1", "description": "申报材料信息用于发邮件" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "node-5",
+      "identity": {
+        "label": "邮件发送申报材料至海关",
+        "icon": "Send",
+        "description": "通过 Outlook 将中外运下载的 IMI 证书申报材料作为附件（或约定形式）发送给海关；补正时重复本步骤。",
+        "stepIndex": 5,
+        "totalSteps": 8,
+        "executionMode": "ai_auto",
+        "estimatedTime": "5-10 分钟"
+      },
+      "dataContract": {
+        "inputs": [
+          {
+            "id": "in-5-1",
+            "name": "申报材料包信息",
+            "docRef": null,
+            "source": "previous_step",
+            "sourceNodeId": "node-4",
+            "required": true,
+            "kind": "structured",
+            "sourceType": "inline"
+          },
+          {
+            "id": "in-5-2",
+            "name": "IMI 申请大表（备查附件，可选）",
+            "docRef": "doc-imi-master",
+            "source": "previous_step",
+            "sourceNodeId": "node-3",
+            "required": false,
+            "kind": "document",
+            "sourceType": "file_path",
+            "mediaType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          },
+          {
+            "id": "in-5-3",
+            "name": "补正上下文（来自核验未通过）",
+            "docRef": null,
+            "source": "previous_step",
+            "sourceNodeId": "node-7",
+            "required": false,
+            "kind": "structured",
+            "sourceType": "inline"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "out-5-1",
+            "name": "发送回执",
+            "docRef": null,
+            "kind": "structured",
+            "intent": "邮件已发送确认",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "sent": { "type": "boolean" },
+                "messageId": { "type": "string" },
+                "sentAt": { "type": "string" }
+              }
+            },
+            "flowsTo": ["node-6"]
+          }
+        ]
+      },
+      "businessIntent": [
+        {
+          "stepIndex": 1,
+          "type": "send_message",
+          "description": "使用 Outlook 将申报材料邮件发送至海关",
+          "target": { "externalRef": "sys-customs" }
+        }
+      ],
+      "taskType": "integration",
+      "qualityHint": {
+        "onFailure": { "strategy": "retry", "notifyRoles": ["tech"] }
+      },
+      "errorStrategy": {
+        "strategy": "retry",
+        "retryPolicy": { "maxRetries": 3, "backoff": "exponential", "delayMs": 2000 },
+        "timeout": { "totalSeconds": 600, "externalCallSeconds": 120, "onExternalTimeout": "fail" },
+        "notifyRoles": ["business", "tech"]
+      },
+      "edges": [
+        {
+          "targetNodeId": "node-6",
+          "dataFlow": [
+            { "sourceOutput": "out-5-1", "targetInput": "in-6-1", "description": "发送确认进入等待证书" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "node-6",
+      "identity": {
+        "label": "等待并接收海关 IMI 证书",
+        "icon": "Clock",
+        "description": "等待约两周；在 Outlook 中接收海关返回的 IMI 证书 PDF（文件名通常为 申请编号+证书编号）；解析基础字段供核验。",
+        "stepIndex": 6,
+        "totalSteps": 8,
+        "executionMode": "human_confirm",
+        "estimatedTime": "约2周+30分钟处理"
+      },
+      "dataContract": {
+        "inputs": [
+          {
+            "id": "in-6-1",
+            "name": "发送回执",
+            "docRef": null,
+            "source": "previous_step",
+            "sourceNodeId": "node-5",
+            "required": true,
+            "kind": "structured",
+            "sourceType": "inline"
+          },
+          {
+            "id": "in-6-2",
+            "name": "当前 IMI 申请大表",
+            "docRef": "doc-imi-master",
+            "source": "previous_step",
+            "sourceNodeId": "node-3",
+            "required": true,
+            "kind": "document",
+            "sourceType": "file_path",
+            "mediaType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "out-6-1",
+            "name": "海关证书及解析快照",
+            "docRef": "doc-imi-certificate",
+            "kind": "document",
+            "intent": "证书 PDF 与抽取的结构化快照供比对",
+            "flowsTo": ["node-7"]
+          }
+        ]
+      },
+      "businessIntent": [
+        {
+          "stepIndex": 1,
+          "type": "wait",
+          "description": "等待海关邮件返回证书",
+          "target": { "externalRef": "sys-customs" }
+        },
+        {
+          "stepIndex": 2,
+          "type": "parse",
+          "description": "根据文件名关联申请编号；解析证书 PDF 全量相关字段",
+          "target": { "docRef": "doc-imi-certificate" }
+        }
+      ],
+      "taskType": "agentic",
+      "humanInteraction": {
+        "type": "verify",
+        "description": "确认收到的 PDF 为对应申请且可解析",
+        "reviewLayout": "card",
+        "checkItems": ["文件名与申请编号一致", "证书可读"],
+        "timeout": { "value": 72, "unit": "hours" },
+        "timeoutAction": "pause_and_notify"
+      },
+      "qualityHint": {
+        "onFailure": { "strategy": "human_fallback", "notifyRoles": ["business"] }
+      },
+      "errorStrategy": {
+        "strategy": "human_fallback",
+        "timeout": { "totalSeconds": 1209600, "onExternalTimeout": "fail" },
+        "notifyRoles": ["business"],
+        "fallbackDescription": "超时未收到证书时人工跟进海关"
+      },
+      "edges": [
+        {
+          "targetNodeId": "node-7",
+          "dataFlow": [
+            { "sourceOutput": "out-6-1", "targetInput": "in-7-1", "description": "证书进入全字段核验" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "node-7",
+      "identity": {
+        "label": "全字段核验证书 vs 申请大表",
+        "icon": "ShieldCheck",
+        "description": "将 IMI 证书中与大表已填写部分进行全字段比对（中英文名、UN、危类、组分、GHS 相关列等）。若有偏差：截图问题点并附原申报材料通过 Outlook 重发海关（回到发送环节）。若无偏差：输出通过标记供回填。",
+        "stepIndex": 7,
+        "totalSteps": 8,
+        "executionMode": "human_confirm",
+        "estimatedTime": "20-60 分钟"
+      },
+      "dataContract": {
+        "inputs": [
+          {
+            "id": "in-7-1",
+            "name": "海关证书及解析快照",
+            "docRef": "doc-imi-certificate",
+            "source": "previous_step",
+            "sourceNodeId": "node-6",
+            "required": true,
+            "kind": "document",
+            "sourceType": "file_path",
+            "mediaType": "application/pdf"
+          },
+          {
+            "id": "in-7-2",
+            "name": "IMI 申请大表",
+            "docRef": "doc-imi-master",
+            "source": "previous_step",
+            "sourceNodeId": "node-3",
+            "required": true,
+            "kind": "document",
+            "sourceType": "file_path",
+            "mediaType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "out-7-1",
+            "name": "核验结果",
+            "docRef": null,
+            "kind": "structured",
+            "intent": "是否通过及差异清单",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "verificationPassed": { "type": "boolean", "description": "全字段比对通过" },
+                "deviationSummary": { "type": "string", "description": "未通过时的差异说明" },
+                "screenshotBundleRef": { "type": "string", "description": "补正用截图包引用（若有）" }
+              }
+            },
+            "flowsTo": ["node-8", "node-5"]
+          }
+        ]
+      },
+      "businessIntent": [
+        {
+          "stepIndex": 1,
+          "type": "compare",
+          "description": "证书与大表已填列全字段逐项比对",
+          "target": { "docRef": "doc-imi-certificate" },
+          "keyFields": ["中文名称", "英文名称", "UN联合国编号", "危险货物类别", "成分含量CAS", "正式运输名称", "包装类别", "各GHS类别列"]
+        },
+        {
+          "stepIndex": 2,
+          "type": "conditional",
+          "description": "有偏差：整理截图与申报材料重发海关；无偏差：进入回填"
+        },
+        {
+          "stepIndex": 3,
+          "type": "send_message",
+          "description": "仅在未通过路径：将问题截图与材料再次邮件海关",
+          "target": { "externalRef": "sys-customs" },
+          "onError": "human_fallback"
+        }
+      ],
+      "taskType": "agentic",
+      "humanInteraction": {
+        "type": "decision",
+        "description": "确认自动比对结论或标注例外",
+        "reviewLayout": "compare",
+        "checkItems": ["差异是否属实", "是否接受补正重发"],
+        "timeout": { "value": 48, "unit": "hours" },
+        "timeoutAction": "pause_and_notify"
+      },
+      "qualityHint": {
+        "onFailure": { "strategy": "human_fallback", "notifyRoles": ["business"] }
+      },
+      "errorStrategy": {
+        "strategy": "human_fallback",
+        "timeout": { "totalSeconds": 7200, "onExternalTimeout": "fail" },
+        "notifyRoles": ["business", "tech"]
+      },
+      "edges": [
+        {
+          "targetNodeId": "node-8",
+          "condition": { "field": "verificationPassed", "operator": "eq", "value": true },
+          "dataFlow": [
+            { "sourceOutput": "out-7-1", "targetInput": "in-8-1", "description": "核验通过进入回填与归档" }
+          ]
+        },
+        {
+          "targetNodeId": "node-5",
+          "condition": { "field": "verificationPassed", "operator": "eq", "value": false },
+          "dataFlow": [
+            { "sourceOutput": "out-7-1", "targetInput": "in-5-3", "description": "未通过则重发材料（与初发共用邮件节点）" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "node-8",
+      "identity": {
+        "label": "回填证书字段并归档 IMI List",
+        "icon": "Archive",
+        "description": "将证书中的恒创编号、签发日、有效期及四项目录/IMDG/TDG 分类字段写入 IMI 申请大表；按运输方式将整行复制到 IMI List 对应 sheet（海运/空运/陆运）。",
+        "stepIndex": 8,
+        "totalSteps": 8,
+        "executionMode": "ai_auto",
+        "estimatedTime": "10-20 分钟"
+      },
+      "dataContract": {
+        "inputs": [
+          {
+            "id": "in-8-1",
+            "name": "核验通过结果",
+            "docRef": null,
+            "source": "previous_step",
+            "sourceNodeId": "node-7",
+            "required": true,
+            "kind": "structured",
+            "sourceType": "inline"
+          },
+          {
+            "id": "in-8-2",
+            "name": "IMI 申请大表",
+            "docRef": "doc-imi-master",
+            "source": "previous_step",
+            "sourceNodeId": "node-3",
+            "required": true,
+            "kind": "document",
+            "sourceType": "file_path",
+            "mediaType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          },
+          {
+            "id": "in-8-3",
+            "name": "海关证书 PDF",
+            "docRef": "doc-imi-certificate",
+            "source": "previous_step",
+            "sourceNodeId": "node-6",
+            "required": true,
+            "kind": "document",
+            "sourceType": "file_path",
+            "mediaType": "application/pdf"
+          },
+          {
+            "id": "in-8-4",
+            "name": "IMI List 归档表",
+            "docRef": "doc-imi-list",
+            "source": "default",
+            "required": true,
+            "kind": "document",
+            "sourceType": "file_path",
+            "mediaType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "out-8-1",
+            "name": "更新后的 IMI 申请大表",
+            "docRef": "doc-imi-master",
+            "kind": "document",
+            "intent": "已回填证书编号签发日有效期及四列分类",
+            "flowsTo": []
+          },
+          {
+            "id": "out-8-2",
+            "name": "更新后的 IMI List",
+            "docRef": "doc-imi-list",
+            "kind": "document",
+            "intent": "整行追加到与运输方式一致的 sheet",
+            "flowsTo": []
+          }
+        ]
+      },
+      "businessIntent": [
+        {
+          "stepIndex": 1,
+          "type": "parse",
+          "description": "从证书 PDF 提取恒创编号、签发日、有效期及四项目录相关列",
+          "target": { "docRef": "doc-imi-certificate" }
+        },
+        {
+          "stepIndex": 2,
+          "type": "write",
+          "description": "写入 IMI 申请大表对应列",
+          "target": { "docRef": "doc-imi-master" }
+        },
+        {
+          "stepIndex": 3,
+          "type": "transform",
+          "description": "根据运输方式选择 IMI List 的 sheet（海运/空运/陆运）",
+          "target": { "docRef": "doc-imi-list" }
+        },
+        {
+          "stepIndex": 4,
+          "type": "write",
+          "description": "将大表该行整行复制粘贴到 IMI List 目标 sheet",
+          "target": { "docRef": "doc-imi-list" }
+        }
+      ],
+      "taskType": "agentic",
+      "qualityHint": {
+        "acceptanceCriteria": [
+          {
+            "id": "ac-node8-archive",
+            "title": "归档完成",
+            "description": "大表已回填且 IMI List 对应 sheet 已追加行",
+            "checkType": ["deterministic_rule"],
+            "blocking": true
+          }
+        ],
+        "onFailure": { "strategy": "human_fallback", "notifyRoles": ["business"] }
+      },
+      "errorStrategy": {
+        "strategy": "human_fallback",
+        "timeout": { "totalSeconds": 3600, "onExternalTimeout": "fail" },
+        "notifyRoles": ["business"]
+      },
+      "edges": []
+    }
+  ]
+}

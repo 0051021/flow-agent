@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -10,8 +10,11 @@ import {
   Workflow, ArrowRight, Sparkles, BarChart3, PenTool,
   ShieldCheck, Zap, LayoutDashboard, Bot, GitBranch,
   CheckCircle2, ArrowUpRight, Code2, ListChecks,
+  Paperclip, X, FileText, Loader2,
 } from "lucide-react";
+import { toast } from "sonner";
 import { CONSOLE_STATS } from "@/lib/mock-console";
+import { useFlowAgentStore, type ChatAttachment } from "@/lib/store";
 import QuizPromptBuilder from "@/components/ui/QuizPromptBuilder";
 
 const EXAMPLES = [
@@ -104,11 +107,42 @@ const FEATURES = [
 export default function HomePage() {
   const [input, setInput] = useState("");
   const [showQuiz, setShowQuiz] = useState(false);
+  const [uploadedFiles, setUploadedFiles] = useState<ChatAttachment[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
+
+  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files?.length) return;
+    setUploading(true);
+    const newAttachments: ChatAttachment[] = [];
+    for (const file of Array.from(files)) {
+      const form = new FormData();
+      form.append("file", file);
+      try {
+        const res = await fetch("/api/upload", { method: "POST", body: form });
+        const result = await res.json();
+        if (result.success) {
+          newAttachments.push(result.file);
+        } else {
+          toast.error(`上传失败：${file.name}`, { description: result.error });
+        }
+      } catch {
+        toast.error(`上传失败：${file.name}`);
+      }
+    }
+    setUploadedFiles((prev) => [...prev, ...newAttachments]);
+    setUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }, []);
 
   const handleStart = (prompt?: string) => {
     const q = prompt || input;
-    if (!q.trim()) return;
+    if (!q.trim() && uploadedFiles.length === 0) return;
+    if (uploadedFiles.length > 0) {
+      useFlowAgentStore.getState().setInitFiles(uploadedFiles);
+    }
     router.push(`/editor?q=${encodeURIComponent(q.trim())}&t=${Date.now()}`);
   };
 
@@ -175,10 +209,38 @@ export default function HomePage() {
             />
           ) : (
             <div className="bg-white rounded-2xl border border-zinc-200/80 shadow-lg shadow-zinc-200/50 p-5">
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                accept=".pdf,.xlsx,.xls,.docx,.txt,.csv,.md,.json,.png,.jpg,.jpeg"
+                multiple
+                onChange={handleFileSelect}
+              />
+              {uploadedFiles.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  {uploadedFiles.map((f) => (
+                    <div
+                      key={f.storedName}
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 border border-blue-100 text-xs text-blue-700"
+                    >
+                      <FileText className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate max-w-[160px]">{f.originalName}</span>
+                      <button
+                        type="button"
+                        onClick={() => setUploadedFiles((prev) => prev.filter((x) => x.storedName !== f.storedName))}
+                        className="shrink-0 text-blue-400 hover:text-blue-600 transition-colors"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
               <Textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && input.trim()) { e.preventDefault(); handleStart(); } }}
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && (input.trim() || uploadedFiles.length > 0)) { e.preventDefault(); handleStart(); } }}
                 placeholder="例如：我每天要处理几十张报销单，先核对发票，再找领导签字，最后录入系统，很费时间……"
                 className="border-0 shadow-none focus-visible:ring-0 text-sm min-h-[80px] resize-none p-0"
               />
@@ -208,16 +270,27 @@ export default function HomePage() {
                 ))}
               </div>
               <div className="flex justify-between items-center mt-3">
-                <button
-                  onClick={() => setShowQuiz(true)}
-                  className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-blue-600 transition-colors"
-                >
-                  <ListChecks className="w-3.5 h-3.5" />
-                  不知道怎么写？回答几个问题
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploading}
+                    className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-blue-600 transition-colors disabled:opacity-50"
+                    title="上传参考文件（PDF、Excel、文档等）"
+                  >
+                    {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Paperclip className="w-3.5 h-3.5" />}
+                    上传文件
+                  </button>
+                  <button
+                    onClick={() => setShowQuiz(true)}
+                    className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-blue-600 transition-colors"
+                  >
+                    <ListChecks className="w-3.5 h-3.5" />
+                    不知道怎么写？回答几个问题
+                  </button>
+                </div>
                 <Button
                   onClick={() => handleStart()}
-                  disabled={!input.trim()}
+                  disabled={!input.trim() && uploadedFiles.length === 0}
                   className="bg-zinc-900 hover:bg-zinc-800 px-5"
                 >
                   帮我梳理 <ArrowRight className="w-4 h-4 ml-1.5" />

@@ -1,4 +1,4 @@
-import type { FlowNodeData } from "./types";
+import type { FlowNodeData, NodeTechConfig } from "./types";
 import type { Node, Edge } from "@xyflow/react";
 import { v4 as uuidv4 } from "uuid";
 import dagre from "@dagrejs/dagre";
@@ -8,7 +8,7 @@ interface LLMNode {
   label: string;
   icon: string;
   description: string;
-  executionMode: "ai_auto" | "human_confirm" | "human_manual";
+  executionMode?: "pending" | "ai_auto" | "human_confirm" | "human_manual";
   estimatedTime: string;
   inputs: {
     name: string;
@@ -28,6 +28,9 @@ interface LLMNode {
     detail: string;
     source: "ai_inferred" | "user_confirmed";
   }[];
+  operationSteps?: string[];
+  requiredCheckFields?: string[];
+  doneCriteria?: string;
   isCondition?: boolean;
   conditionBranches?: { label: string; icon: string; targetLabel: string }[] | null;
   executionType?: "deterministic" | "intelligent";
@@ -113,6 +116,13 @@ export function parseLLMResponse(data: LLMFlowData): {
   const positions = computeDAGLayout(nodeIdArray, data.edges);
   const totalSteps = data.nodes.length;
 
+  const normalizeMode = (mode: unknown): FlowNodeData["executionMode"] => {
+    if (mode === "ai_auto" || mode === "human_confirm" || mode === "human_manual" || mode === "pending") {
+      return mode;
+    }
+    return "pending";
+  };
+
   const nodes: Node<FlowNodeData>[] = data.nodes.map((n, index) => ({
     id: n.id,
     type: "flowCard",
@@ -123,7 +133,7 @@ export function parseLLMResponse(data: LLMFlowData): {
       description: n.description,
       stepIndex: index + 1,
       totalSteps,
-      executionMode: n.executionMode,
+      executionMode: normalizeMode(n.executionMode),
       estimatedTime: n.estimatedTime,
       inputs: (n.inputs || []).map((inp) => ({
         id: uuidv4(),
@@ -147,6 +157,9 @@ export function parseLLMResponse(data: LLMFlowData): {
         detail: r.detail,
         source: r.source || "ai_inferred",
       })),
+      operationSteps: Array.isArray(n.operationSteps) ? n.operationSteps : [],
+      requiredCheckFields: Array.isArray(n.requiredCheckFields) ? n.requiredCheckFields : [],
+      doneCriteria: typeof n.doneCriteria === "string" ? n.doneCriteria : "",
       errorHandling: [
         { strategy: "retry" as const, enabled: true, config: { maxRetries: 3, retryInterval: 30 } },
         { strategy: "human_fallback" as const, enabled: true, config: { notifyRole: "负责人" } },
@@ -264,7 +277,7 @@ export function serializeFlowForLLM(
         label: d.label || "未命名节点",
         icon: d.icon || "Zap",
         description: d.description || "",
-        executionMode: d.executionMode || "ai_auto",
+        executionMode: d.executionMode || "pending",
         estimatedTime: d.estimatedTime || "待定",
         inputs: (d.inputs || []).map((inp) => ({
           name: inp.name,
@@ -284,6 +297,9 @@ export function serializeFlowForLLM(
           detail: r.detail,
           source: r.source,
         })),
+        operationSteps: Array.isArray(d.operationSteps) ? d.operationSteps : [],
+        requiredCheckFields: Array.isArray(d.requiredCheckFields) ? d.requiredCheckFields : [],
+        doneCriteria: typeof d.doneCriteria === "string" ? d.doneCriteria : "",
         isCondition: d.isCondition,
         conditionBranches: d.conditionBranches || null,
         executionType: tc.executionType,
@@ -310,7 +326,7 @@ export function serializeFlowForLLM(
     const d = n.data as unknown as FlowNodeData;
     if (!d) continue;
     const tc = d.techConfig ?? { executionType: "deterministic" };
-    const mode = { ai_auto: "AI自动", human_confirm: "需人工确认", human_manual: "人工操作" }[d.executionMode] || "未知";
+    const mode = { pending: "待技术选择", ai_auto: "AI自动", human_confirm: "需人工确认", human_manual: "人工操作" }[d.executionMode] || "未知";
     const type = tc.executionType === "deterministic" ? "确定性执行" : "智能规划";
 
     lines.push(`### ${n.id}: ${d.label || "未命名"}`);
@@ -436,12 +452,13 @@ export function mergeWorkflowTechConfig(
       : d.errorHandling;
 
     const execType = tech.executionType || tech.techConfig?.executionType || d.techConfig?.executionType || "deterministic";
-    const mergedTechConfig = {
+    const mergedTechConfig: NodeTechConfig = {
       ...d.techConfig,
       executionType: execType as "deterministic" | "intelligent",
       boundSkill: tech.techConfig?.boundSkill || d.techConfig?.boundSkill,
       evaluator: tech.techConfig?.evaluator || d.techConfig?.evaluator,
       timeout: tech.techConfig?.timeout || d.techConfig?.timeout,
+      feasibility: d.techConfig.feasibility,
     };
 
     const mergedInputs = d.inputs.map((inp) => ({

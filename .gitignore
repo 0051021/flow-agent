@@ -1,5 +1,8 @@
 # dependencies
 /node_modules
+
+# uploaded files
+.uploads
 /.pnp
 .pnp.*
 .yarn/*

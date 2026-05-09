@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { jsonrepair } from "jsonrepair";
+import { callLLM, streamViaCursorSDK, type StreamEvent, type CallLLMOptions } from "@/lib/llm";
 
 export const maxDuration = 300;
 
@@ -15,7 +15,7 @@ const FLOW_BIZ_SCHEMA = `{
       "label": "节点名称（2-6个字）",
       "icon": "图标名（从以下选择：BarChart3, Target, PenTool, ShieldCheck, Clock, Activity, RefreshCw, Search, FileText, Mail, Database, Zap, Eye, Settings, Upload, Download, Users, Globe, Lock, Bell）",
       "description": "用一句话描述这个节点做什么（20-40字）",
-      "executionMode": "ai_auto 或 human_confirm 或 human_manual",
+      "executionMode": "pending 或 ai_auto 或 human_confirm 或 human_manual",
       "estimatedTime": "预计耗时（如：约2分钟、约30秒、持续运行）",
       "inputs": [
         {
@@ -60,7 +60,7 @@ const FLOW_JSON_SCHEMA = `{
       "label": "节点名称（2-6个字）",
       "icon": "图标名（从以下选择：BarChart3, Target, PenTool, ShieldCheck, Clock, Activity, RefreshCw, Search, FileText, Mail, Database, Zap, Eye, Settings, Upload, Download, Users, Globe, Lock, Bell）",
       "description": "用一句话描述这个节点做什么（20-40字）",
-      "executionMode": "ai_auto 或 human_confirm 或 human_manual",
+      "executionMode": "pending 或 ai_auto 或 human_confirm 或 human_manual",
       "estimatedTime": "预计耗时（如：约2分钟、约30秒、持续运行）",
       "inputs": [
         {
@@ -534,122 +534,75 @@ ${FLOW_TECH_SCHEMA}`;
 // Prompt: Unified Draft（分类 + 生成一次完成）
 // ============================================================
 
-const UNIFIED_DRAFT_SYSTEM = `你是一个资深的业务流程分析师和 AI 产品架构师。
+// ============================================================
+// Prompt: Workflow Draft（专属 workflow 生成）
+// ============================================================
 
-用户会用自然语言描述一个业务场景。你的任务是：
-1. 判断这个场景属于哪种任务类型
-2. 根据类型直接生成对应的方案草稿
+const WORKFLOW_DRAFT_SYSTEM = `你是一个业务流程分析师。用户会描述一个业务场景，可能附带文件（Excel、PDF 等）。
 
-**思维链**：生成前先想清楚：①核心目标和角色 ②步骤顺序和输入输出 ③哪些步骤必须人工 ④异常处理路径。只输出最终 JSON。
+**你的任务**：把用户描述（或文件内容）忠实地翻译成一个流程图 JSON。
 
-**两种任务类型**：
-- **workflow**：有明确步骤顺序，每步输入输出确定，追求准确执行。如：财务报销、合同审批、进出口报关
-- **agentic**：有目标但路径不固定，需要 AI 自主规划。包含原来的混合型场景。如：账号运营涨粉、竞品分析、营销活动策划、内容营销、数据报告
+**核心原则**：
+- 有文件时：文件就是真相。文件里有几个步骤就生成几个节点，名称和内容照搬原文，不要多加也不要省略
+- 没文件时：根据用户描述，用你的专业判断生成合理的流程（4-8个节点）
+- 专有名词原样保留（系统名、文件名、公司名、表格名等）
+- inputs/outputs 尽量标明格式（如"IMI申请大表（Excel）"）
 
-**判断标准**：
-- 全是流程（有步骤、有顺序、每步确定性高）→ workflow
-- 有目标驱动的部分（即使也有固定流程）→ agentic
-- 不确定 → agentic
+**executionMode 规则**：
+- workflow 草稿阶段统一填 "pending"
+- 执行方式由技术评审阶段人工选择，不在业务草稿阶段判断
 
-**输出格式（根据类型不同）**：
-
-如果是 workflow，输出：
+**输出 JSON 格式**：
 {
   "taskType": "workflow",
-  "classifyReason": "一句话解释为什么是这个类型",
   "flow": ${FLOW_BIZ_SCHEMA},
   "nodeConfidence": [
     {
       "nodeId": "node-1",
       "confidence": "high 或 medium 或 low",
-      "reason": "为什么是这个 confidence（一句话）",
+      "reason": "一句话说明",
       "questions": [
         {
           "id": "node-1-q1",
-          "question": "用通俗的语言提问",
-          "context": "为什么要问这个（一句话）",
-          "defaultSuggestion": "如果你没有特别要求，我建议...",
-          "options": ["具体方案A", "具体方案B"]
+          "question": "针对这个节点的具体问题",
+          "context": "为什么要问",
+          "defaultSuggestion": "建议的做法",
+          "options": ["方案A", "方案B"]
         }
       ]
     }
   ]
 }
 
-如果是 agentic，输出：
+confidence 为 "high" 的节点 questions 留空数组。直接输出 JSON。`;
+
+// ============================================================
+// Prompt: Agentic Draft（专属 agentic 生成）
+// ============================================================
+
+const AGENTIC_DRAFT_SYSTEM = `你是一个资深的 AI 产品架构师。用户描述一个业务目标（可能附带文件），你直接生成 Agent 任务配置。
+
+**思维链**：生成前先想清楚：①核心目标 ②阶段划分 ③每阶段的行动和判断标准 ④哪些阶段需要人工审批。只输出最终 JSON。
+
+**输出格式**：
 {
   "taskType": "agentic",
-  "classifyReason": "一句话解释为什么是这个类型",
   "agenticConfig": ${AGENTIC_JSON_SCHEMA}
 }
 
-**Workflow 的规则（业务侧，不生成技术字段）**：
-- 节点数量 4-8 个
-- label 要具体（"从ERP导出销售数据" 而非 "获取数据"）
-- inputs/outputs 标明文件格式（如"报关单（Excel）"），不能为空数组
-- 每个节点的 description 必须 20-40 字，只说"做什么"，不要混入执行策略
-- **不要生成 executionRules、executionType 字段**（这些由技术侧后续生成）
-- confidence 为 "high" 的节点 questions 必须为空数组 []
-- 每个节点最多 2 个问题，问题必须包含用户描述中的业务实体名称（禁止 "这个步骤有什么要求吗？"，应该 "校验规则是只看签发日期还是也核对Part号？"）
-- 必须考虑异常处理：至少有 1 个条件分支或异常处理路径
+**阶段规划（phases）是核心，3-7 个阶段**：
+- 阶段名称用"动作+目标"格式（"账号冷启动与基线建立"而非"Phase 1"）
+- 每个阶段包含：actions、successCriteria（三档）、exitCondition
+- 至少 1 个阶段 requiresApproval
+- requiredCapabilities 列出需要的能力
 
-**质量红线（以下特征 = 低质量输出，必须避免）**：
+**业务侧必填**：goalMetrics、executionRules、permissions、reporting、executionOverview、riskAssessment、fallbacks、approvalPoints、globalSuccessCriteria
+**技术侧留空**：skills []、evaluators []、executionStrategy "adaptive"、humanCheckpoints 1-2条
 
-label 反面例子（禁止）→ 正面例子（应该）：
-- "数据处理" → "从SAP导出BOM清单"
-- "信息整理" → "按Part号匹配GSDS文件"
-- "结果审核" → "比对证书与申请大表一致性"
-- "系统提交" → "上传IM申请大表至中外运系统"
+**文件内容映射规则**：
+如果用户上传了文件，文件内容是核心参考，阶段划分和目标设定必须基于文件内容。
 
-description 禁止出现的套话：
-- "进行全面的XX" / "确保XX的准确性" / "根据XX进行综合XX"
-- "对相关数据进行处理" / "完成必要的XX操作"
-- 正确写法：只写具体动作 + 操作对象 + 产出物，不加修饰词
-
-inputs/outputs 必须具体：
-- 禁止："处理结果（文本）"、"输出数据"、"相关信息"
-- 必须带格式："IM申请大表（Excel）"、"GSDS文件（PDF）"、"校验报告（文本）"
-- 如果不确定格式，写"（待确认）"比瞎猜强
-
-**关于人机分工（executionMode）— 核心要求**：
-- 数据采集、格式转换、定时执行 → "ai_auto"
-- 数据校验、策略确认、内容审核 → "human_confirm"
-- 发布、删除、付款等不可逆操作 → "human_confirm"
-- 纯人工操作 → "human_manual"
-- 典型 6 节点流程应有 2-3 个 human_confirm 或 human_manual
-
-**Agentic 的规则（核心：阶段驱动）**：
-
-**阶段规划（phases）是核心，必须生成 3-7 个阶段**：
-- 阶段名称用"动作+目标"格式，专业简洁，非技术人员也能理解（如"账号冷启动与基线建立"而不是"Phase 1"，"内容策略验证与优化"而不是"测试"）
-- 每个阶段代表一个时间段内的工作重点
-- 阶段之间有时间先后关系，dayRange 不能重叠
-- 每个阶段包含：做什么（actions）、判断标准（successCriteria 三档）、结束条件（exitCondition）
-- 对不确定的阶段生成追问（questions），每个阶段最多 2 个问题
-- 标记需要人工审批的阶段（requiresApproval），至少有 1 个阶段需要审批
-- requiredCapabilities 列出这个阶段需要的能力（技术侧会据此生成 Skill）
-
-**业务侧内容（必填）**：
-- goalMetrics：核心KPI + 推理依据 + 过程指标 + 底线指标 + 行业基准
-- executionRules：按类别分组的执行规则
-- permissions：自主权限 + 审批事项 + 兜底机制
-- reporting：日报周报（含 sampleContent 示例）+ 告警 + 里程碑
-- executionOverview：2-3句通俗描述 Agent 的工作方式
-- riskAssessment：2-3个风险及应对
-- contentPreview：2-3条示例内容（如适用）
-- fallbacks：2-3个兜底机制（触发条件+应对措施+严重程度）
-- approvalPoints：需要审批的决策点摘要
-- globalSuccessCriteria：全局成功标准
-
-**技术侧内容（首次不生成，留空）**：
-- skills 留空数组 []
-- evaluators 留空数组 []
-- executionStrategy 默认 "adaptive"
-- humanCheckpoints 填 1-2 条关键的人工确认点
-
-规则：
-- 直接输出合法 JSON，不要用 markdown 代码块包裹
-- 确保 JSON 格式严格正确`;
+规则：直接输出合法 JSON，不要用 markdown 代码块包裹。`;
 
 // ============================================================
 // Prompt: Refine Batch（批量优化多个节点）
@@ -682,6 +635,50 @@ const REFINE_BATCH_SYSTEM = `你是一个业务流程优化专家。你会收到
 
 输出格式：
 ${FLOW_BIZ_SCHEMA}`;
+
+// ============================================================
+// Prompt: Refine Batch Delta（仅更新已回答节点；必要时回退全量）
+// ============================================================
+
+const REFINE_BATCH_DELTA_SYSTEM = `你是一个业务流程优化专家。你会收到：
+1. 当前流程图的局部上下文（只含待更新节点及其相邻节点）
+2. 需要更新的节点回答（每个节点 1-2 个回答）
+3. 原始需求（供参考）
+
+你的目标是：**仅返回被回答节点的字段更新**，用于前端快速局部合并。
+
+严格输出 JSON：
+{
+  "requiresFullRefine": false,
+  "reason": "一句话原因",
+  "updates": [
+    {
+      "nodeId": "node-1",
+      "label": "可选，若需改名才返回",
+      "description": "可选",
+      "executionMode": "pending 或 ai_auto 或 human_confirm 或 human_manual（可选）",
+      "estimatedTime": "可选",
+      "inputs": [{ "name": "...", "icon": "📄", "description": "...", "required": true, "source": "user 或 previous_step 或 default", "sourceDetail": "可选" }],
+      "outputs": [{ "name": "...", "icon": "✅", "description": "..." }],
+      "operationSteps": ["步骤1", "步骤2"],
+      "requiredCheckFields": ["字段A", "字段B"],
+      "doneCriteria": "一句话完成标准"
+    }
+  ]
+}
+
+规则：
+1) 只允许更新用户回答涉及的节点；不要返回未回答节点。
+2) 不要新增/删除节点，不要修改 edges。
+3) 如果回答需要改流程结构（新增步骤、改分支、改连线），则返回：
+   {
+     "requiresFullRefine": true,
+     "reason": "需要结构调整的原因",
+     "updates": []
+   }
+4) 字段最小化返回：没变化就不返回该字段。
+5) 文案避免套话，字段名尽量沿用原节点术语。
+6) 直接输出合法 JSON，不要 markdown 包裹。`;
 
 // ============================================================
 // Prompt: Refine（技术方自由对话修改 Workflow — 含技术字段）
@@ -740,82 +737,36 @@ const REFINE_BUSINESS_SYSTEM = `你是一个业务流程优化专家。你会收
 ${FLOW_BIZ_SCHEMA}`;
 
 // ============================================================
-// LLM 调用
+// Prompt: Enrich Node Details（业务侧节点内补全：短说明 + SOP + 必对字段 + 完成标准）
 // ============================================================
 
-async function callLLM(
-  systemPrompt: string,
-  userContent: string,
-  options?: { temperature?: number; expectJson?: boolean; maxTokens?: number }
-) {
-  const apiKey = process.env.LLM_API_KEY;
-  const baseUrl = process.env.LLM_BASE_URL;
-  const model = process.env.LLM_MODEL || "gpt-4o";
+const ENRICH_NODE_DETAILS_SYSTEM = `你是业务流程分析助手。你会收到：
+1) 原始业务需求
+2) 完整流程图（仅供上下文）
+3) 需要补全的节点列表
 
-  const isClaude = model.toLowerCase().includes("claude");
+你的任务：仅为每个节点补全 4 个业务字段，不修改流程结构。
 
-  const body: Record<string, unknown> = {
-    model,
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userContent },
-    ],
-    temperature: options?.temperature ?? 0.3,
-    max_tokens: options?.maxTokens ?? 8192,
-  };
-
-  if (options?.expectJson !== false && !isClaude) {
-    body.response_format = { type: "json_object" };
-  }
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 180000);
-
-  const response = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(body),
-    signal: controller.signal,
-  }).finally(() => clearTimeout(timeout));
-
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`LLM API ${response.status}: ${errText}`);
-  }
-
-  const data = await response.json();
-  const content = data.choices?.[0]?.message?.content;
-  if (!content) throw new Error("LLM 返回为空");
-
-  if (options?.expectJson === false) return content;
-
-  let jsonStr = content.trim();
-  const fenceMatch = jsonStr.match(/`{3,}(?:json)?\s*([\s\S]*?)`{3,}/);
-  if (fenceMatch) {
-    jsonStr = fenceMatch[1].trim();
-  } else {
-    const braceStart = jsonStr.indexOf("{");
-    const braceEnd = jsonStr.lastIndexOf("}");
-    if (braceStart !== -1 && braceEnd > braceStart) {
-      jsonStr = jsonStr.slice(braceStart, braceEnd + 1);
+输出格式（严格 JSON）：
+{
+  "nodes": [
+    {
+      "nodeId": "node-1",
+      "briefDescription": "20-40字，一句话写清本步目标结果，不写具体步骤",
+      "operationSteps": ["步骤1", "步骤2", "步骤3"],
+      "requiredCheckFields": ["字段A", "字段B", "字段C"],
+      "doneCriteria": "一句话，明确什么情况下算完成"
     }
-  }
-
-  try {
-    return JSON.parse(jsonStr);
-  } catch {
-    try {
-      const repaired = jsonrepair(jsonStr);
-      return JSON.parse(repaired);
-    } catch (repairErr) {
-      const truncated = jsonStr.length > 200 ? `${jsonStr.slice(-200)}...` : jsonStr;
-      throw new Error(`JSON 解析失败（可能是输出被截断）。末尾内容：${truncated}`);
-    }
-  }
+  ]
 }
+
+规则：
+- 只输出上述 JSON，不要其他文字。
+- operationSteps 3-6 条，动词开头，具备可执行性。
+- requiredCheckFields 3-8 项，只写字段名/校对项，短语即可。
+- 不得臆造流程外的系统名或文件；若不确定，使用通用业务表述。`;
+
+// callLLM is imported from @/lib/llm (supports Cursor SDK + raw API)
 
 // ============================================================
 // Few-shot examples for dynamic prompt injection
@@ -918,56 +869,235 @@ export async function POST(req: NextRequest) {
     } catch {
       return NextResponse.json({ error: "请求体格式错误" }, { status: 400 });
     }
-    const { prompt, action = "draft", currentFlow, currentConfig, feedback, nodeId, nodeLabel, answers, nodeAnswers } = body;
+    const { prompt, action = "draft", currentFlow, currentConfig, feedback, nodeId, nodeLabel, answers, nodeAnswers, filePaths, strictTerminology } = body;
+    const fileOpts = Array.isArray(filePaths) && filePaths.length > 0 ? { filePaths: filePaths as string[] } : {};
 
-    const apiKey = process.env.LLM_API_KEY;
-    const baseUrl = process.env.LLM_BASE_URL;
-    if (!apiKey || !baseUrl) {
-      return NextResponse.json({ error: "LLM 配置缺失" }, { status: 500 });
+    const hasCursor = !!process.env.CURSOR_API_KEY;
+    const hasOpenAI = !!process.env.OPENAI_API_KEY;
+    const hasRaw = !!(process.env.LLM_API_KEY && process.env.LLM_BASE_URL);
+    if (!hasCursor && !hasOpenAI && !hasRaw) {
+      return NextResponse.json({ error: "LLM 配置缺失（需要 CURSOR_API_KEY，或 OPENAI_API_KEY，或 LLM_API_KEY + LLM_BASE_URL）" }, { status: 500 });
     }
 
-    // --- Action: unified_draft (classify + draft in one call) ---
+    // --- Action: unified_draft (SSE stream: classify → generate) ---
     if (action === "unified_draft") {
       if (!prompt?.trim()) {
         return NextResponse.json({ error: "请输入业务描述" }, { status: 400 });
       }
-      const fewShotHint = selectFewShotExample(prompt);
-      const enrichedPrompt = fewShotHint ? `${prompt}${fewShotHint}` : prompt;
-      const result = await callLLM(UNIFIED_DRAFT_SYSTEM, enrichedPrompt, { temperature: 0.3 });
-      if (!result?.taskType) {
-        return NextResponse.json({ error: "AI 返回格式异常" }, { status: 502 });
+
+      const encoder = new TextEncoder();
+      const sse = (data: Record<string, unknown>) =>
+        encoder.encode(`data: ${JSON.stringify(data)}\n\n`);
+
+      const stream = new ReadableStream({
+        async start(controller) {
+          try {
+            // ── Step 1: 分类（走原始 API，快速短回复） ──
+            controller.enqueue(sse({ type: "stage", stage: "classify_start" }));
+            controller.enqueue(sse({ type: "progress", message: "正在分析任务类型..." }));
+
+            let taskType = "workflow";
+            let classifyReason = "";
+            try {
+              const classifyResult = await callLLM(CLASSIFY_SYSTEM, prompt, {
+                temperature: 0.1,
+                maxTokens: 200,
+                expectJson: true,
+                preferChannel: "raw",
+              });
+              taskType = classifyResult?.taskType ?? "workflow";
+              classifyReason = classifyResult?.reason ?? "";
+              if (taskType === "hybrid") taskType = "agentic";
+              console.log("[classify]", taskType, classifyReason);
+            } catch (err) {
+              console.warn("[classify] failed:", (err as Error).message);
+            }
+
+            controller.enqueue(sse({
+              type: "classify",
+              taskType,
+              classifyReason,
+            }));
+            controller.enqueue(sse({ type: "stage", stage: "classify_done" }));
+
+            // ── Step 2: 流式生成（走 Cursor Agent） ──
+            controller.enqueue(sse({ type: "stage", stage: "draft_start" }));
+            const hasFiles = Array.isArray(filePaths) && filePaths.length > 0;
+            const fewShotHint = hasFiles ? "" : selectFewShotExample(prompt);
+            const enrichedPrompt = fewShotHint ? `${prompt}${fewShotHint}` : prompt;
+            const systemPrompt = taskType === "agentic" ? AGENTIC_DRAFT_SYSTEM : WORKFLOW_DRAFT_SYSTEM;
+
+            const provider = (process.env.LLM_PROVIDER || "").toLowerCase();
+            const preferOpenAI = (provider === "codex" || provider === "openai") && !!process.env.OPENAI_API_KEY;
+            const hasCursorSDK = !!process.env.CURSOR_API_KEY;
+
+            // 仅当明确不偏好 OpenAI/Codex 且存在 Cursor key 时走 Cursor 流式；
+            // 否则统一走 callLLM（按 provider 选路并自动兜底）
+            if (hasCursorSDK && !preferOpenAI) {
+              const streamOpts: CallLLMOptions = { temperature: 0.3, ...fileOpts };
+              for await (const event of streamViaCursorSDK(systemPrompt, enrichedPrompt, streamOpts)) {
+                if (event.type === "progress") {
+                  controller.enqueue(sse({ type: "progress", message: event.message }));
+                } else if (event.type === "text") {
+                  controller.enqueue(sse({ type: "text", content: event.message }));
+                } else if (event.type === "done") {
+                  controller.enqueue(sse({ type: "stage", stage: "draft_done" }));
+                  const result = event.result;
+                  if (taskType === "agentic") {
+                    const agConfig = result?.agenticConfig || result;
+                    const config = agConfig?.config || agConfig;
+                    controller.enqueue(sse({
+                      type: "done",
+                      success: true,
+                      taskType,
+                      classifyReason,
+                      data: config,
+                      projectName: agConfig?.projectName || result?.projectName || "",
+                    }));
+                  } else {
+                    const flow = result?.flow || result;
+                    if (!Array.isArray(flow?.edges)) {
+                      if (flow) flow.edges = [];
+                    }
+                    controller.enqueue(sse({
+                      type: "done",
+                      success: true,
+                      taskType,
+                      classifyReason,
+                      data: flow,
+                      nodeConfidence: result?.nodeConfidence || [],
+                    }));
+                  }
+                } else if (event.type === "error") {
+                  controller.enqueue(sse({ type: "error", error: event.message }));
+                }
+              }
+            } else {
+              controller.enqueue(sse({ type: "progress", message: "正在生成流程图..." }));
+              const result = await callLLM(systemPrompt, enrichedPrompt, {
+                temperature: 0.3,
+                ...fileOpts,
+              });
+              controller.enqueue(sse({ type: "stage", stage: "draft_done" }));
+              if (taskType === "agentic") {
+                const agConfig = result?.agenticConfig || result;
+                const config = agConfig?.config || agConfig;
+                controller.enqueue(sse({
+                  type: "done",
+                  success: true,
+                  taskType,
+                  classifyReason,
+                  data: config,
+                  projectName: agConfig?.projectName || result?.projectName || "",
+                }));
+              } else {
+                const flow = result?.flow || result;
+                if (!Array.isArray(flow?.edges)) {
+                  if (flow) flow.edges = [];
+                }
+                controller.enqueue(sse({
+                  type: "done",
+                  success: true,
+                  taskType,
+                  classifyReason,
+                  data: flow,
+                  nodeConfidence: result?.nodeConfidence || [],
+                }));
+              }
+            }
+          } catch (err) {
+            console.error("[unified_draft stream]", err);
+            controller.enqueue(sse({ type: "error", error: (err as Error).message }));
+          } finally {
+            controller.close();
+          }
+        },
+      });
+
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        },
+      });
+    }
+
+    // --- Action: refine_batch_delta (fast path: update answered nodes only) ---
+    if (action === "refine_batch_delta") {
+      if (!currentFlow || !Array.isArray(currentFlow.nodes) || !Array.isArray(nodeAnswers) || nodeAnswers.length === 0) {
+        return NextResponse.json({ error: "缺少流程图或节点回答" }, { status: 400 });
       }
 
-      let taskType = result.taskType as string;
-      if (taskType === "hybrid") taskType = "agentic";
+      const targetNodeIds = new Set(
+        nodeAnswers
+          .filter((na: { nodeId?: string; answers?: unknown[] }) => typeof na?.nodeId === "string" && Array.isArray(na.answers))
+          .map((na: { nodeId: string }) => na.nodeId)
+      );
+      if (targetNodeIds.size === 0) {
+        return NextResponse.json({ error: "未找到有效的节点回答" }, { status: 400 });
+      }
 
-      if (taskType === "agentic") {
-        const agConfig = result.agenticConfig;
-        if (!agConfig?.config) {
-          return NextResponse.json({ error: "AI 返回的 Agentic 配置异常" }, { status: 502 });
+      const nodes = Array.isArray(currentFlow.nodes) ? currentFlow.nodes : [];
+      const edges = Array.isArray(currentFlow.edges) ? currentFlow.edges : [];
+      const nodeById = new Map(nodes.map((n: Record<string, unknown>) => [String(n.id || ""), n]));
+
+      const relatedNodeIds = new Set<string>(targetNodeIds);
+      for (const e of edges) {
+        const source = String((e as Record<string, unknown>).source || "");
+        const target = String((e as Record<string, unknown>).target || "");
+        if (targetNodeIds.has(source) || targetNodeIds.has(target)) {
+          if (source) relatedNodeIds.add(source);
+          if (target) relatedNodeIds.add(target);
         }
-        return NextResponse.json({
-          success: true,
-          taskType,
-          classifyReason: result.classifyReason || "",
-          data: agConfig.config,
-          projectName: agConfig.projectName || "",
-        });
       }
 
-      // workflow
-      if (!result.flow?.nodes || !Array.isArray(result.flow.nodes)) {
-        return NextResponse.json({ error: "AI 返回的流程图异常" }, { status: 502 });
-      }
-      if (!Array.isArray(result.flow.edges)) {
-        result.flow.edges = [];
-      }
+      const contextNodes = Array.from(relatedNodeIds)
+        .map((id) => nodeById.get(id))
+        .filter(Boolean);
+      const contextEdges = edges.filter((e: Record<string, unknown>) => {
+        const source = String(e.source || "");
+        const target = String(e.target || "");
+        return relatedNodeIds.has(source) && relatedNodeIds.has(target);
+      });
+
+      const allAnswersText = nodeAnswers
+        .filter((na: { nodeId?: string; answers?: unknown[] }) => na?.nodeId && Array.isArray(na.answers))
+        .map((na: { nodeId: string; nodeLabel: string; answers: { question: string; answer: string }[] }) => {
+          const qaText = (na.answers || [])
+            .map((a) => `  问：${a.question || "（未知问题）"}\n  答：${a.answer || "（未回答）"}`)
+            .join("\n");
+          return `节点：${na.nodeId}（${na.nodeLabel || "未命名"}）\n${qaText}`;
+        })
+        .join("\n\n");
+
+      const nodeSummary = nodes
+        .map((n: Record<string, unknown>) => `- ${String(n.id || "")}: ${String(n.label || "")}`)
+        .join("\n");
+
+      const deltaInput = [
+        `原始需求：${prompt || "未提供"}`,
+        `\n当前流程节点总览（仅供命名对齐）：\n${nodeSummary}`,
+        `\n局部上下文（目标节点及相邻节点）：\n${JSON.stringify({ nodes: contextNodes, edges: contextEdges }, null, 2)}`,
+        `\n待更新节点回答：\n${allAnswersText}`,
+      ].join("\n");
+
+      const delta = await callLLM(REFINE_BATCH_DELTA_SYSTEM, deltaInput, {
+        temperature: 0.2,
+        ...fileOpts,
+      });
+
+      const requiresFullRefine = !!delta?.requiresFullRefine;
+      const reason = typeof delta?.reason === "string" ? delta.reason : "";
+      const updates = Array.isArray(delta?.updates) ? delta.updates : [];
+
       return NextResponse.json({
         success: true,
-        taskType,
-        classifyReason: result.classifyReason || "",
-        data: result.flow,
-        nodeConfidence: result.nodeConfidence || [],
+        data: {
+          requiresFullRefine,
+          reason,
+          updates,
+        },
       });
     }
 
@@ -993,7 +1123,7 @@ export async function POST(req: NextRequest) {
         prompt ? `\n原始需求（供参考）：${prompt}` : "",
       ].join("\n");
 
-      const refined = await callLLM(REFINE_BATCH_SYSTEM, refineInput);
+      const refined = await callLLM(REFINE_BATCH_SYSTEM, refineInput, fileOpts);
       if (!refined?.nodes || !Array.isArray(refined.nodes)) {
         return NextResponse.json({ error: "AI 批量优化结果格式异常" }, { status: 502 });
       }
@@ -1001,6 +1131,40 @@ export async function POST(req: NextRequest) {
         refined.edges = currentFlow.edges || [];
       }
       return NextResponse.json({ success: true, data: refined });
+    }
+
+    // --- Action: enrich_node_details_batch (async enrich SOP/check fields/done criteria) ---
+    if (action === "enrich_node_details_batch") {
+      if (!currentFlow || !Array.isArray(currentFlow.nodes) || currentFlow.nodes.length === 0) {
+        return NextResponse.json({ error: "缺少流程图节点" }, { status: 400 });
+      }
+      const strictMode = strictTerminology === true;
+      const targets = (currentFlow.nodes as Array<Record<string, unknown>>).map((n) => ({
+        nodeId: String(n.id || ""),
+        label: String(n.label || ""),
+        description: String(n.description || ""),
+        inputs: Array.isArray(n.inputs) ? n.inputs : [],
+        outputs: Array.isArray(n.outputs) ? n.outputs : [],
+      }));
+
+      const enrichInput = [
+        `原始需求：${prompt || "未提供"}`,
+        `\n完整流程图（上下文）：\n${JSON.stringify(currentFlow, null, 2)}`,
+        `\n需要补全的节点：\n${JSON.stringify(targets, null, 2)}`,
+        strictMode
+          ? `\n术语约束（必须遵守）：只允许复用该节点已有的 label / description / inputs / outputs 中出现过的术语来写补全内容；禁止新增系统名、角色名、表单名、文件名、步骤名。若信息不足，使用“待确认”。`
+          : "",
+      ].join("\n");
+
+      const enriched = await callLLM(ENRICH_NODE_DETAILS_SYSTEM, enrichInput, {
+        temperature: 0.2,
+        preferChannel: "raw",
+      });
+
+      if (!enriched?.nodes || !Array.isArray(enriched.nodes)) {
+        return NextResponse.json({ error: "节点补全结果格式异常" }, { status: 502 });
+      }
+      return NextResponse.json({ success: true, data: enriched });
     }
 
     // --- DEPRECATED: classify, draft_agentic — use unified_draft instead ---
@@ -1043,7 +1207,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "缺少当前配置或反馈" }, { status: 400 });
       }
       const refineInput = `原始需求：${prompt || "未提供"}\n\n当前 Agent 任务配置：\n${JSON.stringify(currentConfig, null, 2)}\n\n用户反馈：${feedback}`;
-      const refined = await callLLM(REFINE_AGENTIC_SYSTEM, refineInput);
+      const refined = await callLLM(REFINE_AGENTIC_SYSTEM, refineInput, fileOpts);
       if (!refined?.config) {
         return NextResponse.json({ error: "AI 修改结果格式异常，请重试" }, { status: 502 });
       }
@@ -1068,7 +1232,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "缺少流程图或反馈" }, { status: 400 });
       }
       const refineInput = `原始需求：${prompt || "未提供"}\n\n当前流程图：\n${JSON.stringify(currentFlow, null, 2)}\n\n用户反馈：${feedback}`;
-      const refined = await callLLM(REFINE_SYSTEM, refineInput);
+      const refined = await callLLM(REFINE_SYSTEM, refineInput, fileOpts);
       if (!refined?.nodes || !Array.isArray(refined.nodes)) {
         return NextResponse.json({ error: "AI 修改结果格式异常，请重试" }, { status: 502 });
       }
@@ -1084,7 +1248,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "缺少流程图或反馈" }, { status: 400 });
       }
       const refineInput = `原始需求：${prompt || "未提供"}\n\n当前流程图：\n${JSON.stringify(currentFlow, null, 2)}\n\n用户反馈：${feedback}`;
-      const refined = await callLLM(REFINE_BUSINESS_SYSTEM, refineInput);
+      const refined = await callLLM(REFINE_BUSINESS_SYSTEM, refineInput, fileOpts);
       if (!refined?.nodes || !Array.isArray(refined.nodes)) {
         return NextResponse.json({ error: "AI 修改结果格式异常，请重试" }, { status: 502 });
       }

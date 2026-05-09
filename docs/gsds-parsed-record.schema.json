@@ -1,0 +1,112 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "GSDS 解析记录",
+  "description": "从 GSDS PDF 中解析提取的结构化字段，BBN + PART 为业务唯一键。部分字段在源文件中可能不存在，不存在则不填写。",
+  "type": "object",
+  "required": ["bbn", "part"],
+  "properties": {
+    "bbn": {
+      "type": "string",
+      "description": "BBN 编号（如 CL/VA-8.10）"
+    },
+    "part": {
+      "type": "string",
+      "description": "PART 编号（如 Part 2B）"
+    },
+    "color": {
+      "type": "string",
+      "description": "颜色（如 浅黄色）"
+    },
+    "state": {
+      "type": "string",
+      "description": "物理状态（如 透明液体）"
+    },
+    "official_transport_name": {
+      "type": "string",
+      "description": "正式运输名称（如 萃取液，液體）"
+    },
+    "un_number": {
+      "type": "string",
+      "description": "UN 联合国编号，四位数字（如 1197）"
+    },
+    "hazard_class": {
+      "type": "string",
+      "description": "危险货物类别，一位数字（如 3）"
+    },
+    "packing_group": {
+      "type": "string",
+      "description": "包装类别，罗马数字（如 III）"
+    },
+    "flammable_liquid_category": {
+      "type": "string",
+      "description": "易燃液体，类别（如 3）"
+    },
+    "metal_corrosion_category": {
+      "type": "string",
+      "description": "金属腐蚀剂，类别"
+    },
+    "skin_corrosion_irritation_category": {
+      "type": "string",
+      "description": "皮肤腐蚀/刺激，类别（如 空值表示无此危害）"
+    },
+    "serious_eye_damage_category": {
+      "type": "string",
+      "description": "严重眼损伤/眼刺激，类别（如 2A）"
+    },
+    "skin_sensitization_category": {
+      "type": "string",
+      "description": "皮肤致敏，类别"
+    },
+    "aspiration_hazard_category": {
+      "type": "string",
+      "description": "吸入危险，类别"
+    },
+    "aquatic_hazard_short_term": {
+      "type": "string",
+      "description": "危害水生环境-短期危害，类别"
+    },
+    "aquatic_hazard_long_term": {
+      "type": "string",
+      "description": "危害水生环境-长期危害，类别"
+    },
+    "marine_pollutant": {
+      "type": "string",
+      "description": "海洋污染物"
+    },
+    "acute_toxicity": {
+      "type": "string",
+      "description": "急毒性"
+    },
+    "sds_density": {
+      "type": "number",
+      "description": "SDS 密度（如 0.9772）"
+    },
+    "composition": {
+      "type": "array",
+      "description": "成分列表：成分名称 | 含量 | CAS 编号",
+      "items": {
+        "type": "object",
+        "required": ["component", "content", "cas"],
+        "properties": {
+          "component": {
+            "type": "string",
+            "description": "成分名称（如 乙醇）"
+          },
+          "content": {
+            "type": "string",
+            "description": "含量范围（如 15 - 40%）"
+          },
+          "cas": {
+            "type": "string",
+            "description": "CAS 注册号（如 64-17-5）"
+          }
+        }
+      }
+    },
+    "density": {
+      "type": "number",
+      "description": "密度 = SDS密度四舍五入保留两位小数（如 SDS密度 0.9772 → 密度 0.98）"
+    }
+  },
+  "additionalProperties": false
+}
