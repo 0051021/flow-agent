@@ -76,9 +76,11 @@ async function parseFileToText(filePath: string): Promise<string> {
   }
 
   if (ext === ".pdf") {
-    const pdfParse = (await import("pdf-parse")).default;
+    const { PDFParse } = await import("pdf-parse");
     const buf = await readFile(filePath);
-    const pdf = await pdfParse(buf);
+    const parser = new PDFParse({ data: buf });
+    const pdf = await parser.getText();
+    await parser.destroy();
     return `📎 文件：${name}\n${pdf.text}`;
   }
 
