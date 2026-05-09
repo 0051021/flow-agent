@@ -409,9 +409,9 @@ export default function ChatPanel() {
       ...n,
       data: {
         ...(n.data as import("@/lib/types").FlowNodeData),
-        executionMode: "pending",
-      },
-    }));
+        executionMode: "pending" as import("@/lib/types").NodeExecutionMode,
+      } as import("@/lib/types").FlowNodeData,
+    })) as import("@xyflow/react").Node<import("@/lib/types").FlowNodeData>[];
   }, []);
 
   const preserveExecutionModeFromCurrent = useCallback((
