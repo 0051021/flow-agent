@@ -319,7 +319,7 @@ export default function ChatPanel() {
         // 避免与“节点流式上屏”竞争：若画布暂时为空，不做覆盖写回
         if (!s.nodes || s.nodes.length === 0) return false;
 
-        const patched = s.nodes.map((n) => {
+        const patched: import("@xyflow/react").Node<import("@/lib/types").FlowNodeData>[] = s.nodes.map((n) => {
           const e = enrichMap.get(n.id);
           if (!e) return n;
           const d = n.data as unknown as Record<string, unknown>;
@@ -330,7 +330,7 @@ export default function ChatPanel() {
           if ((!Array.isArray(d.operationSteps) || (d.operationSteps as unknown[]).length === 0) && e.operationSteps) next.operationSteps = e.operationSteps;
           if ((!Array.isArray(d.requiredCheckFields) || (d.requiredCheckFields as unknown[]).length === 0) && e.requiredCheckFields) next.requiredCheckFields = e.requiredCheckFields;
           if ((!d.doneCriteria || String(d.doneCriteria).trim() === "") && e.doneCriteria) next.doneCriteria = e.doneCriteria;
-          return { ...n, data: next };
+          return { ...n, data: next as import("@/lib/types").FlowNodeData };
         });
 
         loadGeneratedFlow(patched, s.edges);
