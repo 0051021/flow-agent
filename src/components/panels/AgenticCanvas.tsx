@@ -334,38 +334,6 @@ function PhaseDetail({ phase, phaseIndex, totalPhases, onUpdatePhase }: {
           <EditableList items={phase.actions || []} onSave={(actions) => onUpdatePhase({ actions })} placeholder="新增业务处理内容..." />
         </div>
 
-        {/* Business rules */}
-        <div>
-          <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-zinc-700">
-            <BarChart3 className="w-3.5 h-3.5 text-violet-500" /> 处理规则与边界
-          </div>
-          {(() => {
-            const sc = phase.successCriteria || { good: "", warning: "", bad: "" };
-            return (
-              <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-                <div className="rounded-xl bg-green-50/80 border border-green-200/50 p-3">
-                  <div className="text-[10px] font-medium text-green-600 mb-0.5">可直接处理</div>
-                  <div className="text-[11px] text-green-700">
-                    <EditableText value={sc.good || ""} onSave={(v) => onUpdatePhase({ successCriteria: { ...sc, good: v } })} multiline />
-                  </div>
-                </div>
-                <div className="rounded-xl bg-amber-50/80 border border-amber-200/50 p-3">
-                  <div className="text-[10px] font-medium text-amber-600 mb-0.5">需要补充规则</div>
-                  <div className="text-[11px] text-amber-700">
-                    <EditableText value={sc.warning || ""} onSave={(v) => onUpdatePhase({ successCriteria: { ...sc, warning: v } })} multiline />
-                  </div>
-                </div>
-                <div className="rounded-xl bg-red-50/80 border border-red-200/50 p-3">
-                  <div className="text-[10px] font-medium text-red-600 mb-0.5">不能直接处理</div>
-                  <div className="text-[11px] text-red-700">
-                    <EditableText value={sc.bad || ""} onSave={(v) => onUpdatePhase({ successCriteria: { ...sc, bad: v } })} multiline />
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
-        </div>
-
         {/* Business materials and requirements */}
         <div>
           <div className="mb-3 flex items-center justify-between gap-3">
@@ -446,7 +414,7 @@ function PhaseDetail({ phase, phaseIndex, totalPhases, onUpdatePhase }: {
             </div>
           )}
           <p className="mt-1.5 text-[10px] text-zinc-400">
-            可以上传规则文件、模板或表格，也可以用文字补充业务时效和材料要求；后续技术方再判断如何落地。
+            可以上传规则文件、模板或表格，也可以用文字补充业务时效、材料要求、结果输出标准和例外口径；后续技术方再判断如何落地。
           </p>
         </div>
 
@@ -604,9 +572,11 @@ export default function AgenticCanvas() {
   const [activePhaseId, setActivePhaseId] = useState<string | null>(null);
   const [questionDecisions, setQuestionDecisions] = useState<Record<string, QuestionDecision>>({});
   const [moduleManagerOpen, setModuleManagerOpen] = useState(false);
+  const reportingFileInputRef = useRef<HTMLInputElement>(null);
 
   const config = agenticConfig;
   const phases: AgenticPhase[] = useMemo(() => config?.phases || [], [config?.phases]);
+  const reportingFiles = config?.reporting?.files || [];
   const durationLabel = config?.estimatedDuration || (config?.totalDays ? `${config.totalDays} 天` : "持续运行");
   const supplementQuestions: QuestionItem[] = useMemo(
     () => phases.flatMap((phase) => (phase.questions || []).map((question) => ({
@@ -705,6 +675,28 @@ export default function AgenticCanvas() {
   const handleSaveDraft = useCallback(() => {
     toast.success("已暂存为草稿（后续会接入个人主页草稿列表）");
   }, []);
+
+  const handleReportingFiles = useCallback((fileList: FileList | null) => {
+    if (!config?.reporting) return;
+
+    const files = Array.from(fileList || []);
+    if (files.length === 0) return;
+
+    const uploadedAt = new Date().toISOString();
+    const nextFiles = files.map((file, index) => ({
+      id: `reporting-${Date.now()}-${index}-${file.name}`,
+      name: file.name,
+      size: file.size,
+      type: file.type || "unknown",
+      uploadedAt,
+    }));
+
+    updateAgenticField("reporting", {
+      ...config.reporting,
+      files: [...(config.reporting.files || []), ...nextFiles],
+    });
+    toast.success(`已添加 ${files.length} 个记录文档`);
+  }, [config, updateAgenticField]);
 
   if (!config) {
     return (
@@ -856,22 +848,87 @@ export default function AgenticCanvas() {
 
           {/* Reporting */}
           {config.reporting && (
-            <OverviewSection title="复盘与通知要求（可选）" icon={<Bell className="w-3.5 h-3.5 text-violet-500" />}>
-              <div className="space-y-3 text-xs text-zinc-600">
-                <div>
-                  <div className="mb-1 text-[10px] font-medium text-zinc-500">通知渠道</div>
-                  <div className="rounded-lg bg-zinc-50 p-2">
+            <OverviewSection title="记录与通知要求（可选）" icon={<Bell className="w-3.5 h-3.5 text-violet-500" />}>
+              <div className="space-y-4 text-xs text-zinc-600">
+                <p className="rounded-xl border border-violet-100 bg-violet-50/60 px-3 py-2 text-[11px] leading-relaxed text-violet-700">
+                  这里描述业务人员平时做这项工作时，哪些内容需要留痕、哪些情况要通知别人、后续要复盘什么；不是让业务方设计技术监控指标。
+                </p>
+
+                <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-[11px] font-semibold text-zinc-800">记录位置与记录文档</div>
+                      <div className="mt-0.5 text-[10px] text-zinc-400">
+                        可以补充工单字段说明、日报模板、复盘表或通知规范。
+                      </div>
+                    </div>
+                    <div className="shrink-0">
+                      <input
+                        ref={reportingFileInputRef}
+                        type="file"
+                        multiple
+                        className="hidden"
+                        onChange={(event) => {
+                          handleReportingFiles(event.currentTarget.files);
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 gap-1.5 rounded-full px-3 text-[10px]"
+                        onClick={() => reportingFileInputRef.current?.click()}
+                      >
+                        <Upload className="h-3 w-3" /> 上传记录文档
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="text-[11px] leading-relaxed text-zinc-500">
                     <EditableText
                       value={config.reporting.channel || "未指定"}
                       onSave={(v) => updateAgenticField("reporting", { ...config.reporting!, channel: v })}
                     />
                   </div>
+                  {reportingFiles.length > 0 && (
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {reportingFiles.map((file) => (
+                        <div
+                          key={file.id}
+                          className="group/file flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2"
+                        >
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white text-zinc-500">
+                            <FileText className="h-3.5 w-3.5" />
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-[11px] font-medium text-zinc-700">{file.name}</div>
+                            <div className="text-[10px] text-zinc-400">{formatFileSize(file.size)}</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => updateAgenticField("reporting", {
+                              ...config.reporting!,
+                              files: reportingFiles.filter((item) => item.id !== file.id),
+                            })}
+                            className="opacity-0 transition-opacity text-zinc-300 hover:text-red-400 group-hover/file:opacity-100"
+                            title="移除文件"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
+
                 {config.reporting.daily?.enabled && (
-                  <div>
-                    <div className="mb-1 text-[10px] font-medium text-zinc-500">日复盘内容</div>
+                  <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                    <div className="mb-1 text-[11px] font-semibold text-zinc-800">需要留痕的内容</div>
+                    <div className="mb-2 text-[10px] text-zinc-400">
+                      例如客户诉求、查询到的状态、采用的处理方式、客户是否接受、主管确认意见。
+                    </div>
                     {config.reporting.daily.sampleContent && (
-                      <div className="rounded-lg bg-zinc-50 p-2 text-[11px] text-zinc-500">
+                      <div className="rounded-lg bg-zinc-50 p-2 text-[11px] leading-relaxed text-zinc-600">
                         <EditableText
                           value={config.reporting.daily.sampleContent}
                           onSave={(v) => updateAgenticField("reporting", {
@@ -884,10 +941,31 @@ export default function AgenticCanvas() {
                     )}
                   </div>
                 )}
+                {config.reporting.alerts?.triggers?.length ? (
+                  <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                    <div className="mb-1 text-[11px] font-semibold text-zinc-800">需要通知的情况</div>
+                    <div className="mb-2 text-[10px] text-zinc-400">
+                      业务人员遇到这些情况时，通常要通知主管、专岗或相关系统负责人。
+                    </div>
+                    <EditableList
+                      items={config.reporting.alerts.triggers.map((trigger) => (
+                        typeof trigger === "string" ? trigger : trigger.condition
+                      ))}
+                      onSave={(items) => updateAgenticField("reporting", {
+                        ...config.reporting!,
+                        alerts: { triggers: items.map((condition) => ({ condition, severity: "warning" as const })) },
+                      })}
+                      placeholder="例如：客户连续表达不满、金额超过上限、系统查不到必要信息"
+                    />
+                  </div>
+                ) : null}
                 {config.reporting.weekly?.enabled && (
-                  <div>
-                    <div className="mb-1 text-[10px] font-medium text-zinc-500">周复盘关注项</div>
-                    <div className="rounded-lg bg-zinc-50 p-2 text-[11px] text-zinc-500">
+                  <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                    <div className="mb-1 text-[11px] font-semibold text-zinc-800">定期复盘的内容</div>
+                    <div className="mb-2 text-[10px] text-zinc-400">
+                      用来沉淀规则缺口、话术问题和需要补充的资料，不等于系统上线后的技术监控。
+                    </div>
+                    <div className="rounded-lg bg-zinc-50 p-2 text-[11px] leading-relaxed text-zinc-600">
                       <EditableText
                         value={config.reporting.weekly.content}
                         onSave={(v) => updateAgenticField("reporting", {
@@ -898,44 +976,30 @@ export default function AgenticCanvas() {
                       />
                     </div>
                     {config.reporting.weekly.sampleContent && (
-                      <>
-                        <div className="mb-1 mt-2 text-[10px] font-medium text-zinc-500">周复盘示例</div>
-                        <div className="rounded-lg bg-zinc-50 p-2 text-[11px] text-zinc-500 whitespace-pre-line">
-                          <EditableText
-                            value={config.reporting.weekly.sampleContent}
-                            onSave={(v) => updateAgenticField("reporting", {
-                              ...config.reporting!,
-                              weekly: { ...config.reporting!.weekly, sampleContent: v },
-                            })}
-                            multiline
-                          />
-                        </div>
-                      </>
+                      <div className="mt-2 rounded-lg border border-zinc-100 bg-zinc-50/70 p-2 text-[11px] leading-relaxed text-zinc-500 whitespace-pre-line">
+                        <div className="mb-1 text-[10px] font-medium text-zinc-400">复盘示例</div>
+                        <EditableText
+                          value={config.reporting.weekly.sampleContent}
+                          onSave={(v) => updateAgenticField("reporting", {
+                            ...config.reporting!,
+                            weekly: { ...config.reporting!.weekly, sampleContent: v },
+                          })}
+                          multiline
+                        />
+                      </div>
                     )}
                   </div>
                 )}
-                {config.reporting.alerts?.triggers?.length ? (
-                  <div>
-                    <div className="mb-1 text-[10px] font-medium text-zinc-500">需要提醒的情况</div>
-                    <EditableList
-                      items={config.reporting.alerts.triggers.map((trigger) => (
-                        typeof trigger === "string" ? trigger : trigger.condition
-                      ))}
-                      onSave={(items) => updateAgenticField("reporting", {
-                        ...config.reporting!,
-                        alerts: { triggers: items.map((condition) => ({ condition, severity: "warning" as const })) },
-                      })}
-                      placeholder="例如：客户满意度连续下降、同类问题重复咨询上升"
-                    />
-                  </div>
-                ) : null}
                 {config.reporting.milestones?.length ? (
-                  <div>
-                    <div className="mb-1 text-[10px] font-medium text-zinc-500">阶段检查点</div>
+                  <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                    <div className="mb-1 text-[11px] font-semibold text-zinc-800">阶段性确认事项</div>
+                    <div className="mb-2 text-[10px] text-zinc-400">
+                      这些是业务侧在试运行或交接前希望确认的事项。
+                    </div>
                     <EditableList
                       items={config.reporting.milestones}
                       onSave={(items) => updateAgenticField("reporting", { ...config.reporting!, milestones: items })}
-                      placeholder="例如：首周完成规则验收"
+                      placeholder="例如：确认客服主管能看懂异常记录"
                     />
                   </div>
                 ) : null}

@@ -290,12 +290,21 @@ export interface AgenticPermissions {
   safeguards: string[];
 }
 
+export interface AgenticReportingFile {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  uploadedAt: string;
+}
+
 export interface AgenticReporting {
   daily: { enabled: boolean; auto: boolean; sampleContent?: string };
   weekly: { enabled: boolean; content: string; sampleContent?: string };
   alerts: { triggers: { condition: string; severity?: "critical" | "warning" | "info" }[] } | { triggers: string[] };
   milestones: string[];
   channel?: string;
+  files?: AgenticReportingFile[];
 }
 
 export interface AgenticContentSample {

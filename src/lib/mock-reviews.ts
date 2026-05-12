@@ -1,7 +1,7 @@
 import type { FlowNodeData } from "./types";
 import type { AgenticTaskConfig } from "./types";
 import type { Node, Edge } from "@xyflow/react";
-import type { ChatMessage, NodeConfidence } from "./store";
+import type { ChatMessage } from "./store";
 
 export interface MockReview {
   id: string;
@@ -1372,16 +1372,16 @@ export const MOCK_REVIEWS: MockReview[] = [
         safeguards: ["普通退款单笔上限50美元", "同一客户24小时最多处理1次退款", "支付敏感信息不进入对话上下文", "所有资金动作必须写入审计日志"],
       },
       reporting: {
-        daily: { enabled: true, auto: true, sampleContent: "今日售后处理：处理 1,184 条咨询，普通问题一次解决 682 条（57.6%），平均解决 1分52秒，异常工单 196 条。退款处理 143 单，总额 $3,860，无超额退款。CSAT 4.42/5，较当前客服基线持平。" },
-        weekly: { enabled: true, content: "咨询类型分布、一次解决率、退款金额、异常工单原因、CSAT、重复咨询率、知识库缺口", sampleContent: "本周普通问题一次解决率 56.8%，重复咨询率下降 18%。主要异常原因：物流延误政策不清（31%）、破损图片无法判断（22%）、客户要求主管处理（16%）。建议补充：巴西/墨西哥物流延误补偿规则、破损图片判定样例、支付失败多语言标准话术。" },
+        daily: { enabled: true, auto: true, sampleContent: "每个工单记录：客户诉求类型、客户提供的订单号/邮箱/照片/付款截图、查询到的订单/物流/支付状态、采用的处理方式、客户是否接受、是否需要主管或专岗接手。" },
+        weekly: { enabled: true, content: "每周复盘高频售后问题、客户反复追问的原因、经常缺失的资料、容易产生争议的规则、需要补充的国家/渠道/品类政策和客服话术。", sampleContent: "本周复盘发现：物流延误类咨询里，巴西和墨西哥渠道的补偿口径不清；破损商品经常缺少可判断照片；支付失败场景需要补充多语言说明话术。建议补充对应规则文件和示例图片。" },
         alerts: { triggers: [
-          { condition: "误退款率>1%", severity: "critical" as const },
-          { condition: "CSAT低于当前客服基线0.2分", severity: "warning" as const },
-          { condition: "订单或支付系统不可用超过5分钟", severity: "critical" as const },
-          { condition: "同类问题重复咨询率连续3天上升", severity: "warning" as const },
+          { condition: "客户连续两次表示不满意，或明确要求主管/专岗客服处理", severity: "critical" as const },
+          { condition: "退款金额超过50美元、疑似欺诈或客户提出政策外补偿", severity: "critical" as const },
+          { condition: "订单、物流或支付系统查不到必要信息，无法给出明确处理结论", severity: "warning" as const },
+          { condition: "同一类问题连续多天被客户反复追问，需要补充规则或话术", severity: "warning" as const },
         ] },
-        milestones: ["首周接待和材料规则验收", "小额退款规则试运行", "普通问题一次解决率达到50%", "重复咨询率下降20%"],
-        channel: "Zendesk工单备注 + Slack客服频道日报",
+        milestones: ["确认工单备注能完整记录客户诉求、查询结果和处理依据", "确认小额退款、退货标签和物流补偿规则已覆盖常见场景", "确认客服主管能基于异常记录直接接手，不需要客户重复说明", "确认每周能沉淀需要补充的规则文件和标准话术"],
+        channel: "Zendesk 工单备注记录处理过程；需要通知时同步到客服主管群或对应系统负责人",
       },
       contentPreview: {
         samples: [
