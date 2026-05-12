@@ -128,7 +128,7 @@ export function TechGenerationProgress({
               onClose();
             }}
           >
-            返回项目列表
+            去个人主页查看
           </Button>
         </div>
       </div>

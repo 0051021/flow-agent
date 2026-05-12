@@ -235,7 +235,7 @@ export default function NodeAnnotationBubble({
           </section>
         )}
 
-        {isTechRole && (
+        {(isTechRole || nodeAnnotations.length > 0) && (
           <>
             <section className="rounded-lg border-2 border-purple-200 bg-purple-50/40 p-2.5 space-y-3">
               <div className="text-[11px] font-semibold text-purple-800">▸ 技术方批注</div>
@@ -288,18 +288,20 @@ export default function NodeAnnotationBubble({
               ))}
             </section>
 
-            <div className="pt-0.5">
-              <button
-                type="button"
-                onClick={() => setNewAnnotationOpen((v) => !v)}
-                className="inline-flex items-center gap-1 text-[11px] font-medium text-zinc-600 hover:text-zinc-900"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                添加批注
-              </button>
-            </div>
+            {isTechRole && (
+              <div className="pt-0.5">
+                <button
+                  type="button"
+                  onClick={() => setNewAnnotationOpen((v) => !v)}
+                  className="inline-flex items-center gap-1 text-[11px] font-medium text-zinc-600 hover:text-zinc-900"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  添加批注
+                </button>
+              </div>
+            )}
 
-            {newAnnotationOpen && (
+            {isTechRole && newAnnotationOpen && (
               <div className="flex flex-col gap-2 border-t border-zinc-100 pt-3">
                 <label className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider">
                   新批注

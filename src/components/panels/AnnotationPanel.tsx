@@ -237,7 +237,7 @@ export default function AnnotationPanel() {
         />
         <div className="flex items-center justify-between">
           <Button size="sm" variant="ghost" className="h-7 text-xs text-zinc-500">
-            <Paperclip className="w-3 h-3 mr-1" /> 从知识中心引用
+            <Paperclip className="w-3 h-3 mr-1" /> 引用项目资料
           </Button>
           <Button
             size="sm"

@@ -1,14 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
-  Workflow, Code2, ArrowRight, LayoutDashboard,
+  Workflow, Code2, ArrowRight,
   Clock, AlertTriangle, CheckCircle2, FileText,
-  ArrowUpRight, Eye, Search, TrendingUp,
+  Eye, Search, TrendingUp, Loader2,
 } from "lucide-react";
 import { getAllReviews } from "@/lib/mock-reviews";
 
@@ -32,11 +32,50 @@ const FILTER_TABS: { id: string; label: string; filter: (s: ReviewStatus) => boo
   { id: "confirmed", label: "已确认", filter: (s) => s === "confirmed" },
 ];
 
+function formatSubmittedAt(value: string): string {
+  if (!value) return "-";
+  if (!value.includes("T")) return value;
+  const d = new Date(value);
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
 export default function TechLandingPage() {
   const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState("all");
+  const [serverReviews, setServerReviews] = useState<unknown[]>([]);
+  const [loadingServer, setLoadingServer] = useState(true);
 
-  const allReviews = getAllReviews();
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/submissions?view=reviews");
+        const result = await res.json();
+        if (!cancelled && result?.success && Array.isArray(result.items)) {
+          setServerReviews(result.items);
+        }
+      } catch {
+        // keep mock list if request fails
+      } finally {
+        if (!cancelled) setLoadingServer(false);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const allReviews = useMemo(() => {
+    const mocks = getAllReviews();
+    const merged = [...(serverReviews as typeof mocks), ...mocks];
+    const seen = new Set<string>();
+    return merged.filter((item) => {
+      if (seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    });
+  }, [serverReviews]);
   const currentFilter = FILTER_TABS.find((t) => t.id === activeFilter) || FILTER_TABS[0];
 
   const filteredReviews = allReviews.filter((item) => {
@@ -72,14 +111,6 @@ export default function TechLandingPage() {
           >
             <Workflow className="w-3.5 h-3.5" />
             业务方入口
-          </Link>
-          <Link
-            href="/console"
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium hover:bg-slate-800 transition-colors shadow-sm"
-          >
-            <LayoutDashboard className="w-4 h-4" />
-            管控后台
-            <ArrowUpRight className="w-3.5 h-3.5 opacity-60" />
           </Link>
         </div>
       </header>
@@ -158,6 +189,12 @@ export default function TechLandingPage() {
         {/* Review list */}
         <div>
           <h2 className="text-sm font-semibold text-slate-700 mb-4">评审列表</h2>
+          {loadingServer && (
+            <div className="mb-3 text-xs text-slate-500 flex items-center gap-1.5">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              正在读取服务端评审记录...
+            </div>
+          )}
           {filteredReviews.length === 0 ? (
             <EmptyState
               icon={<FileText className="w-6 h-6 text-slate-400" />}
@@ -196,7 +233,7 @@ export default function TechLandingPage() {
                             {item.nodeCount} 个节点
                           </span>
                           <span>提交人：{item.submittedBy}</span>
-                          <span>{item.submittedAt}</span>
+                          <span>{formatSubmittedAt(item.submittedAt)}</span>
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0 ml-4">

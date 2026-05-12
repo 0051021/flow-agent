@@ -1,0 +1,1625 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Runtime Pack 协议规范 v1.0</title>
+<style>
+  :root {
+    --bg: #f8f9fc;
+    --surface: #ffffff;
+    --surface-alt: #f1f3f9;
+    --border: #e2e6ef;
+    --border-light: #edf0f7;
+    --text: #1a1d2e;
+    --text-secondary: #5a6178;
+    --text-muted: #8b91a8;
+    --accent: #4f5bd5;
+    --accent-light: #eef0ff;
+    --accent-dark: #3a44a8;
+    --green: #16a34a;
+    --green-bg: #f0fdf4;
+    --orange: #d97706;
+    --orange-bg: #fffbeb;
+    --red: #dc2626;
+    --red-bg: #fef2f2;
+    --code-bg: #1e1e2e;
+    --code-text: #cdd6f4;
+    --code-keyword: #cba6f7;
+    --code-string: #a6e3a1;
+    --code-number: #fab387;
+    --code-comment: #6c7086;
+    --code-key: #89b4fa;
+    --sidebar-w: 280px;
+    --header-h: 56px;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: calc(var(--header-h) + 24px); }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans SC", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    font-size: 15px;
+  }
+
+  /* --- Header --- */
+  header {
+    position: fixed; top:0; left:0; right:0; z-index:100;
+    height: var(--header-h);
+    background: rgba(255,255,255,.85);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; padding: 0 32px;
+  }
+  header .logo {
+    font-size: 17px; font-weight: 700; color: var(--accent);
+    letter-spacing: -0.3px;
+  }
+  header .logo span { color: var(--text-secondary); font-weight: 400; margin-left: 8px; font-size: 13px; }
+  header .badge {
+    margin-left: 12px; font-size: 11px; font-weight: 600;
+    padding: 2px 8px; border-radius: 4px;
+    background: var(--accent-light); color: var(--accent);
+  }
+
+  /* --- Sidebar --- */
+  aside {
+    position: fixed; left:0; top: var(--header-h);
+    width: var(--sidebar-w); height: calc(100vh - var(--header-h));
+    overflow-y: auto; padding: 24px 16px;
+    border-right: 1px solid var(--border);
+    background: var(--surface);
+  }
+  aside::-webkit-scrollbar { width: 4px; }
+  aside::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  aside .nav-group { margin-bottom: 20px; }
+  aside .nav-group-title {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.8px; color: var(--text-muted); margin-bottom: 8px; padding-left: 12px;
+  }
+  aside a {
+    display: block; padding: 6px 12px; border-radius: 6px;
+    color: var(--text-secondary); text-decoration: none; font-size: 13.5px;
+    transition: all .15s;
+  }
+  aside a:hover { background: var(--surface-alt); color: var(--text); }
+  aside a.active { background: var(--accent-light); color: var(--accent); font-weight: 600; }
+
+  /* --- Main --- */
+  main {
+    margin-left: var(--sidebar-w); margin-top: var(--header-h);
+    max-width: 860px; padding: 40px 48px 120px;
+  }
+  h1 { font-size: 32px; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 8px; }
+  h1 + .subtitle { color: var(--text-secondary); font-size: 16px; margin-bottom: 40px; }
+  h2 {
+    font-size: 22px; font-weight: 700; margin-top: 56px; margin-bottom: 16px;
+    padding-bottom: 8px; border-bottom: 2px solid var(--accent-light);
+  }
+  h3 { font-size: 17px; font-weight: 700; margin-top: 36px; margin-bottom: 12px; }
+  h4 { font-size: 15px; font-weight: 600; margin-top: 24px; margin-bottom: 8px; color: var(--text-secondary); }
+  p { margin-bottom: 14px; }
+  ul, ol { padding-left: 24px; margin-bottom: 14px; }
+  li { margin-bottom: 4px; }
+  strong { font-weight: 600; }
+
+  /* --- Callouts --- */
+  .callout {
+    padding: 14px 18px; border-radius: 8px; margin: 16px 0;
+    border-left: 3px solid; font-size: 14px;
+  }
+  .callout.info { background: var(--accent-light); border-color: var(--accent); }
+  .callout.success { background: var(--green-bg); border-color: var(--green); }
+  .callout.warn { background: var(--orange-bg); border-color: var(--orange); }
+  .callout.danger { background: var(--red-bg); border-color: var(--red); }
+  .callout .callout-title { font-weight: 700; margin-bottom: 4px; }
+  .callout.info .callout-title { color: var(--accent); }
+  .callout.success .callout-title { color: var(--green); }
+  .callout.warn .callout-title { color: var(--orange); }
+  .callout.danger .callout-title { color: var(--red); }
+
+  /* --- Code blocks --- */
+  pre {
+    background: var(--code-bg); color: var(--code-text);
+    border-radius: 10px; padding: 20px 24px; margin: 14px 0 18px;
+    overflow-x: auto; font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+    font-size: 13px; line-height: 1.65; position: relative;
+  }
+  pre .label {
+    position: absolute; top: 8px; right: 12px;
+    font-size: 10px; color: var(--code-comment); font-family: inherit;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  code {
+    font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+    font-size: 13px;
+  }
+  :not(pre) > code {
+    background: var(--surface-alt); padding: 2px 6px; border-radius: 4px;
+    color: var(--accent-dark); font-size: 13px;
+  }
+  .ck { color: var(--code-key); }
+  .cs { color: var(--code-string); }
+  .cn { color: var(--code-number); }
+  .cc { color: var(--code-comment); font-style: italic; }
+  .cw { color: var(--code-keyword); }
+  .cp { color: #f38ba8; }
+
+  /* --- Tables --- */
+  .table-wrap { overflow-x: auto; margin: 14px 0 18px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th {
+    text-align: left; padding: 10px 14px; font-weight: 600; font-size: 12px;
+    text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);
+    background: var(--surface-alt); border-bottom: 2px solid var(--border);
+  }
+  td {
+    padding: 10px 14px; border-bottom: 1px solid var(--border-light);
+    vertical-align: top;
+  }
+  tr:hover td { background: var(--surface-alt); }
+  .tag {
+    display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px;
+    border-radius: 4px; vertical-align: middle;
+  }
+  .tag.exist { background: var(--green-bg); color: var(--green); }
+  .tag.new { background: var(--accent-light); color: var(--accent); }
+  .tag.miss { background: var(--red-bg); color: var(--red); }
+
+  /* --- File tree --- */
+  .file-tree {
+    background: var(--code-bg); color: var(--code-text); border-radius: 10px;
+    padding: 20px 24px; margin: 14px 0 18px; font-family: "SF Mono", monospace;
+    font-size: 13px; line-height: 1.8;
+  }
+  .file-tree .dir { color: var(--code-key); }
+  .file-tree .file { color: var(--code-text); }
+  .file-tree .new { color: var(--code-string); }
+  .file-tree .comment { color: var(--code-comment); font-style: italic; }
+
+  /* --- Layer cards --- */
+  .layer-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 24px 28px; margin: 20px 0;
+    box-shadow: 0 1px 3px rgba(0,0,0,.04);
+  }
+  .layer-card .layer-header {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 12px;
+  }
+  .layer-card .layer-icon {
+    width: 36px; height: 36px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; flex-shrink: 0;
+  }
+  .layer-card .layer-title { font-size: 17px; font-weight: 700; }
+  .layer-card .layer-desc { color: var(--text-secondary); font-size: 14px; }
+
+  .l1 .layer-icon { background: #ede9fe; }
+  .l2 .layer-icon { background: #dbeafe; }
+  .l3 .layer-icon { background: #fef3c7; }
+  .l4 .layer-icon { background: #fce7f3; }
+  .l5 .layer-icon { background: #d1fae5; }
+
+  /* --- Comparison grid --- */
+  .compare-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0;
+  }
+  .compare-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.03);
+  }
+  .compare-card h4 { margin-top: 0; font-size: 15px; color: var(--accent); }
+  .compare-card ul { font-size: 13.5px; }
+
+  /* --- Diagram --- */
+  .diagram {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 28px; text-align: center; margin: 20px 0;
+    font-family: "SF Mono", monospace; font-size: 13px; line-height: 2;
+    overflow-x: auto; white-space: pre;
+  }
+
+  /* responsive */
+  @media (max-width: 1100px) {
+    aside { display: none; }
+    main { margin-left: 0; padding: 32px 24px 100px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+  <div class="logo">Runtime Pack Protocol<span>协议规范</span></div>
+  <div class="badge">v1.0 DRAFT</div>
+</header>
+
+<!-- Sidebar -->
+<aside>
+  <div class="nav-group">
+    <div class="nav-group-title">概述</div>
+    <a href="#overview">协议总览</a>
+    <a href="#file-structure">文件结构</a>
+    <a href="#five-layers">五层架构</a>
+  </div>
+  <div class="nav-group">
+    <div class="nav-group-title">协议文件</div>
+    <a href="#envelope">execution-envelope.json</a>
+    <a href="#context">context.json</a>
+    <a href="#skills">skills/ 目录</a>
+    <a href="#tools">tools/ &amp; mcp.json</a>
+    <a href="#validators">validators/ 目录</a>
+    <a href="#output">output.json</a>
+  </div>
+  <div class="nav-group">
+    <div class="nav-group-title">设计要点</div>
+    <a href="#validation-types">三类校验机制</a>
+    <a href="#interaction">人机交互通道</a>
+    <a href="#degradation">降级策略</a>
+    <a href="#human-review">human_review 任务</a>
+    <a href="#workflow-vs-agentic">四类 Task 对比</a>
+  </div>
+  <div class="nav-group">
+    <div class="nav-group-title">完整示例</div>
+    <a href="#example-workflow">GSDS 入库 node-2（Workflow）</a>
+    <a href="#example-human-review">GSDS 入库 node-3（human_review）</a>
+    <a href="#example-agentic">合规审查（Agentic）</a>
+  </div>
+</aside>
+
+<!-- Main Content -->
+<main>
+
+<!-- ==================== 概述 ==================== -->
+<h1 id="overview">Runtime Pack 协议规范</h1>
+<p class="subtitle">平台与 Agent Runtime 之间的完整数据合约 — 定义输入、执行约束、校验规则和输出格式。</p>
+
+<div class="callout info">
+  <div class="callout-title">协议定位</div>
+  Runtime Pack 是平台打包给 Agent Runtime（如 OpenClaw）的<strong>一个自包含文件夹</strong>。Agent 打开这个文件夹，就拥有执行一个 Task 所需的全部信息——指令、数据、能力、约束、校验规则。Agent 执行完毕后，在同一文件夹内写入 <code>output.json</code> 返回结果。
+</div>
+
+<!-- File Structure -->
+<h2 id="file-structure">文件结构</h2>
+
+<div class="file-tree">
+<span class="dir">runtime-pack/</span>
+├── <span class="file">execution-envelope.json</span>    <span class="comment">← 主合约：指令 + 约束 + 校验规则</span>
+├── <span class="file">context.json</span>               <span class="comment">← 运行时上下文：业务输入 + 上游输出 + 配置</span>
+├── <span class="dir">skills/</span>
+│   ├── <span class="dir">sds-reader/</span>
+│   │   ├── <span class="file">SKILL.md</span>           <span class="comment">← 自然语言能力说明</span>
+│   │   └── <span class="new">skill.yaml</span>         <span class="comment">← 结构化元数据（触发条件、依赖、输出）</span>
+│   └── <span class="dir">regulation-lookup/</span>
+│       ├── <span class="file">SKILL.md</span>
+│       └── <span class="new">skill.yaml</span>
+├── <span class="dir">tools/</span>
+│   └── <span class="file">platform-tools.json</span>    <span class="comment">← 平台提供的工具声明</span>
+├── <span class="file">mcp.json</span>                   <span class="comment">← MCP Server 配置</span>
+├── <span class="new">validators/</span>                 <span class="comment">← 校验脚本（平台执行，非 Agent）</span>
+│   ├── <span class="new">verify-parse-run.sh</span>
+│   └── <span class="new">verify-record-count.py</span>
+└── <span class="file">output.json</span>                <span class="comment">← Agent 输出 + 平台回填校验结果</span>
+</div>
+
+<div class="callout warn">
+  <div class="callout-title">自包含原则</div>
+  Runtime Pack 不依赖外部文件。所有 JSON Schema 必须内联（不使用外部 <code>$ref</code>），所有 Skill 定义自包含，所有校验脚本打包在 <code>validators/</code> 内。
+</div>
+
+<!-- Five Layers -->
+<h2 id="five-layers">五层架构</h2>
+<p>协议按 Agent 执行的五个阶段组织，每一层由特定文件和字段支撑：</p>
+
+<div class="layer-card l1">
+  <div class="layer-header">
+    <div class="layer-icon">🧠</div>
+    <div>
+      <div class="layer-title">L1 理解层</div>
+      <div class="layer-desc">Agent 开机后理解「我要做什么、有什么数据、做到什么程度」</div>
+    </div>
+  </div>
+  <p>协议来源：<code>execution-envelope.json → task.*</code> + <code>context.json</code> + <code>skills/*/SKILL.md</code></p>
+</div>
+
+<div class="layer-card l2">
+  <div class="layer-header">
+    <div class="layer-icon">🗂</div>
+    <div>
+      <div class="layer-title">L2 规划层</div>
+      <div class="layer-desc">Agent 判断用哪些 Skill、什么顺序、有什么依赖</div>
+    </div>
+  </div>
+  <p>协议来源：<code>skills/*/skill.yaml</code>（trigger_when, requires, provides）</p>
+  <p><strong>Workflow Task 不需要此层</strong>——平台 flow 已编排好，Agent 直接执行。<br><strong>Agentic Task 必须有此层</strong>——Agent 根据输入内容自主规划 Skill 使用路径。</p>
+</div>
+
+<div class="layer-card l3">
+  <div class="layer-header">
+    <div class="layer-icon">⚡</div>
+    <div>
+      <div class="layer-title">L3 执行层</div>
+      <div class="layer-desc">Agent 调用工具、处理数据、遇到歧义时请求人工介入</div>
+    </div>
+  </div>
+  <p>协议来源：<code>tools/platform-tools.json</code> + <code>mcp.json</code> + <code>policies.interaction</code></p>
+</div>
+
+<div class="layer-card l4">
+  <div class="layer-header">
+    <div class="layer-icon">🛡</div>
+    <div>
+      <div class="layer-title">L4 校验层</div>
+      <div class="layer-desc">用确定性规则（非 AI）校验输出，包括字段校验、逻辑校验、脚本校验</div>
+    </div>
+  </div>
+  <p>协议来源：<code>policies.validation_rules</code> + <code>validators/</code></p>
+  <p><strong>由平台执行，不由 Agent 执行</strong>——确保校验不可绕过。</p>
+</div>
+
+<div class="layer-card l5">
+  <div class="layer-header">
+    <div class="layer-icon">📊</div>
+    <div>
+      <div class="layer-title">L5 反馈层</div>
+      <div class="layer-desc">Agent 报告结果、质量信息、执行轨迹；平台回填校验结果</div>
+    </div>
+  </div>
+  <p>协议来源：<code>output.json</code>（result + quality + trace）</p>
+</div>
+
+<!-- ==================== 协议文件详解 ==================== -->
+
+<!-- execution-envelope.json -->
+<h2 id="envelope">execution-envelope.json</h2>
+<p>平台传递给 Agent 的主合约文件，包含任务定义、执行约束和校验规则。</p>
+
+<pre><span class="label">JSON</span>
+{
+  <span class="ck">"protocol_version"</span>: <span class="cs">"1.0"</span>,
+  <span class="ck">"runtime_run_id"</span>: <span class="cs">"run-20260511-001"</span>,
+  <span class="ck">"job_run_id"</span>: <span class="cs">"job-20260511-gsds-batch-05"</span>,
+
+  <span class="cc">// ── L1 理解层 ──</span>
+  <span class="ck">"task"</span>: {
+    <span class="ck">"code"</span>: <span class="cs">"compliance-review"</span>,
+    <span class="ck">"name"</span>: <span class="cs">"合规文档审查"</span>,
+    <span class="ck">"type"</span>: <span class="cs">"agentic"</span>,
+    <span class="ck">"instruction"</span>: <span class="cs">"审查产品技术文档是否符合目标市场法规要求..."</span>,
+    <span class="ck">"skill_codes"</span>: [<span class="cs">"sds-reader"</span>, <span class="cs">"regulation-lookup"</span>, <span class="cs">"gap-analyzer"</span>, <span class="cs">"report-writer"</span>],
+    <span class="ck">"output_schema"</span>: {
+      <span class="ck">"type"</span>: <span class="cs">"object"</span>,
+      <span class="ck">"required"</span>: [<span class="cs">"conclusion"</span>, <span class="cs">"passed_items"</span>, <span class="cs">"failed_items"</span>],
+      <span class="ck">"properties"</span>: { <span class="cc">/* 完整 JSON Schema，内联不引用外部文件 */</span> }
+    }
+  },
+
+  <span class="cc">// ── L3 执行层 ──</span>
+  <span class="ck">"policies"</span>: {
+    <span class="ck">"timeout_seconds"</span>: <span class="cn">600</span>,
+    <span class="ck">"max_tool_calls"</span>: <span class="cn">50</span>,
+    <span class="ck">"max_tokens"</span>: <span class="cn">100000</span>,
+
+    <span class="ck">"interaction"</span>: {
+      <span class="ck">"enabled"</span>: <span class="cw">true</span>,
+      <span class="ck">"endpoint"</span>: <span class="cs">"/api/interactions/{runtime_run_id}"</span>,
+      <span class="ck">"question_policy"</span>: {
+        <span class="ck">"max_questions"</span>: <span class="cn">5</span>,
+        <span class="ck">"timeout_seconds"</span>: <span class="cn">3600</span>,
+        <span class="ck">"on_timeout"</span>: <span class="cs">"use_default_and_continue"</span>
+      },
+      <span class="ck">"notify"</span>: {
+        <span class="ck">"channels"</span>: [<span class="cs">"feishu"</span>],
+        <span class="ck">"roles"</span>: [<span class="cs">"compliance_reviewer"</span>],
+        <span class="ck">"escalation"</span>: {
+          <span class="ck">"after_minutes"</span>: <span class="cn">30</span>,
+          <span class="ck">"to_roles"</span>: [<span class="cs">"compliance_manager"</span>]
+        }
+      }
+    },
+
+    <span class="ck">"degradation"</span>: {
+      <span class="ck">"on_tool_failure"</span>: <span class="cs">"retry_once_then_skip"</span>,
+      <span class="ck">"on_skill_failure"</span>: <span class="cs">"report_partial_result"</span>,
+      <span class="ck">"on_timeout"</span>: <span class="cs">"return_partial_with_warning"</span>
+    },
+
+    <span class="cc">// ── L4 校验层 ──</span>
+    <span class="ck">"validation_rules"</span>: [
+      <span class="cc">/* 详见「三类校验机制」章节 */</span>
+    ]
+  }
+}</pre>
+
+<h3>字段说明</h3>
+<div class="table-wrap">
+<table>
+<tr><th>字段</th><th>层级</th><th>状态</th><th>说明</th></tr>
+<tr><td><code>protocol_version</code></td><td>—</td><td><span class="tag exist">已有</span></td><td>协议格式版本号，用于跨版本兼容。当前固定 <code>"1.0"</code></td></tr>
+<tr><td><code>runtime_run_id</code></td><td>—</td><td><span class="tag exist">已有</span></td><td>本次 Task 执行的唯一 ID</td></tr>
+<tr><td><code>job_run_id</code></td><td>—</td><td><span class="tag exist">已有</span></td><td>所属 Job 运行 ID，用于关联同批次多个 Task</td></tr>
+<tr><td><code>task.code</code></td><td>L1</td><td><span class="tag exist">已有</span></td><td>Task 标识符，对应 JobSpec 中的 task code</td></tr>
+<tr><td><code>task.name</code></td><td>L1</td><td><span class="tag exist">已有</span></td><td>人类可读的 Task 名称</td></tr>
+<tr><td><code>task.type</code></td><td>L1</td><td><span class="tag exist">已有</span></td><td><code>agentic</code> / <code>integration</code> / <code>deterministic</code> / <code>human_review</code></td></tr>
+<tr><td><code>task.instruction</code></td><td>L1</td><td><span class="tag exist">已有</span></td><td>自然语言指令，描述 Agent 要完成的工作</td></tr>
+<tr><td><code>task.skill_codes</code></td><td>L1</td><td><span class="tag exist">已有</span></td><td>可用 Skill 列表（Workflow 通常 1 个，Agentic 多个）</td></tr>
+<tr><td><code>task.output_schema</code></td><td>L1</td><td><span class="tag exist">已有</span></td><td>输出的 JSON Schema，必须内联完整定义</td></tr>
+<tr><td><code>policies.timeout_seconds</code></td><td>L3</td><td><span class="tag exist">已有</span></td><td>总执行超时</td></tr>
+<tr><td><code>policies.max_tool_calls</code></td><td>L3</td><td><span class="tag new">新增</span></td><td>工具调用次数上限，防止死循环</td></tr>
+<tr><td><code>policies.max_tokens</code></td><td>L3</td><td><span class="tag new">新增</span></td><td>LLM Token 消耗上限</td></tr>
+<tr><td><code>policies.interaction</code></td><td>L3</td><td><span class="tag new">新增</span></td><td>人机交互完整配置（见<a href="#interaction">交互通道</a>）</td></tr>
+<tr><td><code>policies.degradation</code></td><td>L3</td><td><span class="tag new">新增</span></td><td>降级策略（见<a href="#degradation">降级策略</a>）</td></tr>
+<tr><td><code>policies.validation_rules</code></td><td>L4</td><td><span class="tag new">新增</span></td><td>校验规则列表（见<a href="#validation-types">三类校验</a>）</td></tr>
+<tr><td><code>task.review_config</code></td><td>L1</td><td><span class="tag new">新增</span></td><td><code>human_review</code> 独有：审核界面、可编辑字段、超时策略、通知（见<a href="#human-review">human_review</a>）</td></tr>
+</table>
+</div>
+
+<!-- context.json -->
+<h2 id="context">context.json</h2>
+<p>运行时上下文：业务输入数据、上游节点输出、配置参数。</p>
+
+<pre><span class="label">JSON</span>
+{
+  <span class="cc">// 本次要处理的业务数据（每次执行不同）</span>
+  <span class="ck">"context_package"</span>: {
+    <span class="ck">"product_id"</span>: <span class="cs">"X-2026"</span>,
+    <span class="ck">"target_market"</span>: <span class="cs">"EU"</span>,
+    <span class="ck">"sds_file_path"</span>: <span class="cs">"/inputs/product-x-2026-sds.pdf"</span>
+  },
+
+  <span class="cc">// 上游节点的输出（Workflow 场景下由平台注入）</span>
+  <span class="ck">"upstream_outputs"</span>: {
+    <span class="ck">"node-1"</span>: {
+      <span class="ck">"status"</span>: <span class="cs">"succeeded"</span>,
+      <span class="ck">"result"</span>: {
+        <span class="ck">"downloaded_files"</span>: [<span class="cs">"/inputs/product-x-2026-sds.pdf"</span>]
+      }
+    }
+  },
+
+  <span class="cc">// 配置项（通常跨批次不变）</span>
+  <span class="ck">"configuration"</span>: {
+    <span class="ck">"conversion_rules_path"</span>: <span class="cs">"/inputs/imi_conversion_rules.xlsx"</span>,
+    <span class="ck">"strict_mode"</span>: <span class="cw">true</span>
+  }
+}</pre>
+
+<div class="table-wrap">
+<table>
+<tr><th>字段</th><th>状态</th><th>说明</th></tr>
+<tr><td><code>context_package</code></td><td><span class="tag exist">已有</span></td><td>业务输入数据，每次执行不同</td></tr>
+<tr><td><code>upstream_outputs</code></td><td><span class="tag exist">已有</span></td><td>上游节点输出，Workflow 场景由平台按 flow 注入</td></tr>
+<tr><td><code>configuration</code></td><td><span class="tag new">新增</span></td><td>与 context_package 分离的配置项（规则文件、开关等），通常跨批次不变</td></tr>
+</table>
+</div>
+
+<div class="callout info">
+  <div class="callout-title">为什么拆分 configuration</div>
+  <code>context_package</code> 是「这一次要处理什么」，<code>configuration</code> 是「按什么规则处理」。分离后 Agent 能更快定位重点，配置变更和数据变更也能独立管理。
+</div>
+
+<!-- skills/ -->
+<h2 id="skills">skills/ 目录</h2>
+<p>每个 Skill 包含两个文件：<code>SKILL.md</code>（自然语言）和 <code>skill.yaml</code>（结构化元数据）。</p>
+
+<h3>SKILL.md — 给 Agent 的自然语言说明</h3>
+<pre><span class="label">MARKDOWN</span>
+<span class="cc"># SDS 文档读取器 (sds-reader)</span>
+
+<span class="cc">## 能力</span>
+解析 SDS (Safety Data Sheet) PDF 文档，
+提取结构化字段：产品名、CAS 号、成分表、危险分类、GHS 标签等。
+
+<span class="cc">## 什么时候用</span>
+- 任务涉及产品安全数据文档时，作为第一步使用
+- 支持格式：PDF、DOCX
+
+<span class="cc">## 输入</span>
+- 文件路径（从 context_package 或上游节点获取）
+
+<span class="cc">## 输出</span>
+- structured_sds: 结构化的 SDS 数据对象
+
+<span class="cc">## 使用的工具</span>
+- pdf-reader（平台 Tool）
+
+<span class="cc">## 注意</span>
+- 如果 PDF 是扫描件，OCR 识别率可能较低，confidence 会下降
+- 如果必填字段缺失，在输出中标注 missing 而不是猜测</pre>
+
+<h3>skill.yaml — 结构化元数据 <span class="tag new">新增</span></h3>
+<pre><span class="label">YAML</span>
+<span class="ck">code</span>: <span class="cs">sds-reader</span>
+<span class="ck">version</span>: <span class="cs">"1.0"</span>
+
+<span class="cc"># ── 什么时候该用这个 Skill ──</span>
+<span class="ck">trigger_when</span>:
+  <span class="ck">description</span>: <span class="cs">"任务输入包含 SDS/安全数据表文件"</span>
+  <span class="ck">input_contains</span>:
+    - <span class="ck">field</span>: <span class="cs">"sds_file_path"</span>
+    - <span class="ck">field</span>: <span class="cs">"*.sds.*"</span>
+
+<span class="cc"># ── 这个 Skill 能产出什么 ──</span>
+<span class="ck">provides</span>:
+  - <span class="ck">field</span>: <span class="cs">structured_sds</span>
+    <span class="ck">type</span>: <span class="cs">object</span>
+    <span class="ck">description</span>: <span class="cs">"结构化的 SDS 数据"</span>
+
+<span class="cc"># ── 依赖什么输入 / 其他 Skill ──</span>
+<span class="ck">requires</span>:
+  <span class="ck">inputs</span>:
+    - <span class="ck">field</span>: <span class="cs">file_path</span>
+      <span class="ck">source</span>: <span class="cs">"context_package.sds_file_path 或 upstream_outputs"</span>
+  <span class="ck">skills</span>: []      <span class="cc"># 无前置 Skill 依赖</span>
+
+<span class="cc"># ── 使用的工具 ──</span>
+<span class="ck">tools</span>:
+  - <span class="cs">pdf-reader</span>
+
+<span class="cc"># ── 约束 ──</span>
+<span class="ck">constraints</span>:
+  <span class="ck">max_file_size_mb</span>: <span class="cn">50</span>
+  <span class="ck">supported_formats</span>: [<span class="cs">"pdf"</span>, <span class="cs">"docx"</span>]</pre>
+
+<div class="callout info">
+  <div class="callout-title">skill.yaml 的作用</div>
+  <strong>Workflow Task</strong> 不依赖 <code>skill.yaml</code>——平台已通过 flow 决定用哪个 Skill，Agent 直接执行。<br>
+  <strong>Agentic Task</strong> 必须有 <code>skill.yaml</code>——Agent 需要读 <code>trigger_when</code> 判断该不该用、读 <code>requires.skills</code> 排依赖顺序。
+</div>
+
+<h3>Skill 依赖图示例</h3>
+<div class="diagram">sds-reader ─────────┐
+                     ├──→ gap-analyzer ──→ report-writer
+regulation-lookup ──┘
+
+<span style="color:var(--code-comment)">Agent 通过 skill.yaml 中的 requires.skills 自动推导此依赖图</span></div>
+
+<!-- tools & mcp -->
+<h2 id="tools">tools/ &amp; mcp.json</h2>
+
+<h3>platform-tools.json</h3>
+<pre><span class="label">JSON</span>
+{
+  <span class="ck">"tools"</span>: [
+    {
+      <span class="ck">"code"</span>: <span class="cs">"pdf-reader"</span>,
+      <span class="ck">"type"</span>: <span class="cs">"platform"</span>,
+      <span class="ck">"description"</span>: <span class="cs">"读取 PDF 文件并返回文本内容"</span>,
+      <span class="ck">"parameters"</span>: {
+        <span class="ck">"file_path"</span>: { <span class="ck">"type"</span>: <span class="cs">"string"</span> },
+        <span class="ck">"pages"</span>: { <span class="ck">"type"</span>: <span class="cs">"string"</span>, <span class="ck">"description"</span>: <span class="cs">"页码范围，如 1-5"</span> }
+      }
+    },
+    {
+      <span class="ck">"code"</span>: <span class="cs">"regulation-db-query"</span>,
+      <span class="ck">"type"</span>: <span class="cs">"platform"</span>,
+      <span class="ck">"description"</span>: <span class="cs">"查询法规数据库"</span>,
+      <span class="ck">"parameters"</span>: {
+        <span class="ck">"market"</span>: { <span class="ck">"type"</span>: <span class="cs">"string"</span>, <span class="ck">"enum"</span>: [<span class="cs">"EU"</span>, <span class="cs">"US"</span>, <span class="cs">"KR"</span>, <span class="cs">"CN"</span>] },
+        <span class="ck">"regulation_code"</span>: { <span class="ck">"type"</span>: <span class="cs">"string"</span> },
+        <span class="ck">"keyword"</span>: { <span class="ck">"type"</span>: <span class="cs">"string"</span> }
+      }
+    }
+  ]
+}</pre>
+
+<h3>mcp.json</h3>
+<pre><span class="label">JSON</span>
+{
+  <span class="ck">"mcpServers"</span>: {
+    <span class="ck">"regulation-knowledge-base"</span>: {
+      <span class="ck">"command"</span>: <span class="cs">"node"</span>,
+      <span class="ck">"args"</span>: [<span class="cs">"mcp-regulation-kb/index.js"</span>],
+      <span class="ck">"env"</span>: {
+        <span class="ck">"DB_URL"</span>: <span class="cs">"${SECRET:regulation-db-url}"</span>
+      }
+    }
+  }
+}</pre>
+
+<div class="callout warn">
+  <div class="callout-title">Secret 引用</div>
+  MCP 配置中的敏感信息使用 <code>${SECRET:key}</code> 语法引用，平台在打包 Runtime Pack 时注入真实值。Skill 和 Agent 不直接接触凭据原文。
+</div>
+
+<!-- validators/ -->
+<h2 id="validators">validators/ 目录 <span class="tag new">新增</span></h2>
+<p>存放 <strong>L4 校验层</strong>使用的可执行脚本。这些脚本由<strong>平台在 Agent 输出后执行</strong>，不由 Agent 执行。</p>
+
+<h3 id="validation-types">三类校验机制</h3>
+
+<div class="table-wrap">
+<table>
+<tr><th>类型</th><th>说明</th><th>执行者</th><th>示例</th></tr>
+<tr>
+  <td><code>schema</code></td>
+  <td>字段级 JSON Schema 校验</td>
+  <td>平台（自动）</td>
+  <td><code>conclusion</code> 必须是 pass/conditional_pass/fail</td>
+</tr>
+<tr>
+  <td><code>logic</code></td>
+  <td>跨字段条件表达式</td>
+  <td>平台（自动）</td>
+  <td>如果 conclusion == fail，则 failed_items 不能为空</td>
+</tr>
+<tr>
+  <td><code>script</code></td>
+  <td>可执行脚本，支持调 API / 查数据库</td>
+  <td>平台（执行脚本）</td>
+  <td>调用解析服务 API 确认 run_id 真实执行过</td>
+</tr>
+</table>
+</div>
+
+<pre><span class="label">JSON — validation_rules 示例</span>
+[
+  {
+    <span class="ck">"id"</span>: <span class="cs">"v-001"</span>,
+    <span class="ck">"type"</span>: <span class="cs">"schema"</span>,
+    <span class="ck">"field"</span>: <span class="cs">"conclusion"</span>,
+    <span class="ck">"rule"</span>: <span class="cs">"in_enum"</span>,
+    <span class="ck">"values"</span>: [<span class="cs">"pass"</span>, <span class="cs">"conditional_pass"</span>, <span class="cs">"fail"</span>],
+    <span class="ck">"severity"</span>: <span class="cs">"error"</span>,
+    <span class="ck">"message"</span>: <span class="cs">"结论必须是 pass/conditional_pass/fail 之一"</span>
+  },
+  {
+    <span class="ck">"id"</span>: <span class="cs">"v-002"</span>,
+    <span class="ck">"type"</span>: <span class="cs">"logic"</span>,
+    <span class="ck">"condition"</span>: <span class="cs">"result.conclusion == 'fail' &amp;&amp; result.failed_items.length > 0"</span>,
+    <span class="ck">"severity"</span>: <span class="cs">"error"</span>,
+    <span class="ck">"message"</span>: <span class="cs">"结论为 fail 时必须列出不通过项"</span>
+  },
+  {
+    <span class="ck">"id"</span>: <span class="cs">"v-010"</span>,
+    <span class="ck">"type"</span>: <span class="cs">"script"</span>,
+    <span class="ck">"script"</span>: <span class="cs">"validators/verify-parse-run.sh"</span>,
+    <span class="ck">"description"</span>: <span class="cs">"验证解析接口是否真实执行过"</span>,
+    <span class="ck">"input_mapping"</span>: {
+      <span class="ck">"PARSE_RUN_ID"</span>: <span class="cs">"result.parse_run_id"</span>
+    },
+    <span class="ck">"expected_exit_code"</span>: <span class="cn">0</span>,
+    <span class="ck">"timeout_seconds"</span>: <span class="cn">30</span>,
+    <span class="ck">"severity"</span>: <span class="cs">"error"</span>
+  }
+]</pre>
+
+<div class="callout danger">
+  <div class="callout-title">设计原则：考试不能让考生自己改卷</div>
+  校验的目的是<strong>不信任 Agent</strong>，所以校验必须由平台执行。<code>validation_rules</code> 写在 <code>execution-envelope.json</code> 里给平台看，Agent 不需要感知校验规则的存在——它只管按 <code>output_schema</code> 输出结果。
+</div>
+
+<h4>脚本合约</h4>
+<div class="table-wrap">
+<table>
+<tr><th>约定</th><th>说明</th></tr>
+<tr><td>输入</td><td>通过 <code>input_mapping</code> 将 output.json 中的字段映射为环境变量</td></tr>
+<tr><td>输出</td><td><code>stdout</code> 输出 JSON 对象 <code>{"passed": bool, "detail": "..."}</code></td></tr>
+<tr><td>退出码</td><td><code>0</code> = 通过，非 0 = 失败</td></tr>
+<tr><td>超时</td><td>由 <code>timeout_seconds</code> 控制，超时视为失败</td></tr>
+<tr><td>语言</td><td>不限（Shell / Python / Node 等），需在 runtime-pack 中自包含依赖</td></tr>
+</table>
+</div>
+
+<!-- interaction -->
+<h2 id="interaction">人机交互通道</h2>
+<p>Agentic Task 执行过程中可能遇到歧义，需要人工确认。协议定义了完整的交互策略。</p>
+
+<pre><span class="label">JSON — policies.interaction</span>
+{
+  <span class="ck">"enabled"</span>: <span class="cw">true</span>,
+  <span class="ck">"endpoint"</span>: <span class="cs">"/api/interactions/{runtime_run_id}"</span>,
+
+  <span class="ck">"question_policy"</span>: {
+    <span class="ck">"max_questions"</span>: <span class="cn">5</span>,           <span class="cc">// 最多问 5 次</span>
+    <span class="ck">"timeout_seconds"</span>: <span class="cn">3600</span>,      <span class="cc">// 等人回复最长 1 小时</span>
+    <span class="ck">"on_timeout"</span>: <span class="cs">"use_default_and_continue"</span>
+                                    <span class="cc">// 超时后使用默认值继续，不阻塞</span>
+  },
+
+  <span class="ck">"notify"</span>: {
+    <span class="ck">"channels"</span>: [<span class="cs">"feishu"</span>],      <span class="cc">// 通知渠道：飞书/钉钉/邮件</span>
+    <span class="ck">"roles"</span>: [<span class="cs">"reviewer"</span>],       <span class="cc">// 通知对象角色</span>
+    <span class="ck">"escalation"</span>: {
+      <span class="ck">"after_minutes"</span>: <span class="cn">30</span>,       <span class="cc">// 30 分钟无人回复则升级</span>
+      <span class="ck">"to_roles"</span>: [<span class="cs">"manager"</span>]   <span class="cc">// 升级通知对象</span>
+    }
+  }
+}</pre>
+
+<div class="callout info">
+  <div class="callout-title">异步推送模式</div>
+  Agent 提出问题后<strong>不要求人盯着进度</strong>。平台通过飞书/钉钉等渠道推送通知，人在消息内直接回复，平台将回复转发给 Agent。超时未回复则按降级策略处理。
+</div>
+
+<!-- degradation -->
+<h2 id="degradation">降级策略</h2>
+
+<div class="table-wrap">
+<table>
+<tr><th>场景</th><th>策略选项</th><th>说明</th></tr>
+<tr>
+  <td>工具调用失败</td>
+  <td>
+    <code>retry_once_then_skip</code><br>
+    <code>retry_and_fail</code><br>
+    <code>skip_silently</code>
+  </td>
+  <td>重试一次后跳过 / 重试后失败 / 直接跳过</td>
+</tr>
+<tr>
+  <td>Skill 执行失败</td>
+  <td>
+    <code>report_partial_result</code><br>
+    <code>fail_task</code>
+  </td>
+  <td>报告部分结果继续 / 整个 Task 标记失败</td>
+</tr>
+<tr>
+  <td>超时</td>
+  <td>
+    <code>return_partial_with_warning</code><br>
+    <code>fail_task</code>
+  </td>
+  <td>返回已完成部分并附警告 / 标记失败</td>
+</tr>
+<tr>
+  <td>人工回复超时</td>
+  <td>
+    <code>use_default_and_continue</code><br>
+    <code>pause_and_wait</code><br>
+    <code>fail_task</code>
+  </td>
+  <td>用默认值继续 / 暂停等待 / 失败</td>
+</tr>
+</table>
+</div>
+
+<!-- output.json -->
+<h2 id="output">output.json</h2>
+<p>Agent 执行完毕后写入的输出文件。包含三部分：<strong>结果</strong>（result）、<strong>质量</strong>（quality）、<strong>轨迹</strong>（trace）。</p>
+
+<pre><span class="label">JSON</span>
+{
+  <span class="ck">"protocol_version"</span>: <span class="cs">"1.0"</span>,
+  <span class="ck">"runtime_run_id"</span>: <span class="cs">"run-20260511-001"</span>,
+  <span class="ck">"status"</span>: <span class="cs">"succeeded"</span>,
+  <span class="ck">"summary"</span>: <span class="cs">"产品 X-2026 出口欧盟合规审查完成：有条件通过"</span>,
+
+  <span class="cc">// ── 结构化输出（符合 output_schema）──</span>
+  <span class="ck">"result"</span>: {
+    <span class="ck">"conclusion"</span>: <span class="cs">"conditional_pass"</span>,
+    <span class="ck">"passed_items"</span>: [ <span class="cc">/* ... */</span> ],
+    <span class="ck">"failed_items"</span>: [ <span class="cc">/* ... */</span> ],
+    <span class="ck">"missing_materials"</span>: [<span class="cs">"水生生态毒性测试报告"</span>]
+  },
+
+  <span class="cc">// ── 质量信息 ──</span>
+  <span class="ck">"quality"</span>: {
+    <span class="cc">// 校验层结果（平台回填）</span>
+    <span class="ck">"validation"</span>: {
+      <span class="ck">"total"</span>: <span class="cn">5</span>,
+      <span class="ck">"passed"</span>: <span class="cn">4</span>,
+      <span class="ck">"failed"</span>: <span class="cn">0</span>,
+      <span class="ck">"warnings"</span>: <span class="cn">1</span>,
+      <span class="ck">"details"</span>: [
+        {
+          <span class="ck">"id"</span>: <span class="cs">"v-004"</span>,
+          <span class="ck">"type"</span>: <span class="cs">"schema"</span>,
+          <span class="ck">"status"</span>: <span class="cs">"warn"</span>,
+          <span class="ck">"message"</span>: <span class="cs">"条款编号为空"</span>
+        }
+      ]
+    },
+
+    <span class="cc">// Agent 自评置信度</span>
+    <span class="ck">"confidence"</span>: {
+      <span class="ck">"overall"</span>: <span class="cn">0.82</span>,
+      <span class="ck">"by_field"</span>: {
+        <span class="ck">"conclusion"</span>:   { <span class="ck">"score"</span>: <span class="cn">0.90</span>, <span class="ck">"reason"</span>: <span class="cs">"明确缺少生态毒性数据"</span> },
+        <span class="ck">"passed_items"</span>: { <span class="ck">"score"</span>: <span class="cn">0.85</span>, <span class="ck">"reason"</span>: <span class="cs">"SDS 字段与法规直接匹配"</span> },
+        <span class="ck">"failed_items"</span>: { <span class="ck">"score"</span>: <span class="cn">0.75</span>, <span class="ck">"reason"</span>: <span class="cs">"部分条款靠推理判断"</span> }
+      }
+    },
+
+    <span class="cc">// 人机交互记录</span>
+    <span class="ck">"interactions"</span>: [
+      {
+        <span class="ck">"type"</span>: <span class="cs">"question"</span>,
+        <span class="ck">"message"</span>: <span class="cs">"SDS 第9节水溶性数据为 '&lt;0.1 mg/L'，是否视为已提供？"</span>,
+        <span class="ck">"response"</span>: <span class="cs">"不算，需要专门的毒性测试报告"</span>,
+        <span class="ck">"responded_by"</span>: <span class="cs">"compliance_reviewer"</span>,
+        <span class="ck">"response_time_ms"</span>: <span class="cn">180000</span>
+      }
+    ]
+  },
+
+  <span class="cc">// ── 执行轨迹 ──</span>
+  <span class="ck">"trace"</span>: {
+    <span class="ck">"skills_used"</span>: [<span class="cs">"sds-reader"</span>, <span class="cs">"regulation-lookup"</span>, <span class="cs">"gap-analyzer"</span>, <span class="cs">"report-writer"</span>],
+    <span class="ck">"skills_skipped"</span>: [],
+    <span class="ck">"steps"</span>: [
+      {
+        <span class="ck">"seq"</span>: <span class="cn">1</span>,
+        <span class="ck">"skill"</span>: <span class="cs">"sds-reader"</span>,
+        <span class="ck">"action"</span>: <span class="cs">"解析 SDS PDF"</span>,
+        <span class="ck">"tool_calls"</span>: [{ <span class="ck">"tool"</span>: <span class="cs">"pdf-reader"</span>, <span class="ck">"duration_ms"</span>: <span class="cn">1200</span> }],
+        <span class="ck">"duration_ms"</span>: <span class="cn">3500</span>,
+        <span class="ck">"tokens"</span>: <span class="cn">2800</span>
+      },
+      {
+        <span class="ck">"seq"</span>: <span class="cn">2</span>,
+        <span class="ck">"skill"</span>: <span class="cs">"regulation-lookup"</span>,
+        <span class="ck">"action"</span>: <span class="cs">"查询 REACH 法规要求"</span>,
+        <span class="ck">"tool_calls"</span>: [
+          { <span class="ck">"tool"</span>: <span class="cs">"regulation-db-query"</span>, <span class="ck">"duration_ms"</span>: <span class="cn">800</span> },
+          { <span class="ck">"tool"</span>: <span class="cs">"regulation-db-query"</span>, <span class="ck">"duration_ms"</span>: <span class="cn">600</span> }
+        ],
+        <span class="ck">"duration_ms"</span>: <span class="cn">5200</span>,
+        <span class="ck">"tokens"</span>: <span class="cn">4500</span>
+      }
+    ],
+    <span class="ck">"total_duration_ms"</span>: <span class="cn">201200</span>,
+    <span class="ck">"total_tokens"</span>: <span class="cn">16500</span>,
+    <span class="ck">"total_tool_calls"</span>: <span class="cn">3</span>
+  }
+}</pre>
+
+<h3>字段说明</h3>
+<div class="table-wrap">
+<table>
+<tr><th>字段</th><th>写入者</th><th>状态</th><th>说明</th></tr>
+<tr><td><code>status</code></td><td>Agent</td><td><span class="tag exist">已有</span></td><td><code>succeeded</code> / <code>failed</code> / <code>partial</code></td></tr>
+<tr><td><code>summary</code></td><td>Agent</td><td><span class="tag new">新增</span></td><td>一句话概要，给人看</td></tr>
+<tr><td><code>result</code></td><td>Agent</td><td><span class="tag exist">已有</span></td><td>结构化输出，必须符合 output_schema</td></tr>
+<tr><td><code>quality.validation</code></td><td>平台</td><td><span class="tag new">新增</span></td><td>校验层结果（Agent 输出后，平台执行校验后回填）</td></tr>
+<tr><td><code>quality.confidence</code></td><td>Agent</td><td><span class="tag new">新增</span></td><td>AI 自评置信度（整体 + 分字段）</td></tr>
+<tr><td><code>quality.interactions</code></td><td>Agent</td><td><span class="tag new">新增</span></td><td>执行过程中的人机交互记录</td></tr>
+<tr><td><code>trace.skills_used</code></td><td>Agent</td><td><span class="tag new">新增</span></td><td>实际使用的 Skill 列表</td></tr>
+<tr><td><code>trace.skills_skipped</code></td><td>Agent</td><td><span class="tag new">新增</span></td><td>未使用的 Skill 列表（便于审计）</td></tr>
+<tr><td><code>trace.steps</code></td><td>Agent</td><td><span class="tag new">新增</span></td><td>每步详情：Skill、工具调用、耗时、Token</td></tr>
+<tr><td><code>trace.total_*</code></td><td>Agent</td><td><span class="tag new">新增</span></td><td>汇总统计</td></tr>
+<tr><td><code>review_audit</code></td><td>平台</td><td><span class="tag new">新增</span></td><td><code>human_review</code> 独有：审核人、时间、字段变更记录（见<a href="#human-review">human_review</a>）</td></tr>
+</table>
+</div>
+
+<!-- human_review -->
+<h2 id="human-review">human_review 任务</h2>
+<p><code>human_review</code> 和 Agentic 的「偶尔问人」完全不同——这个 Task 的<strong>整个执行者就是人</strong>，不经过 Agent Runtime。</p>
+
+<div class="callout warn">
+  <div class="callout-title">关键区别</div>
+  <strong>Agentic + interaction</strong>：AI 在执行，遇到歧义时问人一个问题，人回答后 AI 继续。AI 是主体。<br>
+  <strong>human_review</strong>：平台把数据展示给人，人审核/修改后提交。人是主体，没有 AI 参与执行。
+</div>
+
+<h3>执行流程</h3>
+<div class="diagram">平台接收到 human_review 类型 Task
+          ↓
+不发给 Agent Runtime，而是：
+          ↓
+┌─────────────────────────────────────────┐
+│  1. 根据 review_config.notify 推送通知   │
+│     → 飞书/钉钉/邮件通知审核人           │
+│                                         │
+│  2. 审核人打开平台 UI                    │
+│     → 展示 input 数据（上游节点输出）     │
+│     → 根据 review_config.ui 渲染表单     │
+│                                         │
+│  3. 审核人修改/确认数据                   │
+│     → 可编辑字段由 editable_fields 控制  │
+│                                         │
+│  4. 提交                                 │
+│     → 平台写 output.json                │
+│     → 记录 who / when / 改了什么         │
+└─────────────────────────────────────────┘
+          ↓
+    触发下游 Task</div>
+
+<h3>execution-envelope.json 扩展字段</h3>
+<pre><span class="label">JSON</span>
+{
+  <span class="ck">"protocol_version"</span>: <span class="cs">"1.0"</span>,
+  <span class="ck">"runtime_run_id"</span>: <span class="cs">"run-20260511-node3-001"</span>,
+  <span class="ck">"job_run_id"</span>: <span class="cs">"job-20260511-gsds-batch-05"</span>,
+
+  <span class="ck">"task"</span>: {
+    <span class="ck">"code"</span>: <span class="cs">"node-3"</span>,
+    <span class="ck">"name"</span>: <span class="cs">"人工审核解析结果"</span>,
+    <span class="ck">"type"</span>: <span class="cs">"human_review"</span>,
+    <span class="ck">"instruction"</span>: <span class="cs">"审核 PDF 解析结果的准确性，修正错误字段后确认提交。"</span>,
+
+    <span class="cc">// input_schema: 告诉平台输入数据的结构，用于渲染展示</span>
+    <span class="ck">"input_schema"</span>: {
+      <span class="ck">"type"</span>: <span class="cs">"object"</span>,
+      <span class="ck">"properties"</span>: {
+        <span class="ck">"parsed_record"</span>: { <span class="cc">/* 上游 node-2 的输出 schema */</span> },
+        <span class="ck">"source_pdf_url"</span>: { <span class="ck">"type"</span>: <span class="cs">"string"</span>, <span class="ck">"description"</span>: <span class="cs">"原始 PDF 链接，供审核人对照"</span> }
+      }
+    },
+
+    <span class="cc">// output_schema: 审核人提交后的数据结构</span>
+    <span class="ck">"output_schema"</span>: {
+      <span class="ck">"type"</span>: <span class="cs">"object"</span>,
+      <span class="ck">"required"</span>: [<span class="cs">"bbn"</span>, <span class="cs">"part"</span>],
+      <span class="ck">"properties"</span>: {
+        <span class="ck">"bbn"</span>:  { <span class="ck">"type"</span>: <span class="cs">"string"</span> },
+        <span class="ck">"part"</span>: { <span class="ck">"type"</span>: <span class="cs">"string"</span> },
+        <span class="ck">"color"</span>: { <span class="ck">"type"</span>: <span class="cs">"string"</span> },
+        <span class="ck">"cas_no"</span>: { <span class="ck">"type"</span>: <span class="cs">"string"</span> }
+      }
+    },
+
+    <span class="cc">// ── human_review 独有配置 ──</span>
+    <span class="ck">"review_config"</span>: {
+
+      <span class="cc">// 可编辑字段（其余只读展示）</span>
+      <span class="ck">"editable_fields"</span>: [<span class="cs">"*"</span>],
+      <span class="cc">// 可以是 ["*"]（全部可编辑）或 ["color", "cas_no"]（指定字段）</span>
+
+      <span class="cc">// 审核超时</span>
+      <span class="ck">"timeout_seconds"</span>: <span class="cn">86400</span>,
+      <span class="ck">"on_timeout"</span>: <span class="cs">"auto_approve"</span>,
+      <span class="cc">// auto_approve: 超时自动通过（数据不变）</span>
+      <span class="cc">// escalate: 超时升级给上级</span>
+      <span class="cc">// fail_task: 超时标记失败</span>
+
+      <span class="cc">// 通知配置</span>
+      <span class="ck">"notify"</span>: {
+        <span class="ck">"channels"</span>: [<span class="cs">"feishu"</span>],
+        <span class="ck">"roles"</span>: [<span class="cs">"data_reviewer"</span>],
+        <span class="ck">"reminder"</span>: {
+          <span class="ck">"interval_minutes"</span>: <span class="cn">60</span>,
+          <span class="ck">"max_reminders"</span>: <span class="cn">3</span>
+        },
+        <span class="ck">"escalation"</span>: {
+          <span class="ck">"after_minutes"</span>: <span class="cn">240</span>,
+          <span class="ck">"to_roles"</span>: [<span class="cs">"data_manager"</span>]
+        }
+      },
+
+      <span class="cc">// UI 展示提示</span>
+      <span class="ck">"ui"</span>: {
+        <span class="ck">"layout"</span>: <span class="cs">"side_by_side"</span>,
+        <span class="cc">// side_by_side: 左边原始 PDF，右边解析结果表单</span>
+        <span class="cc">// form_only: 只展示表单</span>
+        <span class="cc">// diff_view: 展示上游输出和当前修改的差异</span>
+        <span class="ck">"source_display"</span>: {
+          <span class="ck">"type"</span>: <span class="cs">"pdf_viewer"</span>,
+          <span class="ck">"field"</span>: <span class="cs">"source_pdf_url"</span>
+        },
+        <span class="ck">"highlight_low_confidence"</span>: <span class="cw">true</span>,
+        <span class="cc">// 如果上游 Agent 输出了 confidence，标黄低置信度字段</span>
+        <span class="ck">"confidence_threshold"</span>: <span class="cn">0.8</span>
+      }
+    }
+  },
+
+  <span class="cc">// human_review 不需要 policies 中的 Agent 相关配置</span>
+  <span class="ck">"policies"</span>: {
+    <span class="ck">"validation_rules"</span>: [
+      {
+        <span class="ck">"id"</span>: <span class="cs">"v-001"</span>,
+        <span class="ck">"type"</span>: <span class="cs">"schema"</span>,
+        <span class="ck">"field"</span>: <span class="cs">"bbn"</span>,
+        <span class="ck">"rule"</span>: <span class="cs">"not_empty"</span>,
+        <span class="ck">"severity"</span>: <span class="cs">"error"</span>,
+        <span class="ck">"message"</span>: <span class="cs">"BBN 不能为空"</span>
+      },
+      {
+        <span class="ck">"id"</span>: <span class="cs">"v-002"</span>,
+        <span class="ck">"type"</span>: <span class="cs">"schema"</span>,
+        <span class="ck">"field"</span>: <span class="cs">"cas_no"</span>,
+        <span class="ck">"rule"</span>: <span class="cs">"regex"</span>,
+        <span class="ck">"pattern"</span>: <span class="cs">"^\\d{2,7}-\\d{2}-\\d$"</span>,
+        <span class="ck">"severity"</span>: <span class="cs">"error"</span>,
+        <span class="ck">"message"</span>: <span class="cs">"CAS 号格式不正确"</span>
+      }
+    ]
+  }
+}</pre>
+
+<h3>output.json（平台生成，不是 Agent 生成）</h3>
+<pre><span class="label">JSON</span>
+{
+  <span class="ck">"protocol_version"</span>: <span class="cs">"1.0"</span>,
+  <span class="ck">"runtime_run_id"</span>: <span class="cs">"run-20260511-node3-001"</span>,
+  <span class="ck">"status"</span>: <span class="cs">"succeeded"</span>,
+  <span class="ck">"summary"</span>: <span class="cs">"人工审核完成，修改了 2 个字段"</span>,
+
+  <span class="ck">"result"</span>: {
+    <span class="ck">"bbn"</span>: <span class="cs">"12345"</span>,
+    <span class="ck">"part"</span>: <span class="cs">"A001"</span>,
+    <span class="ck">"color"</span>: <span class="cs">"黑色"</span>,
+    <span class="ck">"cas_no"</span>: <span class="cs">"9003-07-0"</span>
+  },
+
+  <span class="ck">"quality"</span>: {
+    <span class="ck">"validation"</span>: { <span class="ck">"total"</span>: <span class="cn">2</span>, <span class="ck">"passed"</span>: <span class="cn">2</span>, <span class="ck">"failed"</span>: <span class="cn">0</span>, <span class="ck">"warnings"</span>: <span class="cn">0</span> },
+    <span class="ck">"confidence"</span>: { <span class="ck">"overall"</span>: <span class="cn">1.0</span>, <span class="ck">"reason"</span>: <span class="cs">"人工审核，置信度 100%"</span> }
+  },
+
+  <span class="cc">// ── human_review 独有：审核轨迹 ──</span>
+  <span class="ck">"review_audit"</span>: {
+    <span class="ck">"reviewer"</span>: <span class="cs">"zhang.wei@company.com"</span>,
+    <span class="ck">"reviewed_at"</span>: <span class="cs">"2026-05-11T10:35:00+08:00"</span>,
+    <span class="ck">"duration_seconds"</span>: <span class="cn">180</span>,
+
+    <span class="ck">"changes"</span>: [
+      {
+        <span class="ck">"field"</span>: <span class="cs">"color"</span>,
+        <span class="ck">"old_value"</span>: <span class="cs">"黑"</span>,
+        <span class="ck">"new_value"</span>: <span class="cs">"黑色"</span>,
+        <span class="ck">"reason"</span>: <span class="cs">""</span>
+      },
+      {
+        <span class="ck">"field"</span>: <span class="cs">"cas_no"</span>,
+        <span class="ck">"old_value"</span>: <span class="cs">"9003-07-O"</span>,
+        <span class="ck">"new_value"</span>: <span class="cs">"9003-07-0"</span>,
+        <span class="ck">"reason"</span>: <span class="cs">"OCR 将数字 0 误识别为字母 O"</span>
+      }
+    ],
+
+    <span class="ck">"notification_log"</span>: [
+      { <span class="ck">"channel"</span>: <span class="cs">"feishu"</span>, <span class="ck">"sent_at"</span>: <span class="cs">"2026-05-11T10:30:00+08:00"</span>, <span class="ck">"type"</span>: <span class="cs">"initial"</span> },
+      { <span class="ck">"channel"</span>: <span class="cs">"feishu"</span>, <span class="ck">"sent_at"</span>: <span class="cs">"2026-05-11T10:32:00+08:00"</span>, <span class="ck">"type"</span>: <span class="cs">"opened"</span> }
+    ]
+  }
+}</pre>
+
+<h3>字段说明</h3>
+<div class="table-wrap">
+<table>
+<tr><th>字段</th><th>位置</th><th>状态</th><th>说明</th></tr>
+<tr><td><code>review_config</code></td><td>envelope</td><td><span class="tag new">新增</span></td><td><code>human_review</code> 类型独有的顶级配置</td></tr>
+<tr><td><code>review_config.editable_fields</code></td><td>envelope</td><td><span class="tag new">新增</span></td><td>审核人可编辑的字段列表，<code>["*"]</code> 表示全部</td></tr>
+<tr><td><code>review_config.timeout_seconds</code></td><td>envelope</td><td><span class="tag new">新增</span></td><td>审核超时时间（通常远大于 Agent 超时，如 24h）</td></tr>
+<tr><td><code>review_config.on_timeout</code></td><td>envelope</td><td><span class="tag new">新增</span></td><td><code>auto_approve</code> / <code>escalate</code> / <code>fail_task</code></td></tr>
+<tr><td><code>review_config.notify</code></td><td>envelope</td><td><span class="tag new">新增</span></td><td>通知渠道、提醒间隔、升级机制</td></tr>
+<tr><td><code>review_config.ui</code></td><td>envelope</td><td><span class="tag new">新增</span></td><td>审核界面布局提示（左右对照 / 纯表单 / 差异视图）</td></tr>
+<tr><td><code>review_config.ui.highlight_low_confidence</code></td><td>envelope</td><td><span class="tag new">新增</span></td><td>标黄上游 Agent 低置信度字段，引导审核人重点关注</td></tr>
+<tr><td><code>review_audit</code></td><td>output</td><td><span class="tag new">新增</span></td><td>审核轨迹：谁审的、什么时候、改了哪些字段</td></tr>
+<tr><td><code>review_audit.changes</code></td><td>output</td><td><span class="tag new">新增</span></td><td>逐字段变更记录（old_value → new_value），用于审计</td></tr>
+<tr><td><code>review_audit.notification_log</code></td><td>output</td><td><span class="tag new">新增</span></td><td>通知发送记录，便于排查「通知到了没人看」的问题</td></tr>
+</table>
+</div>
+
+<div class="callout info">
+  <div class="callout-title">与 Agentic interaction 的本质区别</div>
+  <div class="compare-grid">
+    <div class="compare-card">
+      <h4>Agentic + interaction</h4>
+      <ul>
+        <li>AI 是执行者，人是顾问</li>
+        <li>AI 主动提问，人被动回答</li>
+        <li>交互次数少（max_questions: 5）</li>
+        <li>人回答后 AI 继续执行</li>
+        <li>output.json 由 Agent 写</li>
+      </ul>
+    </div>
+    <div class="compare-card">
+      <h4>human_review</h4>
+      <ul>
+        <li>人是执行者，AI 不参与</li>
+        <li>平台展示数据，人主动审核</li>
+        <li>人可以修改任意可编辑字段</li>
+        <li>人提交即完成，没有后续 AI 处理</li>
+        <li>output.json 由平台写</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- Workflow vs Agentic -->
+<h2 id="workflow-vs-agentic">四类 Task 对比</h2>
+<p>协议是同一套，四种 Task 类型的区别在于<strong>谁执行、哪些字段有值、哪些层谁承担</strong>：</p>
+
+<div class="table-wrap">
+<table>
+<tr><th>维度</th><th>Workflow Task</th><th>Agentic Task</th><th>human_review Task</th><th>integration Task</th></tr>
+<tr>
+  <td>执行者</td>
+  <td>Agent Runtime</td>
+  <td>Agent Runtime</td>
+  <td><strong>人（平台 UI）</strong></td>
+  <td>集成引擎（非 Agent）</td>
+</tr>
+<tr>
+  <td>典型场景</td>
+  <td>SOP 单步：PDF 解析</td>
+  <td>专家判断：合规审查</td>
+  <td>数据审核、审批确认</td>
+  <td>调 API、写数据库</td>
+</tr>
+<tr>
+  <td><code>skill_codes</code></td>
+  <td>1 个</td>
+  <td>多个（能力池）</td>
+  <td>无</td>
+  <td>1 个</td>
+</tr>
+<tr>
+  <td>规划层（L2）</td>
+  <td>平台 flow</td>
+  <td>Agent 自主规划</td>
+  <td>不适用</td>
+  <td>不适用</td>
+</tr>
+<tr>
+  <td><code>interaction</code></td>
+  <td>通常 <code>false</code></td>
+  <td>通常 <code>true</code></td>
+  <td>不适用（整个 Task 就是交互）</td>
+  <td><code>false</code></td>
+</tr>
+<tr>
+  <td><code>review_config</code></td>
+  <td>无</td>
+  <td>无</td>
+  <td><strong>必须</strong></td>
+  <td>无</td>
+</tr>
+<tr>
+  <td><code>validation_rules</code></td>
+  <td>严格</td>
+  <td>严格 + 兜底</td>
+  <td>表单实时校验</td>
+  <td>严格</td>
+</tr>
+<tr>
+  <td><code>confidence</code></td>
+  <td>高（确定性）</td>
+  <td>有高有低</td>
+  <td>1.0（人确认）</td>
+  <td>1.0（确定性）</td>
+</tr>
+<tr>
+  <td><code>trace</code></td>
+  <td>1 步</td>
+  <td>多步</td>
+  <td>不适用（用 review_audit 替代）</td>
+  <td>API 调用记录</td>
+</tr>
+<tr>
+  <td>output.json 由谁写</td>
+  <td>Agent</td>
+  <td>Agent</td>
+  <td><strong>平台</strong></td>
+  <td>集成引擎</td>
+</tr>
+</table>
+</div>
+
+<div class="callout success">
+  <div class="callout-title">一套协议，四种姿态</div>
+  不需要维护四套协议。同一个 <code>execution-envelope.json</code> 结构，根据 <code>task.type</code> 决定哪些字段生效：<br>
+  <code>agentic</code> → 填 skill_codes + interaction + degradation<br>
+  <code>human_review</code> → 填 review_config（不需要 skill_codes、interaction、degradation）<br>
+  <code>integration</code> → 填 skill_codes + tool_codes（不需要 interaction）<br>
+  复杂度跟着业务走，而不是跟着协议走。
+</div>
+
+<!-- ==================== 完整示例 ==================== -->
+<h2 id="example-workflow">示例一：GSDS 入库 — node-2 解析 PDF（Workflow）</h2>
+
+<h3>execution-envelope.json</h3>
+<pre><span class="label">JSON</span>
+{
+  <span class="ck">"protocol_version"</span>: <span class="cs">"1.0"</span>,
+  <span class="ck">"runtime_run_id"</span>: <span class="cs">"run-20260511-node2-001"</span>,
+  <span class="ck">"job_run_id"</span>: <span class="cs">"job-20260511-gsds-batch-05"</span>,
+
+  <span class="ck">"task"</span>: {
+    <span class="ck">"code"</span>: <span class="cs">"node-2"</span>,
+    <span class="ck">"name"</span>: <span class="cs">"解析 GSDS PDF 提取结构化数据"</span>,
+    <span class="ck">"type"</span>: <span class="cs">"agentic"</span>,
+    <span class="ck">"instruction"</span>: <span class="cs">"读取 GSDS PDF 文件，提取所有结构化字段...按值转换规则表做标准化替换..."</span>,
+    <span class="ck">"skill_codes"</span>: [<span class="cs">"gsds-pdf-parser"</span>],
+    <span class="ck">"output_schema"</span>: {
+      <span class="ck">"type"</span>: <span class="cs">"object"</span>,
+      <span class="ck">"required"</span>: [<span class="cs">"bbn"</span>, <span class="cs">"part"</span>],
+      <span class="ck">"properties"</span>: {
+        <span class="ck">"bbn"</span>: { <span class="ck">"type"</span>: <span class="cs">"string"</span> },
+        <span class="ck">"part"</span>: { <span class="ck">"type"</span>: <span class="cs">"string"</span> },
+        <span class="ck">"color"</span>: { <span class="ck">"type"</span>: <span class="cs">"string"</span> },
+        <span class="ck">"material_type"</span>: { <span class="ck">"type"</span>: <span class="cs">"string"</span> },
+        <span class="ck">"substance_name"</span>: { <span class="ck">"type"</span>: <span class="cs">"string"</span> },
+        <span class="ck">"cas_no"</span>: { <span class="ck">"type"</span>: <span class="cs">"string"</span> },
+        <span class="ck">"concentration"</span>: { <span class="ck">"type"</span>: <span class="cs">"string"</span> }
+      },
+      <span class="ck">"additionalProperties"</span>: <span class="cw">false</span>
+    }
+  },
+
+  <span class="ck">"policies"</span>: {
+    <span class="ck">"timeout_seconds"</span>: <span class="cn">120</span>,
+    <span class="ck">"max_tool_calls"</span>: <span class="cn">5</span>,
+    <span class="ck">"max_tokens"</span>: <span class="cn">20000</span>,
+    <span class="ck">"interaction"</span>: { <span class="ck">"enabled"</span>: <span class="cw">false</span> },
+    <span class="ck">"degradation"</span>: {
+      <span class="ck">"on_tool_failure"</span>: <span class="cs">"retry_and_fail"</span>,
+      <span class="ck">"on_timeout"</span>: <span class="cs">"fail_task"</span>
+    },
+    <span class="ck">"validation_rules"</span>: [
+      { <span class="ck">"id"</span>: <span class="cs">"v-001"</span>, <span class="ck">"type"</span>: <span class="cs">"schema"</span>, <span class="ck">"field"</span>: <span class="cs">"bbn"</span>, <span class="ck">"rule"</span>: <span class="cs">"not_empty"</span>, <span class="ck">"severity"</span>: <span class="cs">"error"</span> },
+      { <span class="ck">"id"</span>: <span class="cs">"v-002"</span>, <span class="ck">"type"</span>: <span class="cs">"schema"</span>, <span class="ck">"field"</span>: <span class="cs">"part"</span>, <span class="ck">"rule"</span>: <span class="cs">"not_empty"</span>, <span class="ck">"severity"</span>: <span class="cs">"error"</span> },
+      { <span class="ck">"id"</span>: <span class="cs">"v-003"</span>, <span class="ck">"type"</span>: <span class="cs">"schema"</span>, <span class="ck">"field"</span>: <span class="cs">"cas_no"</span>, <span class="ck">"rule"</span>: <span class="cs">"regex"</span>, <span class="ck">"pattern"</span>: <span class="cs">"^\\d{2,7}-\\d{2}-\\d$"</span>, <span class="ck">"severity"</span>: <span class="cs">"warn"</span> }
+    ]
+  }
+}</pre>
+
+<h3>context.json</h3>
+<pre><span class="label">JSON</span>
+{
+  <span class="ck">"context_package"</span>: {
+    <span class="ck">"pdf_file_path"</span>: <span class="cs">"/inputs/gsds-sample-001.pdf"</span>
+  },
+  <span class="ck">"upstream_outputs"</span>: {
+    <span class="ck">"node-1"</span>: {
+      <span class="ck">"status"</span>: <span class="cs">"succeeded"</span>,
+      <span class="ck">"result"</span>: { <span class="ck">"downloaded_file"</span>: <span class="cs">"/inputs/gsds-sample-001.pdf"</span> }
+    }
+  },
+  <span class="ck">"configuration"</span>: {
+    <span class="ck">"conversion_rules_path"</span>: <span class="cs">"/inputs/imi_conversion_rules.xlsx"</span>
+  }
+}</pre>
+
+<h3>output.json</h3>
+<pre><span class="label">JSON</span>
+{
+  <span class="ck">"protocol_version"</span>: <span class="cs">"1.0"</span>,
+  <span class="ck">"runtime_run_id"</span>: <span class="cs">"run-20260511-node2-001"</span>,
+  <span class="ck">"status"</span>: <span class="cs">"succeeded"</span>,
+  <span class="ck">"summary"</span>: <span class="cs">"成功解析 GSDS PDF，提取 12 个字段"</span>,
+
+  <span class="ck">"result"</span>: {
+    <span class="ck">"bbn"</span>: <span class="cs">"12345"</span>,
+    <span class="ck">"part"</span>: <span class="cs">"A001"</span>,
+    <span class="ck">"color"</span>: <span class="cs">"黑色"</span>,
+    <span class="ck">"material_type"</span>: <span class="cs">"塑料"</span>,
+    <span class="ck">"substance_name"</span>: <span class="cs">"聚丙烯"</span>,
+    <span class="ck">"cas_no"</span>: <span class="cs">"9003-07-0"</span>,
+    <span class="ck">"concentration"</span>: <span class="cs">"95%"</span>
+  },
+
+  <span class="ck">"quality"</span>: {
+    <span class="ck">"validation"</span>: { <span class="ck">"total"</span>: <span class="cn">3</span>, <span class="ck">"passed"</span>: <span class="cn">3</span>, <span class="ck">"failed"</span>: <span class="cn">0</span>, <span class="ck">"warnings"</span>: <span class="cn">0</span> },
+    <span class="ck">"confidence"</span>: { <span class="ck">"overall"</span>: <span class="cn">0.95</span> }
+  },
+
+  <span class="ck">"trace"</span>: {
+    <span class="ck">"skills_used"</span>: [<span class="cs">"gsds-pdf-parser"</span>],
+    <span class="ck">"skills_skipped"</span>: [],
+    <span class="ck">"steps"</span>: [
+      {
+        <span class="ck">"seq"</span>: <span class="cn">1</span>, <span class="ck">"skill"</span>: <span class="cs">"gsds-pdf-parser"</span>,
+        <span class="ck">"action"</span>: <span class="cs">"读取 PDF 并提取字段"</span>,
+        <span class="ck">"tool_calls"</span>: [{ <span class="ck">"tool"</span>: <span class="cs">"pdf-reader"</span>, <span class="ck">"duration_ms"</span>: <span class="cn">1500</span> }],
+        <span class="ck">"duration_ms"</span>: <span class="cn">8000</span>, <span class="ck">"tokens"</span>: <span class="cn">5200</span>
+      }
+    ],
+    <span class="ck">"total_duration_ms"</span>: <span class="cn">8000</span>,
+    <span class="ck">"total_tokens"</span>: <span class="cn">5200</span>,
+    <span class="ck">"total_tool_calls"</span>: <span class="cn">1</span>
+  }
+}</pre>
+
+<div class="callout info">
+  <div class="callout-title">Workflow 特征</div>
+  只有 1 个 Skill、不需要人机交互、trace 只有 1 步。校验严格但简单。降级策略直接失败（不容忍部分结果）。
+</div>
+
+<!-- Example: human_review -->
+<h2 id="example-human-review">示例二：GSDS 入库 — node-3 人工审核（human_review）</h2>
+<p>GSDS 入库流程中，node-2（AI 解析 PDF）输出的结构化数据进入 node-3 由人工审核。审核人对照原始 PDF，修正 OCR 错误或解析偏差后提交。</p>
+
+<h3>execution-envelope.json</h3>
+<pre><span class="label">JSON</span>
+{
+  <span class="ck">"protocol_version"</span>: <span class="cs">"1.0"</span>,
+  <span class="ck">"runtime_run_id"</span>: <span class="cs">"run-20260511-node3-001"</span>,
+  <span class="ck">"job_run_id"</span>: <span class="cs">"job-20260511-gsds-batch-05"</span>,
+  <span class="ck">"task"</span>: {
+    <span class="ck">"code"</span>: <span class="cs">"node-3"</span>,
+    <span class="ck">"name"</span>: <span class="cs">"人工审核解析结果"</span>,
+    <span class="ck">"type"</span>: <span class="cs">"human_review"</span>,
+    <span class="ck">"instruction"</span>: <span class="cs">"审核 GSDS PDF 解析结果，对照原始 PDF 修正错误字段。"</span>,
+    <span class="ck">"input_schema"</span>: {
+      <span class="ck">"type"</span>: <span class="cs">"object"</span>,
+      <span class="ck">"properties"</span>: {
+        <span class="ck">"parsed_record"</span>: { <span class="cc">/* node-2 output_schema */</span> },
+        <span class="ck">"source_pdf_url"</span>: { <span class="ck">"type"</span>: <span class="cs">"string"</span> }
+      }
+    },
+    <span class="ck">"output_schema"</span>: {
+      <span class="ck">"type"</span>: <span class="cs">"object"</span>,
+      <span class="ck">"required"</span>: [<span class="cs">"bbn"</span>, <span class="cs">"part"</span>],
+      <span class="ck">"properties"</span>: {
+        <span class="ck">"bbn"</span>: { <span class="ck">"type"</span>: <span class="cs">"string"</span> },
+        <span class="ck">"part"</span>: { <span class="ck">"type"</span>: <span class="cs">"string"</span> },
+        <span class="ck">"color"</span>: { <span class="ck">"type"</span>: <span class="cs">"string"</span> },
+        <span class="ck">"cas_no"</span>: { <span class="ck">"type"</span>: <span class="cs">"string"</span> },
+        <span class="ck">"concentration"</span>: { <span class="ck">"type"</span>: <span class="cs">"string"</span> }
+      }
+    },
+    <span class="ck">"review_config"</span>: {
+      <span class="ck">"editable_fields"</span>: [<span class="cs">"*"</span>],
+      <span class="ck">"timeout_seconds"</span>: <span class="cn">86400</span>,
+      <span class="ck">"on_timeout"</span>: <span class="cs">"auto_approve"</span>,
+      <span class="ck">"notify"</span>: {
+        <span class="ck">"channels"</span>: [<span class="cs">"feishu"</span>],
+        <span class="ck">"roles"</span>: [<span class="cs">"data_reviewer"</span>],
+        <span class="ck">"reminder"</span>: { <span class="ck">"interval_minutes"</span>: <span class="cn">60</span>, <span class="ck">"max_reminders"</span>: <span class="cn">3</span> },
+        <span class="ck">"escalation"</span>: { <span class="ck">"after_minutes"</span>: <span class="cn">240</span>, <span class="ck">"to_roles"</span>: [<span class="cs">"data_manager"</span>] }
+      },
+      <span class="ck">"ui"</span>: {
+        <span class="ck">"layout"</span>: <span class="cs">"side_by_side"</span>,
+        <span class="ck">"source_display"</span>: { <span class="ck">"type"</span>: <span class="cs">"pdf_viewer"</span>, <span class="ck">"field"</span>: <span class="cs">"source_pdf_url"</span> },
+        <span class="ck">"highlight_low_confidence"</span>: <span class="cw">true</span>,
+        <span class="ck">"confidence_threshold"</span>: <span class="cn">0.8</span>
+      }
+    }
+  },
+  <span class="ck">"policies"</span>: {
+    <span class="ck">"validation_rules"</span>: [
+      { <span class="ck">"id"</span>: <span class="cs">"v-001"</span>, <span class="ck">"type"</span>: <span class="cs">"schema"</span>, <span class="ck">"field"</span>: <span class="cs">"bbn"</span>, <span class="ck">"rule"</span>: <span class="cs">"not_empty"</span>, <span class="ck">"severity"</span>: <span class="cs">"error"</span> },
+      { <span class="ck">"id"</span>: <span class="cs">"v-002"</span>, <span class="ck">"type"</span>: <span class="cs">"schema"</span>, <span class="ck">"field"</span>: <span class="cs">"cas_no"</span>, <span class="ck">"rule"</span>: <span class="cs">"regex"</span>, <span class="ck">"pattern"</span>: <span class="cs">"^\\d{2,7}-\\d{2}-\\d$"</span>, <span class="ck">"severity"</span>: <span class="cs">"error"</span> }
+    ]
+  }
+}</pre>
+
+<h3>context.json</h3>
+<pre><span class="label">JSON</span>
+{
+  <span class="ck">"context_package"</span>: {
+    <span class="ck">"source_pdf_url"</span>: <span class="cs">"https://storage.internal/gsds/gsds-sample-001.pdf"</span>
+  },
+  <span class="ck">"upstream_outputs"</span>: {
+    <span class="ck">"node-2"</span>: {
+      <span class="ck">"status"</span>: <span class="cs">"succeeded"</span>,
+      <span class="ck">"result"</span>: {
+        <span class="ck">"bbn"</span>: <span class="cs">"12345"</span>,
+        <span class="ck">"part"</span>: <span class="cs">"A001"</span>,
+        <span class="ck">"color"</span>: <span class="cs">"黑"</span>,
+        <span class="ck">"cas_no"</span>: <span class="cs">"9003-07-O"</span>,
+        <span class="ck">"concentration"</span>: <span class="cs">"95%"</span>
+      },
+      <span class="ck">"quality"</span>: {
+        <span class="ck">"confidence"</span>: {
+          <span class="ck">"by_field"</span>: {
+            <span class="ck">"bbn"</span>:  { <span class="ck">"score"</span>: <span class="cn">0.99</span> },
+            <span class="ck">"part"</span>: { <span class="ck">"score"</span>: <span class="cn">0.99</span> },
+            <span class="ck">"color"</span>: { <span class="ck">"score"</span>: <span class="cn">0.70</span> },
+            <span class="ck">"cas_no"</span>: { <span class="ck">"score"</span>: <span class="cn">0.65</span> }
+          }
+        }
+      }
+    }
+  }
+}</pre>
+
+<div class="callout info">
+  <div class="callout-title">低置信度字段自动标黄</div>
+  上游 node-2 输出的 <code>color</code> (0.70) 和 <code>cas_no</code> (0.65) 置信度低于阈值 0.8，平台 UI 会自动标黄这两个字段，引导审核人重点关注——果然 <code>cas_no</code> 有 OCR 错误（O→0），<code>color</code> 需要补全为「黑色」。
+</div>
+
+<h3>output.json（平台生成）</h3>
+<pre><span class="label">JSON</span>
+{
+  <span class="ck">"protocol_version"</span>: <span class="cs">"1.0"</span>,
+  <span class="ck">"runtime_run_id"</span>: <span class="cs">"run-20260511-node3-001"</span>,
+  <span class="ck">"status"</span>: <span class="cs">"succeeded"</span>,
+  <span class="ck">"summary"</span>: <span class="cs">"人工审核完成，修改了 2 个字段（color, cas_no）"</span>,
+  <span class="ck">"result"</span>: {
+    <span class="ck">"bbn"</span>: <span class="cs">"12345"</span>,
+    <span class="ck">"part"</span>: <span class="cs">"A001"</span>,
+    <span class="ck">"color"</span>: <span class="cs">"黑色"</span>,
+    <span class="ck">"cas_no"</span>: <span class="cs">"9003-07-0"</span>,
+    <span class="ck">"concentration"</span>: <span class="cs">"95%"</span>
+  },
+  <span class="ck">"quality"</span>: {
+    <span class="ck">"validation"</span>: { <span class="ck">"total"</span>: <span class="cn">2</span>, <span class="ck">"passed"</span>: <span class="cn">2</span>, <span class="ck">"failed"</span>: <span class="cn">0</span>, <span class="ck">"warnings"</span>: <span class="cn">0</span> },
+    <span class="ck">"confidence"</span>: { <span class="ck">"overall"</span>: <span class="cn">1.0</span> }
+  },
+  <span class="ck">"review_audit"</span>: {
+    <span class="ck">"reviewer"</span>: <span class="cs">"zhang.wei@company.com"</span>,
+    <span class="ck">"reviewed_at"</span>: <span class="cs">"2026-05-11T10:35:00+08:00"</span>,
+    <span class="ck">"duration_seconds"</span>: <span class="cn">180</span>,
+    <span class="ck">"changes"</span>: [
+      { <span class="ck">"field"</span>: <span class="cs">"color"</span>, <span class="ck">"old_value"</span>: <span class="cs">"黑"</span>, <span class="ck">"new_value"</span>: <span class="cs">"黑色"</span> },
+      { <span class="ck">"field"</span>: <span class="cs">"cas_no"</span>, <span class="ck">"old_value"</span>: <span class="cs">"9003-07-O"</span>, <span class="ck">"new_value"</span>: <span class="cs">"9003-07-0"</span>,
+        <span class="ck">"reason"</span>: <span class="cs">"OCR 将数字 0 误识别为字母 O"</span> }
+    ]
+  }
+}</pre>
+
+<!-- Example: Agentic -->
+<h2 id="example-agentic">示例三：合规文档审查（Agentic）</h2>
+
+<h3>execution-envelope.json</h3>
+<pre><span class="label">JSON</span>
+{
+  <span class="ck">"protocol_version"</span>: <span class="cs">"1.0"</span>,
+  <span class="ck">"runtime_run_id"</span>: <span class="cs">"run-20260511-cr-001"</span>,
+  <span class="ck">"job_run_id"</span>: <span class="cs">"job-20260511-compliance"</span>,
+
+  <span class="ck">"task"</span>: {
+    <span class="ck">"code"</span>: <span class="cs">"compliance-review"</span>,
+    <span class="ck">"name"</span>: <span class="cs">"合规文档审查"</span>,
+    <span class="ck">"type"</span>: <span class="cs">"agentic"</span>,
+    <span class="ck">"instruction"</span>: <span class="cs">"审查产品技术文档是否符合目标市场法规要求，输出合规审查报告。"</span>,
+    <span class="ck">"skill_codes"</span>: [<span class="cs">"sds-reader"</span>, <span class="cs">"regulation-lookup"</span>, <span class="cs">"gap-analyzer"</span>, <span class="cs">"report-writer"</span>],
+    <span class="ck">"output_schema"</span>: {
+      <span class="ck">"type"</span>: <span class="cs">"object"</span>,
+      <span class="ck">"required"</span>: [<span class="cs">"conclusion"</span>, <span class="cs">"passed_items"</span>, <span class="cs">"failed_items"</span>],
+      <span class="ck">"properties"</span>: {
+        <span class="ck">"conclusion"</span>: { <span class="ck">"type"</span>: <span class="cs">"string"</span>, <span class="ck">"enum"</span>: [<span class="cs">"pass"</span>, <span class="cs">"conditional_pass"</span>, <span class="cs">"fail"</span>] },
+        <span class="ck">"passed_items"</span>: { <span class="ck">"type"</span>: <span class="cs">"array"</span> },
+        <span class="ck">"failed_items"</span>: { <span class="ck">"type"</span>: <span class="cs">"array"</span> },
+        <span class="ck">"missing_materials"</span>: { <span class="ck">"type"</span>: <span class="cs">"array"</span>, <span class="ck">"items"</span>: { <span class="ck">"type"</span>: <span class="cs">"string"</span> } }
+      }
+    }
+  },
+
+  <span class="ck">"policies"</span>: {
+    <span class="ck">"timeout_seconds"</span>: <span class="cn">600</span>,
+    <span class="ck">"max_tool_calls"</span>: <span class="cn">50</span>,
+    <span class="ck">"max_tokens"</span>: <span class="cn">100000</span>,
+    <span class="ck">"interaction"</span>: {
+      <span class="ck">"enabled"</span>: <span class="cw">true</span>,
+      <span class="ck">"endpoint"</span>: <span class="cs">"/api/interactions/run-20260511-cr-001"</span>,
+      <span class="ck">"question_policy"</span>: {
+        <span class="ck">"max_questions"</span>: <span class="cn">5</span>,
+        <span class="ck">"timeout_seconds"</span>: <span class="cn">3600</span>,
+        <span class="ck">"on_timeout"</span>: <span class="cs">"use_default_and_continue"</span>
+      },
+      <span class="ck">"notify"</span>: {
+        <span class="ck">"channels"</span>: [<span class="cs">"feishu"</span>],
+        <span class="ck">"roles"</span>: [<span class="cs">"compliance_reviewer"</span>],
+        <span class="ck">"escalation"</span>: { <span class="ck">"after_minutes"</span>: <span class="cn">30</span>, <span class="ck">"to_roles"</span>: [<span class="cs">"compliance_manager"</span>] }
+      }
+    },
+    <span class="ck">"degradation"</span>: {
+      <span class="ck">"on_tool_failure"</span>: <span class="cs">"retry_once_then_skip"</span>,
+      <span class="ck">"on_skill_failure"</span>: <span class="cs">"report_partial_result"</span>,
+      <span class="ck">"on_timeout"</span>: <span class="cs">"return_partial_with_warning"</span>
+    },
+    <span class="ck">"validation_rules"</span>: [
+      { <span class="ck">"id"</span>: <span class="cs">"v-001"</span>, <span class="ck">"type"</span>: <span class="cs">"schema"</span>, <span class="ck">"field"</span>: <span class="cs">"conclusion"</span>, <span class="ck">"rule"</span>: <span class="cs">"in_enum"</span>, <span class="ck">"values"</span>: [<span class="cs">"pass"</span>, <span class="cs">"conditional_pass"</span>, <span class="cs">"fail"</span>], <span class="ck">"severity"</span>: <span class="cs">"error"</span> },
+      { <span class="ck">"id"</span>: <span class="cs">"v-002"</span>, <span class="ck">"type"</span>: <span class="cs">"logic"</span>, <span class="ck">"condition"</span>: <span class="cs">"result.conclusion == 'fail' &amp;&amp; result.failed_items.length > 0"</span>, <span class="ck">"severity"</span>: <span class="cs">"error"</span> },
+      { <span class="ck">"id"</span>: <span class="cs">"v-003"</span>, <span class="ck">"type"</span>: <span class="cs">"logic"</span>, <span class="ck">"condition"</span>: <span class="cs">"result.conclusion == 'conditional_pass' &amp;&amp; result.missing_materials.length > 0"</span>, <span class="ck">"severity"</span>: <span class="cs">"error"</span> },
+      { <span class="ck">"id"</span>: <span class="cs">"v-004"</span>, <span class="ck">"type"</span>: <span class="cs">"schema"</span>, <span class="ck">"field"</span>: <span class="cs">"passed_items[*].regulation_clause"</span>, <span class="ck">"rule"</span>: <span class="cs">"not_empty"</span>, <span class="ck">"severity"</span>: <span class="cs">"warn"</span> }
+    ]
+  }
+}</pre>
+
+<h3>skills/gap-analyzer/skill.yaml</h3>
+<pre><span class="label">YAML</span>
+<span class="ck">code</span>: <span class="cs">gap-analyzer</span>
+<span class="ck">version</span>: <span class="cs">"1.0"</span>
+
+<span class="ck">trigger_when</span>:
+  <span class="ck">description</span>: <span class="cs">"有待审查的产品数据和法规条款需要逐项比对"</span>
+  <span class="ck">requires_both</span>:
+    - <span class="ck">field</span>: <span class="cs">structured_sds</span>
+    - <span class="ck">field</span>: <span class="cs">regulation_checklist</span>
+
+<span class="ck">provides</span>:
+  - <span class="ck">field</span>: <span class="cs">compliance_gaps</span>
+    <span class="ck">type</span>: <span class="cs">array</span>
+  - <span class="ck">field</span>: <span class="cs">passed_items</span>
+    <span class="ck">type</span>: <span class="cs">array</span>
+
+<span class="ck">requires</span>:
+  <span class="ck">inputs</span>:
+    - <span class="ck">field</span>: <span class="cs">structured_sds</span>
+      <span class="ck">source</span>: <span class="cs">"sds-reader 的输出"</span>
+    - <span class="ck">field</span>: <span class="cs">regulation_checklist</span>
+      <span class="ck">source</span>: <span class="cs">"regulation-lookup 的输出"</span>
+  <span class="ck">skills</span>:
+    - <span class="cs">sds-reader</span>
+    - <span class="cs">regulation-lookup</span>
+
+<span class="ck">tools</span>: []
+
+<span class="ck">constraints</span>:
+  <span class="ck">note</span>: <span class="cs">"不做主观判断，只做字段级比对。模糊项标记为 needs_human_review"</span></pre>
+
+<h3>output.json（含交互记录和多步轨迹）</h3>
+<pre><span class="label">JSON</span>
+{
+  <span class="ck">"protocol_version"</span>: <span class="cs">"1.0"</span>,
+  <span class="ck">"runtime_run_id"</span>: <span class="cs">"run-20260511-cr-001"</span>,
+  <span class="ck">"status"</span>: <span class="cs">"succeeded"</span>,
+  <span class="ck">"summary"</span>: <span class="cs">"产品 X-2026 出口欧盟合规审查完成：有条件通过，需补充生态毒性数据"</span>,
+
+  <span class="ck">"result"</span>: {
+    <span class="ck">"conclusion"</span>: <span class="cs">"conditional_pass"</span>,
+    <span class="ck">"passed_items"</span>: [
+      { <span class="ck">"regulation_clause"</span>: <span class="cs">"REACH Annex II §3.1"</span>, <span class="ck">"item"</span>: <span class="cs">"产品标识"</span>, <span class="ck">"status"</span>: <span class="cs">"pass"</span> }
+    ],
+    <span class="ck">"failed_items"</span>: [
+      { <span class="ck">"regulation_clause"</span>: <span class="cs">"REACH Annex VII §8.1"</span>, <span class="ck">"item"</span>: <span class="cs">"水生生态毒性数据"</span>, <span class="ck">"status"</span>: <span class="cs">"fail"</span>,
+        <span class="ck">"suggestion"</span>: <span class="cs">"需补充 96h LC50 鱼类急性毒性测试报告"</span> }
+    ],
+    <span class="ck">"missing_materials"</span>: [<span class="cs">"水生生态毒性测试报告"</span>]
+  },
+
+  <span class="ck">"quality"</span>: {
+    <span class="ck">"validation"</span>: { <span class="ck">"total"</span>: <span class="cn">4</span>, <span class="ck">"passed"</span>: <span class="cn">3</span>, <span class="ck">"failed"</span>: <span class="cn">0</span>, <span class="ck">"warnings"</span>: <span class="cn">1</span>,
+      <span class="ck">"details"</span>: [{ <span class="ck">"id"</span>: <span class="cs">"v-004"</span>, <span class="ck">"status"</span>: <span class="cs">"warn"</span>, <span class="ck">"message"</span>: <span class="cs">"条款编号为空"</span> }]
+    },
+    <span class="ck">"confidence"</span>: {
+      <span class="ck">"overall"</span>: <span class="cn">0.82</span>,
+      <span class="ck">"by_field"</span>: {
+        <span class="ck">"conclusion"</span>:   { <span class="ck">"score"</span>: <span class="cn">0.90</span>, <span class="ck">"reason"</span>: <span class="cs">"明确缺少生态毒性数据"</span> },
+        <span class="ck">"passed_items"</span>: { <span class="ck">"score"</span>: <span class="cn">0.85</span>, <span class="ck">"reason"</span>: <span class="cs">"SDS 字段与法规直接匹配"</span> },
+        <span class="ck">"failed_items"</span>: { <span class="ck">"score"</span>: <span class="cn">0.75</span>, <span class="ck">"reason"</span>: <span class="cs">"部分条款靠推理判断"</span> }
+      }
+    },
+    <span class="ck">"interactions"</span>: [
+      {
+        <span class="ck">"type"</span>: <span class="cs">"question"</span>,
+        <span class="ck">"message"</span>: <span class="cs">"SDS 第9节水溶性数据 '&lt;0.1 mg/L'，是否视为已提供水环境数据？"</span>,
+        <span class="ck">"response"</span>: <span class="cs">"不算，需要专门的毒性测试报告"</span>,
+        <span class="ck">"responded_by"</span>: <span class="cs">"compliance_reviewer"</span>,
+        <span class="ck">"response_time_ms"</span>: <span class="cn">180000</span>
+      }
+    ]
+  },
+
+  <span class="ck">"trace"</span>: {
+    <span class="ck">"skills_used"</span>: [<span class="cs">"sds-reader"</span>, <span class="cs">"regulation-lookup"</span>, <span class="cs">"gap-analyzer"</span>, <span class="cs">"report-writer"</span>],
+    <span class="ck">"skills_skipped"</span>: [],
+    <span class="ck">"steps"</span>: [
+      { <span class="ck">"seq"</span>: <span class="cn">1</span>, <span class="ck">"skill"</span>: <span class="cs">"sds-reader"</span>, <span class="ck">"action"</span>: <span class="cs">"解析 SDS PDF"</span>,
+        <span class="ck">"tool_calls"</span>: [{ <span class="ck">"tool"</span>: <span class="cs">"pdf-reader"</span>, <span class="ck">"duration_ms"</span>: <span class="cn">1200</span> }],
+        <span class="ck">"duration_ms"</span>: <span class="cn">3500</span>, <span class="ck">"tokens"</span>: <span class="cn">2800</span> },
+      { <span class="ck">"seq"</span>: <span class="cn">2</span>, <span class="ck">"skill"</span>: <span class="cs">"regulation-lookup"</span>, <span class="ck">"action"</span>: <span class="cs">"查询 REACH 法规要求"</span>,
+        <span class="ck">"tool_calls"</span>: [
+          { <span class="ck">"tool"</span>: <span class="cs">"regulation-db-query"</span>, <span class="ck">"duration_ms"</span>: <span class="cn">800</span> },
+          { <span class="ck">"tool"</span>: <span class="cs">"regulation-db-query"</span>, <span class="ck">"duration_ms"</span>: <span class="cn">600</span> }
+        ],
+        <span class="ck">"duration_ms"</span>: <span class="cn">5200</span>, <span class="ck">"tokens"</span>: <span class="cn">4500</span> },
+      { <span class="ck">"seq"</span>: <span class="cn">3</span>, <span class="ck">"skill"</span>: <span class="cs">"gap-analyzer"</span>, <span class="ck">"action"</span>: <span class="cs">"逐项比对"</span>,
+        <span class="ck">"tool_calls"</span>: [], <span class="ck">"duration_ms"</span>: <span class="cn">8000</span>, <span class="ck">"tokens"</span>: <span class="cn">6200</span>,
+        <span class="ck">"interaction"</span>: { <span class="ck">"question_asked"</span>: <span class="cw">true</span>, <span class="ck">"wait_time_ms"</span>: <span class="cn">180000</span> } },
+      { <span class="ck">"seq"</span>: <span class="cn">4</span>, <span class="ck">"skill"</span>: <span class="cs">"report-writer"</span>, <span class="ck">"action"</span>: <span class="cs">"生成审查报告"</span>,
+        <span class="ck">"tool_calls"</span>: [], <span class="ck">"duration_ms"</span>: <span class="cn">4500</span>, <span class="ck">"tokens"</span>: <span class="cn">3000</span> }
+    ],
+    <span class="ck">"total_duration_ms"</span>: <span class="cn">201200</span>,
+    <span class="ck">"total_tokens"</span>: <span class="cn">16500</span>,
+    <span class="ck">"total_tool_calls"</span>: <span class="cn">3</span>
+  }
+}</pre>
+
+<div class="callout success">
+  <div class="callout-title">Agentic 特征</div>
+  4 个 Skill 按依赖关系执行、有人机交互（等了 3 分钟）、trace 有 4 步、confidence 分字段评估。降级策略允许部分结果（<code>report_partial_result</code>），因为「有些条款审完了总比全部没审好」。
+</div>
+
+<!-- Footer -->
+<div style="margin-top:80px; padding-top:24px; border-top:1px solid var(--border); color:var(--text-muted); font-size:13px;">
+  <p>Runtime Pack Protocol v1.0 DRAFT &mdash; FlowAgent Team &mdash; 最后更新：2026-05-11</p>
+</div>
+
+</main>
+
+<!-- Sidebar active highlight -->
+<script>
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      document.querySelectorAll('aside a').forEach(a => a.classList.remove('active'));
+      const link = document.querySelector(`aside a[href="#${e.target.id}"]`);
+      if (link) link.classList.add('active');
+    }
+  });
+}, { rootMargin: '-80px 0px -60% 0px' });
+document.querySelectorAll('h2[id], h1[id]').forEach(el => observer.observe(el));
+</script>
+
+</body>
+</html>

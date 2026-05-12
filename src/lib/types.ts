@@ -117,9 +117,13 @@ export interface FlowNodeData {
   confirmStrategy?: ConfirmStrategyConfig;
   /** 业务侧：节点内操作清单（SOP 小步骤） */
   operationSteps?: string[];
-  /** 业务侧：必对字段/关键校对项 */
+  /** 业务侧：结构化校对字段，作为规则文本的补充数据 */
   requiredCheckFields?: string[];
-  /** 业务侧：完成标准 */
+  /** 业务侧：校对规则，可由自然语言描述 */
+  checkRulesText?: string;
+  /** 业务侧：校对规则文件，如规则表、SOP、校验清单 */
+  checkRuleFiles?: FileAttachment[];
+  /** 业务侧：结果输出标准 */
   doneCriteria?: string;
   isCondition?: boolean;
   conditionBranches?: { label: string; icon: string; targetLabel: string }[];
@@ -162,6 +166,7 @@ export interface AnnotationAttachment {
 export type ProjectStatus =
   | "draft"
   | "business_editing"
+  | "ai_generating"
   | "pending_review"
   | "tech_reviewing"
   | "needs_revision"
@@ -177,6 +182,22 @@ export interface Project {
   status: ProjectStatus;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface BusinessSubmission {
+  id: string;
+  reviewId: string;
+  title: string;
+  description: string;
+  taskType: TaskType;
+  status: ProjectStatus;
+  submittedAt: string;
+  updatedAt: string;
+  techProgress: {
+    total: number;
+    done: number;
+    status: "idle" | "running" | "done" | "error";
+  };
 }
 
 export interface KnowledgeFile {
@@ -351,10 +372,20 @@ export interface AgenticPhaseQuestion {
   answer?: string;
 }
 
+export const AGENTIC_NOT_RELEVANT_ANSWER = "__FLOW_AGENT_NOT_RELEVANT__";
+
 export interface AgenticPhaseSuccessCriteria {
   good: string;
   warning: string;
   bad: string;
+}
+
+export interface AgenticPhaseMaterialFile {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  uploadedAt: string;
 }
 
 export interface AgenticPhase {
@@ -369,6 +400,7 @@ export interface AgenticPhase {
   approvalDescription?: string;
   questions?: AgenticPhaseQuestion[];
   requiredCapabilities?: string[];
+  materialFiles?: AgenticPhaseMaterialFile[];
 }
 
 export interface AgenticFallback {

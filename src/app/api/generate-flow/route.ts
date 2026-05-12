@@ -312,7 +312,7 @@ const AGENTIC_JSON_SCHEMA = `{
     "globalSuccessCriteria": "全局成功标准（一句话）",
     "approvalPoints": ["需要审批的决策点摘要"],
     "fallbacks": [
-      { "trigger": "触发条件（如：连续3天涨粉不足）", "action": "应对措施（如：告警+建议调整策略）", "severity": "critical 或 warning 或 info" }
+      { "trigger": "跨模块异常触发条件（如：客户连续不满意、系统不可用、金额超出普通处理上限）", "action": "业务处理动作（如：进入异常工单、只说明状态、不承诺具体结果）", "severity": "critical 或 warning 或 info" }
     ],
     "phases": [
       {
@@ -337,7 +337,7 @@ const AGENTIC_JSON_SCHEMA = `{
             "options": ["选项A", "选项B"]
           }
         ],
-        "requiredCapabilities": ["这个阶段需要的能力（如：内容生成、定时发布）"]
+        "requiredCapabilities": ["业务侧需要说明的资料、规则文件、表格、模板或时效口径（如：国家补偿规则表、订单号/邮箱/付款截图、首响≤10秒）"]
       }
     ],
     "constraints": [
@@ -366,9 +366,6 @@ const AGENTIC_JSON_SCHEMA = `{
       "channel": "飞书"
     },
     "executionOverview": "用2-3句通俗的话描述Agent的整体工作方式",
-    "riskAssessment": [
-      { "risk": "风险", "likelihood": "high 或 medium 或 low", "mitigation": "应对措施" }
-    ],
     "estimatedDuration": "预计周期",
     "estimatedEfficiency": "预计效率提升",
     "contentPreview": {
@@ -594,9 +591,11 @@ const AGENTIC_DRAFT_SYSTEM = `你是一个资深的 AI 产品架构师。用户�
 - 阶段名称用"动作+目标"格式（"账号冷启动与基线建立"而非"Phase 1"）
 - 每个阶段包含：actions、successCriteria（三档）、exitCondition
 - 至少 1 个阶段 requiresApproval
-- requiredCapabilities 列出需要的能力
+- requiredCapabilities 只写业务侧资料、规则文件、表格、模板或时效口径，不写技术能力或 Agent 执行动作
 
-**业务侧必填**：goalMetrics、executionRules、permissions、reporting、executionOverview、riskAssessment、fallbacks、approvalPoints、globalSuccessCriteria
+**业务侧必填**：goalMetrics、executionRules、permissions、fallbacks、approvalPoints、globalSuccessCriteria
+**业务侧可选**：reporting（持续运行、指标追踪、异常通知场景才生成）、executionOverview（仅作导出或技术交接摘要，不作为业务主界面板块）
+**不要生成独立 riskAssessment**：如果风险影响某个模块规则，转化为该模块 questions；如果是跨模块异常，放进 fallbacks。
 **技术侧留空**：skills []、evaluators []、executionStrategy "adaptive"、humanCheckpoints 1-2条
 
 **文件内容映射规则**：
@@ -821,12 +820,11 @@ const FEW_SHOT_EXAMPLES: FewShotExample[] = [
 - 阶段清晰：账号冷启动与基线建立（1-7天）→ 内容策略验证与优化（8-21天）→ 规模化内容产出（22-60天）→ 增长冲刺与目标达成（61-90天）
 - 每个阶段有明确的 actions、successCriteria（三档）、exitCondition
 - 至少1个阶段 requiresApproval（如策略调整阶段）
-- 每个阶段有 requiredCapabilities（如：内容生成、定时发布、数据采集）
-- fallbacks：连续3天涨粉不足→告警、合规连续失败→暂停
+- 每个阶段有 requiredCapabilities，但只放业务资料/规则文件/时效口径（如：内容规范文档、发布时间口径、数据表字段），不要写技术能力或 Agent 执行动作
+- fallbacks：跨模块异常情况怎么处理，例如连续3天涨粉不足→策略复盘，合规连续失败→暂停发布
 - executionOverview：用通俗语言描述Agent每天的工作流程
 - contentPreview：2-3条像真实帖子的示例内容
 - permissions.needApproval 每项带 risk 等级和 consequence
-- riskAssessment：2-3个风险及应对措施
 
 常见错误（不要这样）：
 - 阶段名写"Phase 1"或"测试阶段"而不是"账号冷启动与基线建立"

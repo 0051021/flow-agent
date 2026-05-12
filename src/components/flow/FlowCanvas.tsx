@@ -225,7 +225,12 @@ export default function FlowCanvas() {
   );
 
   const styledEdges = useMemo(
-    () => edges.map((e) => ({ ...e, type: "editable" })),
+    () => edges.map((e) => ({
+      ...e,
+      type: "editable",
+      sourceHandle: e.sourceHandle ?? "bottom-out",
+      targetHandle: e.targetHandle ?? "top-in",
+    })),
     [edges]
   );
 

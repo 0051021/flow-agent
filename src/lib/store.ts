@@ -19,6 +19,7 @@ import type {
   AgenticPhase,
   AgenticPhaseStatus,
   Notification,
+  BusinessSubmission,
   TechConfig,
   TechTabId,
   TechTabStatus,
@@ -83,6 +84,8 @@ export interface NodeConfidence {
 
 interface FlowAgentState {
   project: Project;
+  currentReviewId: string | null;
+  businessSubmissions: BusinessSubmission[];
   currentRole: UserRole;
   viewMode: ViewMode;
   nodes: Node<FlowNodeData>[];
@@ -144,6 +147,13 @@ interface FlowAgentState {
   setShowAnnotationPanel: (show: boolean) => void;
   setShowKnowledgePanel: (show: boolean) => void;
   setProjectStatus: (status: ProjectStatus) => void;
+  setCurrentReviewId: (reviewId: string | null) => void;
+  upsertBusinessSubmission: (submission: BusinessSubmission) => void;
+  updateBusinessSubmission: (submissionId: string, patch: Partial<BusinessSubmission>) => void;
+  updateBusinessSubmissionProgress: (
+    submissionId: string,
+    progress: BusinessSubmission["techProgress"]
+  ) => void;
   addAnnotation: (annotation: Annotation) => void;
   addReply: (annotationId: string, reply: AnnotationReply) => void;
   updateAnnotationStatus: (
@@ -250,6 +260,8 @@ const initialState = {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
+  currentReviewId: null as string | null,
+  businessSubmissions: [] as BusinessSubmission[],
   currentRole: "business" as const,
   viewMode: "business" as const,
   nodes: [] as Node<FlowNodeData>[],
@@ -327,6 +339,31 @@ export const useFlowAgentStore = create<FlowAgentState>()(
       setProjectStatus: (status) =>
         set((state) => ({
           project: { ...state.project, status, updatedAt: new Date().toISOString() },
+        })),
+      setCurrentReviewId: (reviewId) => set({ currentReviewId: reviewId }),
+      upsertBusinessSubmission: (submission) =>
+        set((state) => {
+          const idx = state.businessSubmissions.findIndex((s) => s.id === submission.id);
+          if (idx >= 0) {
+            const cloned = [...state.businessSubmissions];
+            cloned[idx] = submission;
+            return { businessSubmissions: cloned };
+          }
+          return { businessSubmissions: [submission, ...state.businessSubmissions] };
+        }),
+      updateBusinessSubmission: (submissionId, patch) =>
+        set((state) => ({
+          businessSubmissions: state.businessSubmissions.map((s) =>
+            s.id === submissionId ? { ...s, ...patch, updatedAt: new Date().toISOString() } : s
+          ),
+        })),
+      updateBusinessSubmissionProgress: (submissionId, progress) =>
+        set((state) => ({
+          businessSubmissions: state.businessSubmissions.map((s) =>
+            s.id === submissionId
+              ? { ...s, techProgress: progress, updatedAt: new Date().toISOString() }
+              : s
+          ),
         })),
       addAnnotation: (annotation) =>
         set((state) => ({ annotations: [...state.annotations, annotation] })),
@@ -704,18 +741,27 @@ export const useFlowAgentStore = create<FlowAgentState>()(
         })),
 
       resetAll: () =>
-        set({
+        set((state) => ({
           ...initialState,
           knowledgeFiles: MOCK_KNOWLEDGE_FILES,
-        }),
+          businessSubmissions: state.businessSubmissions,
+          notifications: state.notifications,
+        })),
     }),
     {
       name: "flow-agent-store",
-      version: 10,
+      version: 11,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       migrate: (_persisted: any, version: number) => {
         if (version < 10) {
           return { ...initialState };
+        }
+        if (version < 11) {
+          return {
+            ..._persisted,
+            businessSubmissions: _persisted?.businessSubmissions ?? [],
+            currentReviewId: _persisted?.currentReviewId ?? null,
+          };
         }
         if (version < 6) {
           return {
@@ -763,6 +809,8 @@ export const useFlowAgentStore = create<FlowAgentState>()(
       },
       partialize: (state) => ({
         project: state.project,
+        currentReviewId: state.currentReviewId,
+        businessSubmissions: state.businessSubmissions,
         currentRole: state.currentRole,
         viewMode: state.viewMode,
         nodes: state.nodes,

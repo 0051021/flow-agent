@@ -103,8 +103,8 @@ export default function AgenticConfigPanel() {
       setSubmitting(false);
       setSubmitted(true);
       setShowJson(true);
-      useFlowAgentStore.getState().setProjectStatus("tech_reviewing");
-      toast.success("已提交至管控后台");
+      useFlowAgentStore.getState().setProjectStatus("pending_review");
+      toast.success("已提交技术评审");
     }, 1500);
   };
 
@@ -241,9 +241,9 @@ export default function AgenticConfigPanel() {
             <pre className="whitespace-pre-wrap">{JSON.stringify(configJson, null, 2)}</pre>
           </div>
           <div className="px-5 pb-3">
-            <Button variant="outline" className="w-full text-xs h-8" onClick={() => router.push("/console/agents")}>
+            <Button variant="outline" className="w-full text-xs h-8" onClick={() => router.push("/me")}>
               <ExternalLink className="w-3 h-3 mr-1.5" />
-              前往管控后台查看
+              前往个人主页查看状态
             </Button>
           </div>
         </div>
@@ -259,7 +259,7 @@ export default function AgenticConfigPanel() {
               {submitting ? (
                 <><div className="w-3.5 h-3.5 mr-1.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />正在提交...</>
               ) : (
-                <><Send className="w-3.5 h-3.5 mr-1.5" />提交至管控后台</>
+                <><Send className="w-3.5 h-3.5 mr-1.5" />提交技术评审</>
               )}
             </Button>
           )}

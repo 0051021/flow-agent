@@ -3,6 +3,7 @@
 
 # uploaded files
 .uploads
+/data
 /.pnp
 .pnp.*
 .yarn/*
@@ -30,11 +31,13 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+.cursor/
 
 # env files
 .env
 .env.local
 .env*.local
+.feishu-mapping.json
 
 # vercel
 .vercel

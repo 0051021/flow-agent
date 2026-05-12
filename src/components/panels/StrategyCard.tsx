@@ -344,8 +344,8 @@ export default function StrategyCard() {
     setTimeout(() => {
       setSubmitting(false);
       setSubmitted(true);
-      useFlowAgentStore.getState().setProjectStatus("tech_reviewing");
-      toast.success("已提交至管控后台");
+      useFlowAgentStore.getState().setProjectStatus("pending_review");
+      toast.success("已提交技术评审");
     }, 1500);
   };
 
@@ -1174,7 +1174,7 @@ export default function StrategyCard() {
                 ) : (
                   <>
                     <Send className="w-3.5 h-3.5 mr-1.5" />
-                    提交至管控后台
+                    提交技术评审
                   </>
                 )}
               </Button>
@@ -1194,9 +1194,9 @@ export default function StrategyCard() {
               {copied ? <Check className="w-3 h-3 mr-1" /> : <Copy className="w-3 h-3 mr-1" />}
               {copied ? "已复制" : "复制配置"}
             </Button>
-            <Button variant="outline" className="flex-1 text-xs h-8" onClick={() => router.push("/console/agents")}>
+            <Button variant="outline" className="flex-1 text-xs h-8" onClick={() => router.push("/me")}>
               <ExternalLink className="w-3 h-3 mr-1" />
-              管控后台
+              个人主页
             </Button>
           </div>
         </div>

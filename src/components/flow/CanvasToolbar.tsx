@@ -6,7 +6,8 @@ import { Plus, Trash2, Copy, Code2, RotateCcw } from "lucide-react";
 import type { FlowNodeData } from "@/lib/types";
 import { loadGsdsDemo } from "@/lib/gsds-demo-loader";
 import type { Node } from "@xyflow/react";
-import { v4 as uuidv4 } from "uuid";
+
+const NEW_NODE_Y_GAP = 360;
 
 function createDefaultNode(position: { x: number; y: number }): Node<FlowNodeData> {
   const id = `node-${Date.now()}`;
@@ -46,7 +47,7 @@ export default function CanvasToolbar() {
   const handleAddNode = useCallback(() => {
     const lastNode = nodes[nodes.length - 1];
     const position = lastNode
-      ? { x: lastNode.position.x, y: lastNode.position.y + 280 }
+      ? { x: lastNode.position.x, y: lastNode.position.y + NEW_NODE_Y_GAP }
       : { x: 0, y: 0 };
 
     addNode(createDefaultNode(position));

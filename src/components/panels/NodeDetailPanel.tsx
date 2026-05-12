@@ -152,6 +152,30 @@ function OutputItemWithFiles({ out, canEdit, onUpdate, onRemove, onAddFile, onRe
   );
 }
 
+function RuleFileUploader({ files, onAddFile, onRemoveFile }: {
+  files: FileAttachment[];
+  onAddFile: (file: FileAttachment) => void;
+  onRemoveFile: (storedName: string) => void;
+}) {
+  const { trigger, uploading, FileInput } = useFileUpload(onAddFile);
+
+  return (
+    <div>
+      {FileInput}
+      <button
+        type="button"
+        onClick={trigger}
+        disabled={uploading}
+        className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-2.5 text-[11px] font-medium text-zinc-600 hover:border-blue-200 hover:text-blue-600 disabled:opacity-50"
+      >
+        {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Paperclip className="w-3.5 h-3.5" />}
+        上传规则文件
+      </button>
+      <ExampleFileChips files={files} onRemove={onRemoveFile} />
+    </div>
+  );
+}
+
 function SkillBinder({ value, disabled, onChange, onClear }: {
   value?: string;
   disabled: boolean;
@@ -571,6 +595,14 @@ export default function NodeDetailPanel() {
     updateField("outputs", newOutputs);
   };
 
+  const addCheckRuleFile = (file: FileAttachment) => {
+    updateField("checkRuleFiles", [...(data.checkRuleFiles || []), file]);
+  };
+
+  const removeCheckRuleFile = (storedName: string) => {
+    updateField("checkRuleFiles", (data.checkRuleFiles || []).filter((f) => f.storedName !== storedName));
+  };
+
   const toggleErrorStrategy = (strategy: string) => {
     if (!canEditErrorHandling) return;
     const newHandling = data.errorHandling.map((eh) =>
@@ -580,19 +612,13 @@ export default function NodeDetailPanel() {
   };
 
   const operationSteps = Array.isArray(data.operationSteps) ? data.operationSteps : [];
-  const requiredCheckFields = Array.isArray(data.requiredCheckFields) ? data.requiredCheckFields : [];
+  const checkRuleFiles = Array.isArray(data.checkRuleFiles) ? data.checkRuleFiles : [];
 
   const addOperationStep = () => updateField("operationSteps", [...operationSteps, ""]);
   const updateOperationStep = (idx: number, value: string) =>
     updateField("operationSteps", operationSteps.map((s, i) => (i === idx ? value : s)));
   const removeOperationStep = (idx: number) =>
     updateField("operationSteps", operationSteps.filter((_, i) => i !== idx));
-
-  const addRequiredField = () => updateField("requiredCheckFields", [...requiredCheckFields, ""]);
-  const updateRequiredField = (idx: number, value: string) =>
-    updateField("requiredCheckFields", requiredCheckFields.map((s, i) => (i === idx ? value : s)));
-  const removeRequiredField = (idx: number) =>
-    updateField("requiredCheckFields", requiredCheckFields.filter((_, i) => i !== idx));
 
   return (
     <div
@@ -841,41 +867,27 @@ export default function NodeDetailPanel() {
 
                   <div>
                     <div className="flex items-center justify-between mb-2">
-                      <p className="text-[11px] font-medium text-zinc-600">必对字段 / 关键校对项</p>
-                      <button onClick={addRequiredField} className="flex items-center gap-1 text-[10px] text-blue-600 hover:text-blue-700">
-                        <Plus className="w-3 h-3" /> 添加字段
-                      </button>
-                    </div>
-                    {requiredCheckFields.length === 0 ? (
-                      <p className="text-[11px] text-zinc-400 bg-zinc-50 rounded-lg px-2.5 py-2">
-                        例如：申请编号、品名（中英文）、UN编号、运输方式、目的港
-                      </p>
-                    ) : (
-                      <div className="space-y-1.5">
-                        {requiredCheckFields.map((field, idx) => (
-                          <div key={idx} className="flex items-center gap-2">
-                            <Input
-                              value={field}
-                              onChange={(e) => updateRequiredField(idx, e.target.value)}
-                              className="h-8 text-xs"
-                              placeholder="字段名 / 校对项"
-                            />
-                            <button onClick={() => removeRequiredField(idx)} className="p-1 text-zinc-400 hover:text-red-500">
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        ))}
+                      <div>
+                        <p className="text-[11px] font-medium text-zinc-600">校对规则</p>
+                        <p className="mt-0.5 text-[10px] text-zinc-400">写清楚字段一致性、校对项和例外规则；也可以上传规则文件。</p>
                       </div>
-                    )}
+                    </div>
+                    <Textarea
+                      value={typeof data.checkRulesText === "string" ? data.checkRulesText : ""}
+                      onChange={(e) => updateField("checkRulesText", e.target.value)}
+                      className="mb-2 min-h-[72px] text-xs"
+                      placeholder="例如：申请编号需与邮件主题一致；UN 编号必须来自 GSDS；运输方式决定写入哪个 IMI List sheet；品名中英文、目的港等字段需要逐项一致。"
+                    />
+                    <RuleFileUploader files={checkRuleFiles} onAddFile={addCheckRuleFile} onRemoveFile={removeCheckRuleFile} />
                   </div>
 
                   <div>
-                    <p className="text-[11px] font-medium text-zinc-600 mb-2">完成标准</p>
+                    <p className="text-[11px] font-medium text-zinc-600 mb-2">结果输出标准</p>
                     <Textarea
                       value={typeof data.doneCriteria === "string" ? data.doneCriteria : ""}
                       onChange={(e) => updateField("doneCriteria", e.target.value)}
                       className="text-xs min-h-[64px]"
-                      placeholder="例如：全部必对字段一致且附件齐全，才算本节点完成。"
+                      placeholder="例如：输出内容必须包含申请编号、证书编号、运输方式和归档位置；关键字段一致且附件齐全。"
                     />
                   </div>
                 </div>

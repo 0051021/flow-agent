@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { toast } from "sonner";
 import { useFlowAgentStore, type ChatMessage, type ChatPhase, type ChatAttachment } from "@/lib/store";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, Loader2, RotateCcw, Paperclip, X, FileText, FileSpreadsheet, Image as ImageIcon, File as FileIcon } from "lucide-react";
+import { Send, Loader2, RotateCcw, Paperclip, X, FileText, FileSpreadsheet, Image as ImageIcon, File as FileIcon, Sparkles } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
 import { parseLLMResponse, serializeFlowForLLM } from "@/lib/flow-parser";
 import { generateDemoFlow } from "@/lib/mock-data";
@@ -41,6 +41,7 @@ export default function ChatPanel() {
     setCollectedAnswers,
     setInitialSnapshot, setAllNodeConfidence, setDeferredNodeIds,
     showNodeQuestions, selectedNodeId,
+    isReviewMode, currentRole, annotations, project,
   } = useFlowAgentStore();
   const [input, setInput] = useState("");
   const [showCompletion, setShowCompletion] = useState(false);
@@ -86,6 +87,12 @@ export default function ChatPanel() {
 
   const hasFlow = nodes.length > 0;
   const hasAgenticConfig = agenticConfig !== null;
+  const isBusinessReviewMode = isReviewMode && currentRole === "business";
+  const selectedNode = selectedNodeId ? nodes.find((node) => node.id === selectedNodeId) : null;
+  const selectedNodeData = selectedNode?.data;
+  const selectedNodeAnnotations = selectedNodeId
+    ? annotations.filter((annotation) => annotation.nodeId === selectedNodeId)
+    : [];
   const isLoading = [
     "classifying", "drafting", "refining_node", "refining",
     "drafting_agentic", "refining_agentic",
@@ -974,6 +981,41 @@ export default function ChatPanel() {
   // Phase 3: Free chat (Workflow refine / Agentic refine)
   // ============================================================
 
+  function buildReviewAssistantReply(userInput: string) {
+    const nodeLabel = selectedNodeData?.label ?? "当前选中的节点";
+    const modeLabelMap: Record<string, string> = {
+      pending: "待确认",
+      ai_auto: "AI 自动处理",
+      human_confirm: "AI 处理后你确认",
+      human_manual: "人工处理",
+    };
+    const mode = selectedNodeData?.executionMode
+      ? modeLabelMap[selectedNodeData.executionMode] ?? selectedNodeData.executionMode
+      : "未选择节点";
+    const commentText = selectedNodeAnnotations.map((annotation) => annotation.content).join("\n");
+    const fields = selectedNodeData?.requiredCheckFields?.length
+      ? selectedNodeData.requiredCheckFields.join("、")
+      : "暂无明确字段";
+
+    if (!selectedNodeData) {
+      return "你可以先点选中间流程图上的一个节点，我会结合该节点的技术批注、资料与产出、校对规则，帮你判断要补充什么。";
+    }
+
+    if (userInput.includes("回复") || userInput.includes("技术方")) {
+      return `可以这样回复技术方：\n\n关于「${nodeLabel}」节点，我们会补充确认以下信息：${fields}。目前业务理解是：该节点处理方式为「${mode}」。如果技术方关注的是：${commentText || "暂无具体批注"}，我们会按实际业务规则补齐后再重新提交评审。`;
+    }
+
+    if (userInput.includes("补充") || userInput.includes("信息")) {
+      return `这个节点建议先补充这几类信息：\n\n1. 需要校对的字段或材料：${fields}\n2. 当前处理方式是否符合实际：${mode}\n3. 技术批注中提到的规则或限制：${commentText || "暂无具体批注"}\n\n补充后可以点节点批注里的回复框，直接回给技术方。`;
+    }
+
+    if (userInput.includes("自动化") || userInput.includes("不能完全自动")) {
+      return `「${nodeLabel}」当前被标记为「${mode}」。如果不是 AI 自动处理，通常是因为这一步可能涉及人工登录、外部系统限制、验证码、人工判断或最终确认。你可以把实际操作规则补充清楚，技术方再判断能否进一步自动化。`;
+    }
+
+    return `我对「${nodeLabel}」的理解是：这一步当前处理方式为「${mode}」。技术批注关注的是：${commentText || "暂无具体批注"}。如果你要修改，建议优先补齐校对规则和相关材料：${fields}，然后在节点批注里回复技术方。`;
+  }
+
   const handleSend = async () => {
     if ((!input.trim() && pendingFiles.length === 0) || isLoading) return;
     const userInput = input.trim();
@@ -988,8 +1030,19 @@ export default function ChatPanel() {
     setInput("");
     setPendingFiles([]);
 
-    const { isReviewMode } = useFlowAgentStore.getState();
-    if (isReviewMode) {
+    const storeSnapshot = useFlowAgentStore.getState();
+    if (storeSnapshot.isReviewMode && storeSnapshot.currentRole === "business") {
+      const reply = buildReviewAssistantReply(userInput || "我需要补充哪些信息？");
+      addChatMessage({
+        id: uuidv4(),
+        role: "assistant",
+        content: reply,
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
+    if (storeSnapshot.isReviewMode) {
       useFlowAgentStore.getState().setIsReviewMode(false);
     }
 
@@ -1241,7 +1294,7 @@ export default function ChatPanel() {
   const phaseLabel: Record<ChatPhase, string> = {
     idle: "",
     classifying: "分析任务类型...",
-    drafting: "分析并生成方案...",
+    drafting: "整理业务流程草案...",
     questioning: "",
     refining_node: "优化节点中...",
     ready: "",
@@ -1266,17 +1319,90 @@ export default function ChatPanel() {
     refining_agentic: "修改中，请稍候...",
   };
 
-  const showWelcome = chatMessages.length === 0 && phase === "idle";
+  const showWelcome = chatMessages.length === 0 && phase === "idle" && !isBusinessReviewMode;
   const inputDisabled = isLoading;
+  const reviewPlaceholder = selectedNodeData
+    ? "问我这条批注、补充项或回复怎么写..."
+    : "问我技术批注是什么意思，或让我帮你整理补充项...";
+  const effectivePlaceholder = isBusinessReviewMode ? reviewPlaceholder : placeholder[phase];
+  const reviewQuickQuestions = [
+    "帮我解释这条技术批注",
+    "我需要补充哪些信息？",
+    "帮我写一段回复技术方的话",
+    "这条批注涉及哪些资料和字段？",
+  ];
+  const draftQuickQuestions = [
+    "帮我把这个节点描述得更清楚",
+    "这个流程还缺哪些业务信息？",
+    "帮我补充校对规则",
+    "帮我调整节点顺序或增加步骤",
+  ];
+  const shouldShowDraftAssistantIntro = !isBusinessReviewMode && (chatMessages.length > 0 || hasFlow || hasAgenticConfig || phase === "idle");
 
   return (
     <div className="w-full border-r border-zinc-200 bg-white flex flex-col h-full flex-1 min-h-0" data-onboarding="chat-panel">
       {/* Chat area */}
       <div className="flex-1 overflow-y-auto" ref={scrollRef}>
         <div className="px-4 py-5 space-y-5">
-          {showWelcome && (
-            <div className="text-[13px] leading-relaxed text-zinc-500">
-              描述你的业务场景，我会自动生成方案、标注人机分工并确认细节。
+          {shouldShowDraftAssistantIntro && (
+            <div className="rounded-2xl border border-blue-100 bg-blue-50 px-3.5 py-3 text-[13px] leading-6 text-blue-900">
+              <div className="flex items-start gap-2.5">
+                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white text-blue-600 shadow-sm">
+                  <Sparkles className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="font-semibold">流程澄清助手</p>
+                  <p className="mt-1 text-blue-700">
+                    我负责把业务描述整理成可评审流程，帮你补齐节点说明、资料与产出、校对规则和结果输出标准；技术怎么落地会交给技术方判断。
+                  </p>
+                </div>
+              </div>
+              {showWelcome ? (
+                <p className="mt-3 rounded-xl bg-white/70 px-3 py-2 text-xs text-blue-700">
+                  你可以直接描述业务场景，也可以上传表格、规则文件或流程材料。
+                </p>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  {draftQuickQuestions.map((question) => (
+                    <button
+                      key={question}
+                      type="button"
+                      onClick={() => setInput(question)}
+                      className="block w-full rounded-xl border border-blue-100 bg-white px-3 py-2 text-left text-xs text-zinc-700 hover:border-blue-200 hover:bg-blue-50"
+                    >
+                      {question}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {isBusinessReviewMode && (
+            <div className="rounded-2xl border border-blue-100 bg-blue-50 px-3.5 py-3 text-[13px] leading-6 text-blue-900">
+              <div className="flex items-start gap-2.5">
+                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white text-blue-600 shadow-sm">
+                  <Sparkles className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="font-semibold">批注理解助手</p>
+                  <p className="mt-1 text-blue-700">
+                    我基于技术批注、业务字段和当前方案上下文，帮你理解技术方想确认什么，并整理补充项和回复草稿；我不会替技术方做实现承诺。
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 space-y-2">
+                {reviewQuickQuestions.map((question) => (
+                  <button
+                    key={question}
+                    type="button"
+                    onClick={() => setInput(question)}
+                    className="block w-full rounded-xl border border-blue-100 bg-white px-3 py-2 text-left text-xs text-zinc-700 hover:border-blue-200 hover:bg-blue-50"
+                  >
+                    {question}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
@@ -1380,7 +1506,7 @@ export default function ChatPanel() {
                 handleSend();
               }
             }}
-            placeholder={placeholder[phase]}
+            placeholder={effectivePlaceholder}
             className="text-[13px] min-h-[44px] max-h-[120px] resize-none rounded-xl border-zinc-200 bg-zinc-50 pl-10 pr-10 focus:bg-white transition-colors"
             disabled={inputDisabled}
           />

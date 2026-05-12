@@ -8,14 +8,14 @@ import { useFlowAgentStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
-  BookOpen, MessageSquare,
+  MessageSquare,
   CheckCircle2, Send, Workflow, ChevronLeft,
   Briefcase, Code2, AlertTriangle, ArrowLeftRight,
-  FileCheck, X, Download, FileJson, FileText, Image,
+  FileCheck, X, Download, FileJson, FileText, Image as ImageIcon,
 } from "lucide-react";
 import { serializeFlowForLLM } from "@/lib/flow-parser";
 import { addDynamicReview } from "@/lib/mock-reviews";
-import type { ProjectStatus, UserRole, FlowNodeData, TechTabId, Notification as AppNotification } from "@/lib/types";
+import { AGENTIC_NOT_RELEVANT_ANSWER, type ProjectStatus, type UserRole, type FlowNodeData, type TechTabId, type Notification as AppNotification, type AgenticTaskConfig } from "@/lib/types";
 import type { Node } from "@xyflow/react";
 import { NotificationBell } from "@/components/layout/NotificationBell";
 import { TechGenerationProgress } from "@/components/layout/TechGenerationProgress";
@@ -23,6 +23,7 @@ import { TechGenerationProgress } from "@/components/layout/TechGenerationProgre
 const STATUS_LABELS: Record<ProjectStatus, { label: string; className: string }> = {
   draft: { label: "草稿", className: "bg-zinc-100 text-zinc-600" },
   business_editing: { label: "业务方编辑中", className: "bg-blue-50 text-blue-700" },
+  ai_generating: { label: "AI 生成技术方案中", className: "bg-indigo-50 text-indigo-700" },
   pending_review: { label: "待技术评审", className: "bg-amber-50 text-amber-700" },
   tech_reviewing: { label: "技术评审中", className: "bg-purple-50 text-purple-700" },
   needs_revision: { label: "需修改", className: "bg-red-50 text-red-700" },
@@ -45,6 +46,16 @@ const ROLE_CONFIG: Record<UserRole, { label: string; icon: React.ComponentType<{
     borderColor: "border-purple-200",
   },
 };
+
+function sanitizeAgenticConfigForReview(config: AgenticTaskConfig): AgenticTaskConfig {
+  return {
+    ...config,
+    phases: config.phases.map((phase) => ({
+      ...phase,
+      questions: (phase.questions || []).filter((question) => question.answer !== AGENTIC_NOT_RELEVANT_ANSWER),
+    })),
+  };
+}
 
 function computeDiff(
   initial: Node<FlowNodeData>[] | undefined,
@@ -82,13 +93,13 @@ function computeDiff(
   return diffs;
 }
 
-export default function TopBar() {
+export default function TopBar({ backHrefOverride }: { backHrefOverride?: string }) {
   const {
     project, currentRole,
     annotations,
-    showKnowledgePanel, setShowKnowledgePanel,
     setProjectStatus, nodes,
     chatPhase, taskType, initialSnapshot, deferredNodeIds, edges, allNodeConfidence, collectedAnswers,
+    currentReviewId, setCurrentReviewId, upsertBusinessSubmission, updateBusinessSubmission,
   } = useFlowAgentStore();
 
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -116,10 +127,32 @@ export default function TopBar() {
   const isTech = currentRole === "tech";
   const hasFlow = nodes.length > 0;
   const hasContent = hasFlow || agenticConfig !== null;
+  const [hydratedBackHref, setHydratedBackHref] = useState<string | null>(null);
 
-  const backHref = isTech ? "/tech" : "/";
+  useEffect(() => {
+    const timerId = window.setTimeout(() => {
+      const params = new URLSearchParams(window.location.search);
+      const isDemoMode = params.has("demoId") && !params.has("reviewId");
+      setHydratedBackHref(backHrefOverride ?? (isDemoMode ? "/" : isTech ? "/tech/me" : currentReviewId ? "/me" : "/"));
+    }, 0);
+    return () => window.clearTimeout(timerId);
+  }, [backHrefOverride, currentReviewId, isTech]);
 
-  const snapshotToReview = useCallback(() => {
+  const backHref = hydratedBackHref ?? (isTech ? "/tech/me" : "/me");
+
+  const patchServerSubmission = useCallback(async (submissionId: string, body: Record<string, unknown>) => {
+    try {
+      await fetch(`/api/submissions/${submissionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    } catch {
+      // keep local flow robust even if persistence fails
+    }
+  }, []);
+
+  const snapshotToReview = useCallback(async () => {
     const store = useFlowAgentStore.getState();
     const isAgentic = store.taskType === "agentic";
 
@@ -132,7 +165,44 @@ export default function TopBar() {
       return null;
     }
 
-    const reviewId = `dynamic-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const cleanAgenticConfig = isAgentic && store.agenticConfig
+      ? sanitizeAgenticConfigForReview(store.agenticConfig)
+      : null;
+    const fallbackId = `dynamic-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const nodeCount = isAgentic
+      ? (store.agenticConfig?.phases?.length ?? 0)
+      : store.nodes.length;
+    const title = store.project.name || "未命名方案";
+    const description = store.originalPrompt?.slice(0, 120) || "AI 生成的方案";
+
+    let reviewId = fallbackId;
+    try {
+      const res = await fetch("/api/submissions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          description,
+          taskType: store.taskType,
+          status: "ai_generating",
+          submittedBy: "业务方 · 当前用户",
+          prompt: store.originalPrompt || "",
+          projectName: title,
+          nodeCount,
+          techProgress: { total: 5, done: 0, status: "running" },
+          nodes: isAgentic ? undefined : JSON.parse(JSON.stringify(store.nodes)),
+          edges: isAgentic ? undefined : JSON.parse(JSON.stringify(store.edges)),
+          agenticConfig: isAgentic ? JSON.parse(JSON.stringify(cleanAgenticConfig)) : undefined,
+          chatMessages: [...store.chatMessages],
+        }),
+      });
+      const result = await res.json();
+      if (result?.success && result?.item?.id) {
+        reviewId = result.item.id as string;
+      }
+    } catch {
+      // fallback to in-memory review id
+    }
 
     addDynamicReview({
       id: reviewId,
@@ -142,23 +212,44 @@ export default function TopBar() {
       submittedAt: "刚刚",
       status: "pending",
       description: store.originalPrompt?.slice(0, 100) || "AI 生成的方案",
-      nodeCount: isAgentic
-        ? (store.agenticConfig?.phases?.length ?? 0)
-        : store.nodes.length,
+      nodeCount,
       prompt: store.originalPrompt || "",
       projectName: store.project.name || "未命名方案",
       ...(isAgentic
-        ? { agenticConfig: JSON.parse(JSON.stringify(store.agenticConfig)) }
+        ? { agenticConfig: JSON.parse(JSON.stringify(cleanAgenticConfig)) }
         : { nodes: JSON.parse(JSON.stringify(store.nodes)), edges: JSON.parse(JSON.stringify(store.edges)) }),
       chatMessages: [...store.chatMessages],
     });
 
-    return reviewId;
-  }, []);
+    setCurrentReviewId(reviewId);
+    upsertBusinessSubmission({
+      id: reviewId,
+      reviewId,
+      title,
+      description,
+      taskType: store.taskType,
+      status: "ai_generating",
+      submittedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      techProgress: { total: 5, done: 0, status: "running" },
+    });
 
-  const generateTechConfig = useCallback(async () => {
+    return reviewId;
+  }, [setCurrentReviewId, upsertBusinessSubmission]);
+
+  const generateTechConfig = useCallback(async (submissionId?: string | null) => {
     const store = useFlowAgentStore.getState();
     const isWorkflow = store.taskType === "workflow";
+    const trackedSubmissionId = submissionId || store.currentReviewId;
+
+    if (trackedSubmissionId) {
+      store.updateBusinessSubmission(trackedSubmissionId, { status: "ai_generating" });
+      store.updateBusinessSubmissionProgress(trackedSubmissionId, {
+        total: 5,
+        done: 0,
+        status: "running",
+      });
+    }
 
     if (isWorkflow && store.nodes.length > 0) {
       const { json: canvasJson } = serializeFlowForLLM(store.nodes, store.edges);
@@ -176,6 +267,8 @@ export default function TopBar() {
         timestamp: new Date().toISOString(),
       });
 
+      let completed = 0;
+      const total = tabs.length;
       const results = await Promise.allSettled(
         tabs.map(async (tab) => {
           try {
@@ -204,6 +297,29 @@ export default function TopBar() {
           } catch (err) {
             store.setTechTabStatus(tab, "error", err instanceof Error ? err.message : "网络错误");
             return { tab, success: false, error: String(err) };
+          } finally {
+            completed += 1;
+            if (trackedSubmissionId) {
+              const doneCount = Object.values(useFlowAgentStore.getState().techConfig.tabStates)
+                .filter((state) => state.status === "ready").length;
+              store.updateBusinessSubmissionProgress(trackedSubmissionId, {
+                total,
+                done: doneCount,
+                status: completed >= total ? "done" : "running",
+              });
+              void patchServerSubmission(trackedSubmissionId, {
+                techProgress: {
+                  total,
+                  done: doneCount,
+                  status: completed >= total ? "done" : "running",
+                },
+                timelineEvent: {
+                  actor: "system",
+                  type: "tech_generation_progress",
+                  message: `技术方案生成进度 ${doneCount}/${total}`,
+                },
+              });
+            }
           }
         })
       );
@@ -233,13 +349,52 @@ export default function TopBar() {
       });
 
       if (successCount > 0) {
+        store.setProjectStatus("pending_review");
+        if (trackedSubmissionId) {
+          store.updateBusinessSubmission(trackedSubmissionId, { status: "pending_review" });
+          store.updateBusinessSubmissionProgress(trackedSubmissionId, {
+            total,
+            done: successCount,
+            status: "done",
+          });
+          void patchServerSubmission(trackedSubmissionId, {
+            status: "pending_review",
+            techProgress: { total, done: successCount, status: "done" },
+            timelineEvent: {
+              actor: "system",
+              type: "tech_generation_done",
+              message: `技术方案生成完成（${successCount}/${total}）`,
+            },
+            reviewLog: {
+              actor: "system",
+              action: "submitted",
+              note: "技术配置生成完成，等待技术评审",
+              statusAfter: "pending_review",
+            },
+          });
+        }
         toast.success(`技术配置已生成（${successCount}/5）`);
       } else {
+        if (trackedSubmissionId) {
+          store.updateBusinessSubmissionProgress(trackedSubmissionId, {
+            total,
+            done: 0,
+            status: "error",
+          });
+          void patchServerSubmission(trackedSubmissionId, {
+            techProgress: { total, done: 0, status: "error" },
+            timelineEvent: {
+              actor: "system",
+              type: "tech_generation_done",
+              message: "技术方案生成失败",
+            },
+          });
+        }
         toast.error("技术配置生成失败，请重试");
       }
     } else if (store.taskType === "agentic" && store.agenticConfig) {
       // Keep existing agentic logic unchanged
-      const config = store.agenticConfig;
+      const config = sanitizeAgenticConfigForReview(store.agenticConfig);
       if (config.skills.length === 0) {
         store.addChatMessage({ id: uuidv4(), role: "assistant", content: "方案已提交，正在自动生成技术配置...", timestamp: new Date().toISOString() });
         try {
@@ -261,49 +416,152 @@ export default function TopBar() {
             if (result.data.contextArchitecture) store.updateAgenticField("contextArchitecture", result.data.contextArchitecture);
             if (result.data.schedule) store.updateAgenticField("schedule", result.data.schedule);
             store.addChatMessage({ id: uuidv4(), role: "assistant", content: "已自动生成技术配置（Skills、决策循环、调度等），技术方可开始评审。", timestamp: new Date().toISOString() });
+            store.setProjectStatus("pending_review");
+            if (trackedSubmissionId) {
+              store.updateBusinessSubmission(trackedSubmissionId, { status: "pending_review" });
+              store.updateBusinessSubmissionProgress(trackedSubmissionId, { total: 1, done: 1, status: "done" });
+              void patchServerSubmission(trackedSubmissionId, {
+                status: "pending_review",
+                techProgress: { total: 1, done: 1, status: "done" },
+                timelineEvent: {
+                  actor: "system",
+                  type: "tech_generation_done",
+                  message: "技术配置生成完成",
+                },
+              });
+            }
             toast.success("技术配置已自动生成");
           } else {
             store.addChatMessage({ id: uuidv4(), role: "assistant", content: `技术配置自动生成失败（${result.error || "未知错误"}），技术方可手动补充。`, timestamp: new Date().toISOString() });
+            if (trackedSubmissionId) {
+              store.updateBusinessSubmissionProgress(trackedSubmissionId, { total: 1, done: 0, status: "error" });
+              void patchServerSubmission(trackedSubmissionId, {
+                techProgress: { total: 1, done: 0, status: "error" },
+                timelineEvent: {
+                  actor: "system",
+                  type: "tech_generation_done",
+                  message: "技术配置生成失败",
+                },
+              });
+            }
           }
-        } catch { /* silent */ }
+        } catch {
+          if (trackedSubmissionId) {
+            store.updateBusinessSubmissionProgress(trackedSubmissionId, { total: 1, done: 0, status: "error" });
+            void patchServerSubmission(trackedSubmissionId, {
+              techProgress: { total: 1, done: 0, status: "error" },
+              timelineEvent: {
+                actor: "system",
+                type: "tech_generation_done",
+                message: "技术配置生成失败",
+              },
+            });
+          }
+        }
       }
     }
-  }, []);
+  }, [patchServerSubmission]);
 
-  const handleSubmitReview = () => {
+  const handleSubmitReview = async () => {
     if (project.status === "business_editing" || project.status === "draft") {
-      snapshotToReview();
-      setProjectStatus("tech_reviewing");
+      const reviewId = await snapshotToReview();
+      if (!reviewId) return;
+      setProjectStatus("ai_generating");
       toast.success("已提交技术评审");
       setShowTechProgress(true);
-      generateTechConfig();
+      void patchServerSubmission(reviewId, {
+        status: "ai_generating",
+        timelineEvent: {
+          actor: "business",
+          type: "submitted",
+          message: "业务方提交方案，开始生成技术实现",
+        },
+        reviewLog: {
+          actor: "business",
+          action: "submitted",
+          note: "业务方提交评审",
+          statusAfter: "ai_generating",
+        },
+      });
+      void generateTechConfig(reviewId);
     }
   };
 
   const handleApprove = () => {
     setProjectStatus("confirmed");
+    if (currentReviewId) {
+      updateBusinessSubmission(currentReviewId, { status: "confirmed" });
+      void patchServerSubmission(currentReviewId, {
+        status: "confirmed",
+        timelineEvent: {
+          actor: "tech",
+          type: "tech_review",
+          message: "技术方评审通过",
+        },
+        reviewLog: {
+          actor: "tech",
+          action: "approved",
+          note: "技术评审通过",
+          statusAfter: "confirmed",
+        },
+      });
+    }
     toast.success("评审已通过，方案已确认");
   };
 
   const handleReject = () => {
     setProjectStatus("needs_revision");
+    if (currentReviewId) {
+      updateBusinessSubmission(currentReviewId, { status: "needs_revision" });
+      void patchServerSubmission(currentReviewId, {
+        status: "needs_revision",
+        timelineEvent: {
+          actor: "tech",
+          type: "tech_review",
+          message: "技术方打回修改",
+        },
+        reviewLog: {
+          actor: "tech",
+          action: "rejected",
+          note: "需业务方修改后重新提交",
+          statusAfter: "needs_revision",
+        },
+      });
+    }
     toast.info("已打回修改");
   };
 
-  const handleResubmit = () => {
-    snapshotToReview();
-    setProjectStatus("tech_reviewing");
+  const handleResubmit = async () => {
+    const reviewId = await snapshotToReview();
+    if (!reviewId) return;
+    setProjectStatus("ai_generating");
     toast.success("已重新提交评审");
     setShowTechProgress(true);
-    generateTechConfig();
+    void patchServerSubmission(reviewId, {
+      status: "ai_generating",
+      timelineEvent: {
+        actor: "business",
+        type: "submitted",
+        message: "业务方重新提交方案",
+      },
+      reviewLog: {
+        actor: "business",
+        action: "resubmitted",
+        note: "根据反馈修改后重新提交",
+        statusAfter: "ai_generating",
+      },
+    });
+    void generateTechConfig(reviewId);
   };
 
+  const isEditableStatus =
+    project.status === "draft" || project.status === "business_editing" || project.status === "needs_revision";
   const canConfirmWorkflow = hasFlow && taskType === "workflow" &&
     (chatPhase === "ready" || chatPhase === "questioning") &&
-    project.status !== "confirmed";
+    isEditableStatus;
   const canConfirmAgentic = taskType === "agentic" && agenticConfig !== null &&
     chatPhase === "agentic_ready" &&
-    project.status !== "confirmed" && project.status !== "tech_reviewing";
+    isEditableStatus;
   const canConfirm = canConfirmWorkflow || canConfirmAgentic;
   const unansweredCount = allNodeConfidence.filter((nc) => {
     if (nc.confidence === "high" || !nc.questions || nc.questions.length === 0) return false;
@@ -319,13 +577,28 @@ export default function TopBar() {
     (n) => (n.data as unknown as FlowNodeData).executionMode !== "ai_auto"
   ).length;
 
-  const handleConfirmScheme = () => {
-    snapshotToReview();
-    setProjectStatus("tech_reviewing");
+  const handleConfirmScheme = async () => {
+    const reviewId = await snapshotToReview();
+    if (!reviewId) return;
+    setProjectStatus("ai_generating");
     setShowConfirmModal(false);
     toast.success("方案已确认并提交技术评审");
     setShowTechProgress(true);
-    generateTechConfig();
+    void patchServerSubmission(reviewId, {
+      status: "ai_generating",
+      timelineEvent: {
+        actor: "business",
+        type: "submitted",
+        message: "业务方确认方案并提交技术评审",
+      },
+      reviewLog: {
+        actor: "business",
+        action: "submitted",
+        note: "业务方确认并提交",
+        statusAfter: "ai_generating",
+      },
+    });
+    void generateTechConfig(reviewId);
   };
 
   const openConfirmFlow = () => {
@@ -345,7 +618,7 @@ export default function TopBar() {
       exportedAt: new Date().toISOString(),
     };
     if (isAg && agenticConfig) {
-      data.agenticConfig = agenticConfig;
+      data.agenticConfig = sanitizeAgenticConfigForReview(agenticConfig);
     } else {
       data.nodes = (nodes as Node<FlowNodeData>[]).map((n) => ({
         id: n.id,
@@ -371,7 +644,7 @@ export default function TopBar() {
     ];
 
     if (isAg && agenticConfig) {
-      const cfg = agenticConfig;
+      const cfg = sanitizeAgenticConfigForReview(agenticConfig);
       lines.push(
         `**目标**：${cfg.goal}`,
         `**周期**：${cfg.totalDays} 天`,
@@ -436,8 +709,6 @@ export default function TopBar() {
   const titleColor = isTech ? "text-white" : "text-zinc-900";
   const subtitleColor = isTech ? "text-slate-400" : "text-zinc-600";
 
-  const knowledgeLabel = isTech ? "知识 & 技术参考" : "知识中心";
-
   return (
     <header className={`h-14 border-b ${headerBorder} ${headerBg} flex items-center justify-between px-4 shrink-0 transition-colors duration-300`}>
       <div className="flex items-center gap-3">
@@ -468,7 +739,7 @@ export default function TopBar() {
           <RoleIcon className={`w-3.5 h-3.5 ${roleConfig.color}`} />
           <span className={`text-xs font-semibold ${roleConfig.color}`}>{roleConfig.label}</span>
           <Link
-            href={isTech ? "/" : "/tech"}
+            href={isTech ? "/" : "/tech/me"}
             className={`ml-1 flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded transition-colors ${
               isTech
                 ? "text-slate-400 hover:text-slate-200 hover:bg-slate-700"
@@ -483,18 +754,6 @@ export default function TopBar() {
 
         <div className={`w-px h-6 ${isTech ? "bg-slate-700" : "bg-zinc-200"} mx-1`} />
 
-        {/* Panels toggle (mutually exclusive) */}
-        <Button
-          size="sm"
-          variant={showKnowledgePanel ? "default" : "outline"}
-          className={`h-8 text-xs ${isTech && !showKnowledgePanel ? "border-slate-600 text-slate-300 hover:bg-slate-800" : ""}`}
-          onClick={() => {
-            const next = !showKnowledgePanel;
-            setShowKnowledgePanel(next);
-          }}
-        >
-          <BookOpen className="w-3.5 h-3.5 mr-1" /> {knowledgeLabel}
-        </Button>
         {isTech && unresolvedAnnotations > 0 && (
           <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-900/30 border border-purple-700/40 text-purple-300 text-xs">
             <MessageSquare className="w-3 h-3" />
@@ -526,7 +785,7 @@ export default function TopBar() {
                   <FileText className="w-3.5 h-3.5 text-green-500" /> 导出为 Markdown
                 </button>
                 <button onClick={handleExportImage} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-zinc-700 hover:bg-zinc-50">
-                  <Image className="w-3.5 h-3.5 text-purple-500" /> 导出为图片
+                  <ImageIcon className="w-3.5 h-3.5 text-purple-500" /> 导出为图片
                 </button>
               </div>
             )}
@@ -686,7 +945,7 @@ export default function TopBar() {
           onStayOnPage={() => setShowTechProgress(false)}
           onGoToList={() => {
             setShowTechProgress(false);
-            window.location.href = isTech ? "/tech" : "/";
+            window.location.href = isTech ? "/tech/me" : "/me";
           }}
         />
       )}

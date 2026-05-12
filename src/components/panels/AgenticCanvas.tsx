@@ -1,19 +1,19 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useFlowAgentStore } from "@/lib/store";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Target, ChevronDown, ChevronRight, CheckCircle2,
-  Clock, ArrowRight, AlertTriangle, Shield, Zap,
-  MessageSquare, Check, X, Play, Settings,
-  BarChart3, FileText, Eye, Bell, TrendingUp,
-  Pencil, Plus, Trash2,
+  Target, ChevronDown, ChevronRight,
+  Clock, ArrowRight, ArrowUp, ArrowDown, AlertTriangle, Zap,
+  MessageSquare, X, Play, Save,
+  BarChart3, Bell,
+  FileText, Pencil, Plus, Trash2, Upload,
 } from "lucide-react";
 import { toast } from "sonner";
-import type { AgenticPhase, AgenticFallback, AgenticRiskItem, AgenticSkill } from "@/lib/types";
+import { AGENTIC_NOT_RELEVANT_ANSWER, type AgenticPhase, type AgenticFallback, type AgenticPhaseQuestion } from "@/lib/types";
 
 function EditableText({ value, onSave, className = "", multiline = false, placeholder = "" }: {
   value: string;
@@ -130,34 +130,58 @@ function EditableList({ items, onSave, placeholder = "新增项目..." }: {
   );
 }
 
-const PHASE_STATUS_STYLE = {
-  confirmed: { bg: "bg-green-50", border: "border-green-200", text: "text-green-700", dot: "bg-green-500", label: "已确认" },
-  reviewing: { bg: "bg-amber-50", border: "border-amber-200", text: "text-amber-700", dot: "bg-amber-500", label: "确认中" },
-  pending: { bg: "bg-zinc-50", border: "border-zinc-200", text: "text-zinc-500", dot: "bg-zinc-400", label: "待确认" },
+const FALLBACK_SEVERITY_STYLE: Record<AgenticFallback["severity"], { label: string; className: string }> = {
+  critical: { label: "高风险事项", className: "text-red-600 border-red-200 bg-red-50" },
+  warning: { label: "需关注事项", className: "text-amber-600 border-amber-200 bg-amber-50" },
+  info: { label: "提示事项", className: "text-blue-600 border-blue-200 bg-blue-50" },
 };
 
-function PhaseTimeline({ phases, activePhaseId, onSelect }: {
+function formatFileSize(size: number) {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function countPendingPhaseQuestions(phase: AgenticPhase, decisions: Record<string, QuestionDecision> = {}) {
+  return (phase.questions || []).filter((question) => (
+    question.answer !== AGENTIC_NOT_RELEVANT_ANSWER &&
+    !question.answer &&
+    !isQuestionHandledByDecision(decisions[question.id])
+  )).length;
+}
+
+function isQuestionHandledByDecision(decision?: QuestionDecision) {
+  if (!decision) return false;
+  if (decision.status === "skipped") return true;
+  return decision.value.trim().length > 0;
+}
+
+function PhaseTimeline({ phases, activePhaseId, decisions, onSelect }: {
   phases: AgenticPhase[];
   activePhaseId: string | null;
+  decisions: Record<string, QuestionDecision>;
   onSelect: (id: string) => void;
 }) {
   return (
-    <div className="flex items-center gap-1 px-4 py-3 overflow-x-auto">
+    <div className="flex items-center gap-2 overflow-x-auto px-6 py-4">
       {phases.map((phase, i) => {
-        const style = PHASE_STATUS_STYLE[phase.status] || PHASE_STATUS_STYLE.pending;
         const isActive = phase.id === activePhaseId;
-        const [d0, d1] = phase.dayRange || [0, 0];
+        const pendingQuestionCount = countPendingPhaseQuestions(phase, decisions);
         return (
           <div key={phase.id} className="flex items-center shrink-0">
             <button
               onClick={() => onSelect(phase.id)}
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-all text-xs font-medium
-                ${isActive ? `${style.bg} ${style.border} ${style.text} ring-2 ring-offset-1 ring-blue-300` : `bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50`}`}
-            >
-              <span className={`w-2 h-2 rounded-full ${style.dot}`} />
+              className={`flex items-center gap-2.5 rounded-xl border px-4 py-2.5 text-xs font-medium transition-all
+                ${isActive ? "bg-blue-50 border-blue-200 text-blue-700 ring-2 ring-offset-1 ring-blue-300" : "bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50"}`}
+              >
+              <span className={`w-2 h-2 rounded-full ${pendingQuestionCount > 0 ? "bg-amber-500" : "bg-zinc-300"}`} />
               <span className="whitespace-nowrap">{phase.name}</span>
-              <span className="text-[10px] text-zinc-400">D{d0}-{d1}</span>
-              {phase.requiresApproval && <Shield className="w-3 h-3 text-amber-500" />}
+              <span className="text-[10px] text-zinc-400">模块 {i + 1}/{phases.length}</span>
+              {pendingQuestionCount > 0 && (
+                <Badge variant="outline" className="h-5 border-amber-200 bg-amber-50 px-1.5 text-[10px] text-amber-600">
+                  {pendingQuestionCount} 个待明确
+                </Badge>
+              )}
             </button>
             {i < phases.length - 1 && (
               <ArrowRight className="w-3.5 h-3.5 text-zinc-300 mx-1 shrink-0" />
@@ -169,74 +193,170 @@ function PhaseTimeline({ phases, activePhaseId, onSelect }: {
   );
 }
 
-function PhaseDetail({ phase, onConfirm, onAnswerQuestion, onUpdatePhase }: {
+function ModuleManagerPanel({
+  phases,
+  activePhaseId,
+  onSelect,
+  onRename,
+  onMove,
+  onDelete,
+  onAdd,
+}: {
+  phases: AgenticPhase[];
+  activePhaseId: string | null;
+  onSelect: (id: string) => void;
+  onRename: (id: string, name: string) => void;
+  onMove: (index: number, direction: -1 | 1) => void;
+  onDelete: (id: string) => void;
+  onAdd: () => void;
+}) {
+  return (
+    <div className="mx-6 mb-4 rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <div className="text-xs font-semibold text-zinc-800">管理模块结构</div>
+          <div className="mt-0.5 text-[11px] text-zinc-500">
+            如果 AI 拆分不准，可以在这里改名、调整顺序、新增或删除模块。
+          </div>
+        </div>
+        <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={onAdd}>
+          <Plus className="h-3.5 w-3.5" /> 新增模块
+        </Button>
+      </div>
+      <div className="space-y-2">
+        {phases.map((phase, index) => {
+          const isActive = phase.id === activePhaseId;
+          return (
+            <div
+              key={phase.id}
+              className={`flex items-center gap-2 rounded-xl border bg-white px-3 py-2 ${
+                isActive ? "border-blue-200 ring-1 ring-blue-100" : "border-zinc-200"
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => onSelect(phase.id)}
+                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${
+                  isActive ? "bg-blue-600 text-white" : "bg-zinc-100 text-zinc-500"
+                }`}
+              >
+                {index + 1}
+              </button>
+              <div className="min-w-0 flex-1 text-sm font-medium text-zinc-800">
+                <EditableText value={phase.name} onSave={(name) => onRename(phase.id, name)} />
+              </div>
+              <Badge variant="outline" className="h-5 text-[10px] text-zinc-500">
+                D{phase.dayRange?.[0]}-{phase.dayRange?.[1]}
+              </Badge>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 w-7 p-0 text-zinc-500"
+                disabled={index === 0}
+                onClick={() => onMove(index, -1)}
+              >
+                <ArrowUp className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 w-7 p-0 text-zinc-500"
+                disabled={index === phases.length - 1}
+                onClick={() => onMove(index, 1)}
+              >
+                <ArrowDown className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 w-7 p-0 text-red-400 hover:text-red-600"
+                disabled={phases.length <= 1}
+                onClick={() => onDelete(phase.id)}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function PhaseDetail({ phase, phaseIndex, totalPhases, onUpdatePhase }: {
   phase: AgenticPhase;
-  onConfirm: () => void;
-  onAnswerQuestion: (questionId: string, answer: string) => void;
+  phaseIndex: number;
+  totalPhases: number;
   onUpdatePhase: (patch: Partial<AgenticPhase>) => void;
 }) {
-  const [expandedQ, setExpandedQ] = useState<string | null>(null);
-  const [answerDraft, setAnswerDraft] = useState("");
-  const style = PHASE_STATUS_STYLE[phase.status] || PHASE_STATUS_STYLE.pending;
+  const materialFileInputRef = useRef<HTMLInputElement>(null);
+  const requirementTags = phase.requiredCapabilities || [];
+  const materialFiles = phase.materialFiles || [];
 
-  const unansweredQuestions = (phase.questions || []).filter((q) => !q.answer);
-  const canConfirm = phase.status !== "confirmed" && unansweredQuestions.length === 0;
+  const handleMaterialFiles = (fileList: FileList | null) => {
+    const files = Array.from(fileList || []);
+    if (files.length === 0) return;
+
+    const uploadedAt = new Date().toISOString();
+    const nextFiles = files.map((file, index) => ({
+      id: `material-${Date.now()}-${index}-${file.name}`,
+      name: file.name,
+      size: file.size,
+      type: file.type || "unknown",
+      uploadedAt,
+    }));
+
+    onUpdatePhase({ materialFiles: [...materialFiles, ...nextFiles] });
+    toast.success(`已添加 ${files.length} 个资料文件`);
+  };
 
   return (
-    <div className={`mx-4 rounded-xl border ${style.border} ${style.bg} overflow-hidden`}>
+    <div className="mx-6 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-100/50">
-        <div className="flex items-center gap-2">
-          <span className={`w-2.5 h-2.5 rounded-full ${style.dot}`} />
+      <div className="flex items-center justify-between border-b border-zinc-100/70 px-5 py-4">
+        <div className="flex items-center gap-2.5">
+          <span className="w-2.5 h-2.5 rounded-full bg-zinc-300" />
           <h3 className="text-sm font-bold text-zinc-900">
             <EditableText value={phase.name} onSave={(v) => onUpdatePhase({ name: v })} />
           </h3>
           <Badge variant="outline" className="text-[10px] h-5">
-            Day {phase.dayRange[0]}–{phase.dayRange[1]}
+            模块 {phaseIndex + 1}/{totalPhases}
           </Badge>
-          {phase.requiresApproval && (
-            <Badge variant="outline" className="text-[10px] h-5 bg-amber-50 text-amber-600 border-amber-200 gap-1">
-              <Shield className="w-3 h-3" /> 需审批
-            </Badge>
-          )}
         </div>
-        <Badge variant="outline" className={`text-[10px] h-5 ${style.text}`}>
-          {style.label}
-        </Badge>
       </div>
 
-      <div className="p-4 space-y-4">
-        {/* Actions */}
+      <div className="space-y-6 p-5">
+        {/* Business handling */}
         <div>
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-700 mb-2">
-            <Play className="w-3.5 h-3.5 text-blue-500" /> 执行动作
+          <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-zinc-700">
+            <Play className="w-3.5 h-3.5 text-blue-500" /> 业务处理内容
           </div>
-          <EditableList items={phase.actions || []} onSave={(actions) => onUpdatePhase({ actions })} placeholder="新增执行动作..." />
+          <EditableList items={phase.actions || []} onSave={(actions) => onUpdatePhase({ actions })} placeholder="新增业务处理内容..." />
         </div>
 
-        {/* Success Criteria */}
+        {/* Business rules */}
         <div>
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-700 mb-2">
-            <BarChart3 className="w-3.5 h-3.5 text-violet-500" /> 判断标准
+          <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-zinc-700">
+            <BarChart3 className="w-3.5 h-3.5 text-violet-500" /> 处理规则与边界
           </div>
           {(() => {
             const sc = phase.successCriteria || { good: "", warning: "", bad: "" };
             return (
-              <div className="grid grid-cols-3 gap-2">
-                <div className="rounded-lg bg-green-50/80 border border-green-200/50 p-2">
-                  <div className="text-[10px] font-medium text-green-600 mb-0.5">表现好</div>
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+                <div className="rounded-xl bg-green-50/80 border border-green-200/50 p-3">
+                  <div className="text-[10px] font-medium text-green-600 mb-0.5">可直接处理</div>
                   <div className="text-[11px] text-green-700">
                     <EditableText value={sc.good || ""} onSave={(v) => onUpdatePhase({ successCriteria: { ...sc, good: v } })} multiline />
                   </div>
                 </div>
-                <div className="rounded-lg bg-amber-50/80 border border-amber-200/50 p-2">
-                  <div className="text-[10px] font-medium text-amber-600 mb-0.5">需关注</div>
+                <div className="rounded-xl bg-amber-50/80 border border-amber-200/50 p-3">
+                  <div className="text-[10px] font-medium text-amber-600 mb-0.5">需要补充规则</div>
                   <div className="text-[11px] text-amber-700">
                     <EditableText value={sc.warning || ""} onSave={(v) => onUpdatePhase({ successCriteria: { ...sc, warning: v } })} multiline />
                   </div>
                 </div>
-                <div className="rounded-lg bg-red-50/80 border border-red-200/50 p-2">
-                  <div className="text-[10px] font-medium text-red-600 mb-0.5">表现差</div>
+                <div className="rounded-xl bg-red-50/80 border border-red-200/50 p-3">
+                  <div className="text-[10px] font-medium text-red-600 mb-0.5">不能直接处理</div>
                   <div className="text-[11px] text-red-700">
                     <EditableText value={sc.bad || ""} onSave={(v) => onUpdatePhase({ successCriteria: { ...sc, bad: v } })} multiline />
                   </div>
@@ -246,252 +366,387 @@ function PhaseDetail({ phase, onConfirm, onAnswerQuestion, onUpdatePhase }: {
           })()}
         </div>
 
-        {/* Exit Condition */}
-        <div className="flex items-start gap-2 rounded-lg bg-white/60 border border-zinc-200/50 p-2.5">
-          <ArrowRight className="w-3.5 h-3.5 text-zinc-400 mt-0.5 shrink-0" />
-          <div className="flex-1">
-            <div className="text-[10px] font-medium text-zinc-500">进入下一阶段条件</div>
-            <div className="text-xs text-zinc-700">
-              <EditableText value={phase.exitCondition} onSave={(v) => onUpdatePhase({ exitCondition: v })} />
+        {/* Business materials and requirements */}
+        <div>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-700">
+              <Zap className="w-3.5 h-3.5 text-amber-500" /> 资料、规则文件与时效要求
             </div>
-          </div>
-        </div>
-
-        {/* Approval Description */}
-        {phase.requiresApproval && phase.approvalDescription && (
-          <div className="flex items-start gap-2 rounded-lg bg-amber-50/60 border border-amber-200/50 p-2.5">
-            <Shield className="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0" />
-            <div className="flex-1">
-              <div className="text-[10px] font-medium text-amber-600">审批内容</div>
-              <div className="text-xs text-amber-700">
-                <EditableText value={phase.approvalDescription} onSave={(v) => onUpdatePhase({ approvalDescription: v })} />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Required Capabilities */}
-        {phase.requiredCapabilities && phase.requiredCapabilities.length > 0 && (
-          <div>
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-700 mb-2">
-              <Zap className="w-3.5 h-3.5 text-amber-500" /> 需要的能力
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {phase.requiredCapabilities.map((cap, i) => (
-                <Badge key={i} variant="outline" className="text-[10px] h-5 bg-white group/cap">
-                  <EditableText value={cap} onSave={(v) => {
-                    const next = [...phase.requiredCapabilities!];
-                    next[i] = v;
-                    onUpdatePhase({ requiredCapabilities: next });
-                  }} />
-                  <button
-                    onClick={() => onUpdatePhase({ requiredCapabilities: phase.requiredCapabilities!.filter((_, j) => j !== i) })}
-                    className="ml-0.5 opacity-0 group-hover/cap:opacity-100 text-zinc-300 hover:text-red-400 transition-all"
-                  >
-                    <X className="w-2.5 h-2.5" />
-                  </button>
-                </Badge>
-              ))}
-              <button
-                onClick={() => {
-                  const name = prompt("新增能力名称：");
-                  if (name?.trim()) onUpdatePhase({ requiredCapabilities: [...(phase.requiredCapabilities || []), name.trim()] });
+            <div className="flex items-center gap-2">
+              <input
+                ref={materialFileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(event) => {
+                  handleMaterialFiles(event.currentTarget.files);
+                  event.currentTarget.value = "";
                 }}
-                className="text-[10px] text-zinc-400 hover:text-blue-500 transition-colors flex items-center gap-0.5"
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 gap-1.5 rounded-full px-3 text-[10px]"
+                onClick={() => materialFileInputRef.current?.click()}
               >
-                <Plus className="w-3 h-3" /> 添加
-              </button>
+                <Upload className="h-3 w-3" /> 上传文件
+              </Button>
             </div>
           </div>
-        )}
-
-        {/* Questions */}
-        {phase.questions && phase.questions.length > 0 && (
-          <div>
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-700 mb-2">
-              <MessageSquare className="w-3.5 h-3.5 text-blue-500" /> AI 追问
-            </div>
-            <div className="space-y-2">
-              {phase.questions.map((q) => (
-                <div key={q.id} className={`rounded-lg border p-3 ${q.answer ? "bg-green-50/50 border-green-200/50" : "bg-white border-blue-200/50"}`}>
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="text-xs text-zinc-700 font-medium">{q.question}</div>
-                    {q.answer && <Check className="w-4 h-4 text-green-500 shrink-0" />}
+          <div className="flex flex-wrap gap-2">
+            {requirementTags.map((cap, i) => (
+              <Badge key={i} variant="outline" className="text-[10px] h-5 bg-white group/cap">
+                <EditableText value={cap} onSave={(v) => {
+                  const next = [...requirementTags];
+                  next[i] = v;
+                  onUpdatePhase({ requiredCapabilities: next });
+                }} />
+                <button
+                  onClick={() => onUpdatePhase({ requiredCapabilities: requirementTags.filter((_, j) => j !== i) })}
+                  className="ml-0.5 opacity-0 group-hover/cap:opacity-100 text-zinc-300 hover:text-red-400 transition-all"
+                >
+                  <X className="w-2.5 h-2.5" />
+                </button>
+              </Badge>
+            ))}
+            <button
+              onClick={() => {
+                onUpdatePhase({ requiredCapabilities: [...requirementTags, "点击填写资料、规则文件或时效要求"] });
+              }}
+              className="text-[10px] text-zinc-400 hover:text-blue-500 transition-colors flex items-center gap-0.5"
+            >
+              <Plus className="w-3 h-3" /> 添加文字要求
+            </button>
+          </div>
+          {materialFiles.length > 0 && (
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {materialFiles.map((file) => (
+                <div
+                  key={file.id}
+                  className="group/file flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2"
+                >
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white text-zinc-500">
+                    <FileText className="h-3.5 w-3.5" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[11px] font-medium text-zinc-700">{file.name}</div>
+                    <div className="text-[10px] text-zinc-400">{formatFileSize(file.size)}</div>
                   </div>
-                  {q.context && (
-                    <div className="text-[10px] text-zinc-400 mt-1">{q.context}</div>
-                  )}
-                  {q.answer ? (
-                    <div className="mt-2 text-xs text-green-700 bg-green-100/50 rounded px-2 py-1">
-                      {q.answer}
-                    </div>
-                  ) : (
-                    <div className="mt-2 space-y-1.5">
-                      {q.options && q.options.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5">
-                          {q.options.map((opt, i) => (
-                            <button
-                              key={i}
-                              onClick={() => onAnswerQuestion(q.id, opt)}
-                              className="text-[11px] px-2.5 py-1 rounded-full border border-blue-200 text-blue-600 hover:bg-blue-50 transition-colors"
-                            >
-                              {opt}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                      {expandedQ === q.id ? (
-                        <div className="flex gap-1.5">
-                          <Textarea
-                            value={answerDraft}
-                            onChange={(e) => setAnswerDraft(e.target.value)}
-                            placeholder="自定义回答..."
-                            className="text-xs min-h-[40px] max-h-[80px] resize-none flex-1"
-                          />
-                          <div className="flex flex-col gap-1">
-                            <Button
-                              size="sm"
-                              className="h-6 text-[10px] px-2"
-                              disabled={!answerDraft.trim()}
-                              onClick={() => {
-                                onAnswerQuestion(q.id, answerDraft.trim());
-                                setAnswerDraft("");
-                                setExpandedQ(null);
-                              }}
-                            >
-                              <Check className="w-3 h-3" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-6 text-[10px] px-2"
-                              onClick={() => { setExpandedQ(null); setAnswerDraft(""); }}
-                            >
-                              <X className="w-3 h-3" />
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => setExpandedQ(q.id)}
-                          className="text-[10px] text-zinc-400 hover:text-blue-500 transition-colors"
-                        >
-                          自定义回答...
-                        </button>
-                      )}
-                    </div>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => onUpdatePhase({ materialFiles: materialFiles.filter((item) => item.id !== file.id) })}
+                    className="opacity-0 transition-opacity text-zinc-300 hover:text-red-400 group-hover/file:opacity-100"
+                    title="移除文件"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
                 </div>
               ))}
             </div>
-          </div>
-        )}
+          )}
+          <p className="mt-1.5 text-[10px] text-zinc-400">
+            可以上传规则文件、模板或表格，也可以用文字补充业务时效和材料要求；后续技术方再判断如何落地。
+          </p>
+        </div>
 
-        {/* Confirm Button */}
-        {phase.status !== "confirmed" && (
-          <div className="flex justify-end pt-2">
-            <Button
-              size="sm"
-              onClick={onConfirm}
-              disabled={!canConfirm}
-              className="gap-1.5"
-            >
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              {canConfirm ? "确认此阶段" : `还有 ${unansweredQuestions.length} 个问题待回答`}
-            </Button>
-          </div>
-        )}
       </div>
+    </div>
+  );
+}
+
+type QuestionDecision = {
+  value: string;
+  status: "answered" | "skipped";
+};
+
+type QuestionItem = {
+  phaseId: string;
+  phaseName: string;
+  question: AgenticPhaseQuestion;
+};
+
+function SupplementQuestionsPanel({
+  questions,
+  decisions,
+  onChooseOption,
+  onCustomAnswer,
+  onSkip,
+}: {
+  questions: QuestionItem[];
+  decisions: Record<string, QuestionDecision>;
+  onChooseOption: (questionId: string, value: string) => void;
+  onCustomAnswer: (questionId: string, value: string) => void;
+  onSkip: (questionId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const pendingCount = questions.filter((item) => !item.question.answer && !isQuestionHandledByDecision(decisions[item.question.id])).length;
+  const stagedCount = Object.keys(decisions).length;
+
+  if (questions.length === 0) return null;
+
+  const statusLabel = (decision?: QuestionDecision, answer?: string) => {
+    if (answer && answer !== AGENTIC_NOT_RELEVANT_ANSWER) return { text: "已应用", className: "bg-green-50 text-green-700 border-green-200" };
+    if (decision?.status === "answered") return { text: "已填写", className: "bg-blue-50 text-blue-700 border-blue-200" };
+    if (decision?.status === "skipped") return { text: "不涉及", className: "bg-zinc-50 text-zinc-500 border-zinc-200" };
+    return { text: "未处理", className: "bg-white text-zinc-500 border-zinc-200" };
+  };
+
+  return (
+    <div className="mx-6 overflow-hidden rounded-2xl border border-blue-200 bg-blue-50/40 shadow-sm">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center gap-3 px-5 py-4 text-left"
+      >
+        <MessageSquare className="h-4 w-4 text-blue-600" />
+        <div className="flex-1">
+          <div className="text-sm font-bold text-zinc-900">补充问题清单</div>
+          <div className="mt-0.5 text-[11px] text-zinc-500">
+            先集中回答或标记不涉及；不确定的问题可以先留空，保存整个方案草稿后再回来补。
+          </div>
+        </div>
+        <Badge variant="outline" className="h-6 border-blue-200 bg-white text-xs text-blue-700">
+          {pendingCount} 个待补充
+        </Badge>
+        {open ? <ChevronDown className="h-4 w-4 text-zinc-400" /> : <ChevronRight className="h-4 w-4 text-zinc-400" />}
+      </button>
+
+      {open && (
+        <div className="space-y-4 border-t border-blue-100 bg-white/70 p-5">
+          {questions.map((item, index) => {
+            const decision = decisions[item.question.id];
+            const status = statusLabel(decision, item.question.answer);
+            return (
+              <div key={item.question.id} className="rounded-xl border border-zinc-200 bg-white p-4">
+                <div className="flex items-start gap-3">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-100 text-[11px] font-bold text-blue-700">
+                    {index + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[11px] font-medium text-zinc-400">{item.phaseName}</span>
+                      <Badge variant="outline" className={`h-5 text-[10px] ${status.className}`}>
+                        {status.text}
+                      </Badge>
+                    </div>
+                    <div className="mt-2 text-sm font-semibold leading-relaxed text-zinc-800">{item.question.question}</div>
+                    {item.question.context && <div className="mt-1 text-[11px] text-zinc-500">{item.question.context}</div>}
+                    {item.question.answer ? (
+                      <div className="mt-2 rounded-md bg-green-50 px-2 py-1 text-xs text-green-700">{item.question.answer}</div>
+                    ) : (
+                      <div className="mt-3 space-y-3">
+                        {item.question.options && item.question.options.length > 0 && (
+                          <div className="flex flex-wrap gap-2">
+                            {item.question.options.map((opt) => (
+                              <button
+                                key={opt}
+                                type="button"
+                                onClick={() => onChooseOption(item.question.id, opt)}
+                                className={`rounded-full border px-3 py-1.5 text-[11px] transition-colors ${
+                                  decision?.status === "answered" && decision.value === opt
+                                    ? "border-blue-300 bg-blue-50 text-blue-700"
+                                    : "border-zinc-200 bg-white text-zinc-600 hover:border-blue-200 hover:text-blue-600"
+                                }`}
+                              >
+                                {opt}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        <Textarea
+                          value={decision?.status === "answered" ? decision.value : ""}
+                          onChange={(e) => onCustomAnswer(item.question.id, e.target.value)}
+                          placeholder="也可以输入自定义回答..."
+                          className="min-h-[68px] resize-none bg-white text-xs"
+                        />
+                        <div className="flex flex-wrap justify-end gap-1.5">
+                          <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px] text-zinc-500" onClick={() => onSkip(item.question.id)}>
+                            不涉及
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+
+          <div className="border-t border-zinc-100 pt-4 text-[11px] text-zinc-500">
+            已处理 {stagedCount} 个问题，应用前不会改动方案内容；未回答的问题会继续保留在草稿里，不涉及的问题应用后不再提交给技术方。
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 function OverviewSection({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   return (
-    <div className="border border-zinc-200 rounded-xl overflow-hidden">
+    <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
       <button
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-2 px-4 py-2.5 bg-zinc-50/50 hover:bg-zinc-50 transition-colors"
+        className="w-full flex items-center gap-2 px-5 py-3 bg-zinc-50/50 hover:bg-zinc-50 transition-colors"
       >
         {icon}
         <span className="text-xs font-semibold text-zinc-700 flex-1 text-left">{title}</span>
         {open ? <ChevronDown className="w-3.5 h-3.5 text-zinc-400" /> : <ChevronRight className="w-3.5 h-3.5 text-zinc-400" />}
       </button>
-      {open && <div className="p-4 border-t border-zinc-100">{children}</div>}
+      {open && <div className="border-t border-zinc-100 p-5">{children}</div>}
     </div>
   );
 }
 
 export default function AgenticCanvas() {
-  const { agenticConfig, confirmPhase, answerPhaseQuestion, updatePhase, updateAgenticField } = useFlowAgentStore();
+  const { agenticConfig, answerPhaseQuestion, updatePhase, updateAgenticField } = useFlowAgentStore();
   const [activePhaseId, setActivePhaseId] = useState<string | null>(null);
+  const [questionDecisions, setQuestionDecisions] = useState<Record<string, QuestionDecision>>({});
+  const [moduleManagerOpen, setModuleManagerOpen] = useState(false);
 
   const config = agenticConfig;
-  if (!config) {
-    return (
-      <div className="flex-1 flex items-center justify-center text-zinc-400 text-sm">
-        等待 AI 生成阶段方案...
-      </div>
-    );
-  }
+  const phases: AgenticPhase[] = useMemo(() => config?.phases || [], [config?.phases]);
+  const durationLabel = config?.estimatedDuration || (config?.totalDays ? `${config.totalDays} 天` : "持续运行");
+  const supplementQuestions: QuestionItem[] = useMemo(
+    () => phases.flatMap((phase) => (phase.questions || []).map((question) => ({
+      phaseId: phase.id,
+      phaseName: phase.name,
+      question,
+    }))),
+    [phases],
+  );
+  const visibleSupplementQuestions = useMemo(
+    () => supplementQuestions.filter((item) => item.question.answer !== AGENTIC_NOT_RELEVANT_ANSWER),
+    [supplementQuestions],
+  );
+  const pendingQuestionCount = visibleSupplementQuestions.filter((item) => !item.question.answer && !isQuestionHandledByDecision(questionDecisions[item.question.id])).length;
 
-  const phases: AgenticPhase[] = config.phases || [];
-  const allConfirmed = phases.length > 0 && phases.every((p: AgenticPhase) => p.status === "confirmed");
-
-  useEffect(() => {
-    if (!activePhaseId && phases.length > 0) {
-      const firstPending = phases.find((p: AgenticPhase) => p.status !== "confirmed");
-      setActivePhaseId(firstPending?.id || phases[0].id);
-    } else if (activePhaseId && phases.length > 0 && !phases.find((p) => p.id === activePhaseId)) {
-      setActivePhaseId(phases[0].id);
-    }
-  }, [activePhaseId, phases]);
-
-  const activePhase = phases.find((p: AgenticPhase) => p.id === activePhaseId) || (phases.length > 0 ? phases[0] : null);
-
-  const handleConfirmPhase = useCallback((phaseId: string) => {
-    confirmPhase(phaseId);
-    const nextPending = phases.find((p: AgenticPhase) => p.id !== phaseId && p.status !== "confirmed");
-    if (nextPending) {
-      setActivePhaseId(nextPending.id);
-    }
-    toast.success("阶段已确认");
-  }, [confirmPhase, phases]);
-
-  const handleAnswerQuestion = useCallback((phaseId: string, questionId: string, answer: string) => {
-    answerPhaseQuestion(phaseId, questionId, answer);
-  }, [answerPhaseQuestion]);
+  const defaultPhaseId = phases.find((p: AgenticPhase) => p.status !== "confirmed")?.id || phases[0]?.id || null;
+  const resolvedActivePhaseId = activePhaseId && phases.some((p) => p.id === activePhaseId)
+    ? activePhaseId
+    : defaultPhaseId;
+  const activePhase = phases.find((p: AgenticPhase) => p.id === resolvedActivePhaseId) || null;
 
   const handleUpdatePhase = useCallback((phaseId: string, patch: Partial<AgenticPhase>) => {
     updatePhase(phaseId, patch);
   }, [updatePhase]);
 
+  const handleMovePhase = useCallback((index: number, direction: -1 | 1) => {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= phases.length) return;
+    const next = [...phases];
+    const [moved] = next.splice(index, 1);
+    next.splice(targetIndex, 0, moved);
+    updateAgenticField("phases", next);
+    setActivePhaseId(moved.id);
+  }, [phases, updateAgenticField]);
+
+  const handleAddPhase = useCallback(() => {
+    const lastDay = phases.reduce((max, phase) => Math.max(max, phase.dayRange?.[1] || 0), 0);
+    const newPhase: AgenticPhase = {
+      id: `phase-${Date.now()}`,
+      name: `新模块 ${phases.length + 1}`,
+      dayRange: [lastDay + 1, lastDay + 1],
+      status: "pending",
+      actions: ["描述这个模块需要处理的业务内容"],
+      successCriteria: {
+        good: "规则明确后可直接处理",
+        warning: "仍有业务口径需要补充",
+        bad: "不能直接处理，需要进入异常处理或复核",
+      },
+      exitCondition: "该模块规则被业务方确认",
+      requiresApproval: false,
+      questions: [],
+      requiredCapabilities: [],
+      materialFiles: [],
+    };
+    updateAgenticField("phases", [...phases, newPhase]);
+    setActivePhaseId(newPhase.id);
+    toast.success("已新增模块");
+  }, [phases, updateAgenticField]);
+
+  const handleDeletePhase = useCallback((phaseId: string) => {
+    if (phases.length <= 1) {
+      toast.error("至少需要保留 1 个模块");
+      return;
+    }
+    const phase = phases.find((item) => item.id === phaseId);
+    if (!window.confirm(`确认删除「${phase?.name || "该模块"}」吗？模块里的内容和问题也会一起删除。`)) return;
+    const next = phases.filter((item) => item.id !== phaseId);
+    updateAgenticField("phases", next);
+    if (resolvedActivePhaseId === phaseId) {
+      setActivePhaseId(next[Math.max(0, phases.findIndex((item) => item.id === phaseId) - 1)]?.id || next[0]?.id || null);
+    }
+    toast.success("已删除模块");
+  }, [phases, resolvedActivePhaseId, updateAgenticField]);
+
+  const setQuestionDecision = useCallback((questionId: string, decision: QuestionDecision) => {
+    setQuestionDecisions((prev) => ({ ...prev, [questionId]: decision }));
+  }, []);
+
+  const handleApplyQuestions = useCallback(() => {
+    let applied = 0;
+    visibleSupplementQuestions.forEach((item) => {
+      const decision = questionDecisions[item.question.id];
+      if (!decision) return;
+      if (decision.status === "skipped") {
+        answerPhaseQuestion(item.phaseId, item.question.id, AGENTIC_NOT_RELEVANT_ANSWER);
+        applied += 1;
+      } else if (decision.value.trim()) {
+        answerPhaseQuestion(item.phaseId, item.question.id, decision.value.trim());
+        applied += 1;
+      }
+    });
+    setQuestionDecisions({});
+    toast.success(applied > 0 ? `已应用 ${applied} 个补充项` : "没有可应用的补充项");
+  }, [answerPhaseQuestion, questionDecisions, visibleSupplementQuestions]);
+
+  const handleSaveDraft = useCallback(() => {
+    toast.success("已暂存为草稿（后续会接入个人主页草稿列表）");
+  }, []);
+
+  if (!config) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-zinc-400 text-sm">
+        等待 AI 生成运行方案...
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-zinc-50/50">
       {/* Goal Banner */}
-      <div className="px-4 py-3 bg-white border-b border-zinc-200">
-        <div className="flex items-center gap-2 mb-1">
+      <div className="border-b border-zinc-200 bg-white px-6 py-4">
+        <div className="mb-2 flex items-center gap-2">
           <Target className="w-4 h-4 text-violet-500" />
           <h2 className="text-sm font-bold text-zinc-900">
             <EditableText value={config.goal} onSave={(v) => updateAgenticField("goal", v)} />
           </h2>
+          <div className="ml-auto flex items-center gap-2">
+            <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={handleSaveDraft}>
+              <Save className="h-3.5 w-3.5" /> 保存草稿
+            </Button>
+            <Button
+              size="sm"
+              className="h-8 bg-blue-600 text-xs hover:bg-blue-700"
+              onClick={handleApplyQuestions}
+              disabled={Object.keys(questionDecisions).length === 0}
+            >
+              应用补充到方案
+            </Button>
+          </div>
         </div>
-        <div className="flex items-center gap-3 text-[11px] text-zinc-500">
+        <div className="flex flex-wrap items-center gap-3 text-[11px] text-zinc-500">
           <span className="flex items-center gap-1">
-            <Clock className="w-3 h-3" /> {config.totalDays} 天
+            <Clock className="w-3 h-3" /> {durationLabel}
           </span>
           <span className="flex items-center gap-1">
-            <BarChart3 className="w-3 h-3" /> {phases.length} 个阶段
+            <BarChart3 className="w-3 h-3" /> {phases.length} 个工作模块
           </span>
           <span className="flex items-center gap-1">
-            <CheckCircle2 className="w-3 h-3" /> {phases.filter((p: AgenticPhase) => p.status === "confirmed").length}/{phases.length} 已确认
+            <MessageSquare className="w-3 h-3" /> {pendingQuestionCount} 个待补充问题
           </span>
-          {config.estimatedDuration && (
-            <span className="flex items-center gap-1">
-              <TrendingUp className="w-3 h-3" /> {config.estimatedDuration}
-            </span>
-          )}
         </div>
         {config.globalSuccessCriteria && (
           <div className="mt-1.5 text-[11px] text-zinc-500">
@@ -503,40 +758,74 @@ export default function AgenticCanvas() {
 
       {/* Phase Timeline */}
       <div className="bg-white border-b border-zinc-200">
-        <PhaseTimeline
-          phases={phases}
-          activePhaseId={activePhaseId}
-          onSelect={setActivePhaseId}
-        />
+        <div className="flex items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <PhaseTimeline
+              phases={phases}
+              activePhaseId={resolvedActivePhaseId}
+              decisions={questionDecisions}
+              onSelect={setActivePhaseId}
+            />
+          </div>
+          <div className="shrink-0 pr-6">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5 text-xs"
+              onClick={() => setModuleManagerOpen((open) => !open)}
+            >
+              {moduleManagerOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+              管理模块
+            </Button>
+          </div>
+        </div>
+        {moduleManagerOpen && (
+          <ModuleManagerPanel
+            phases={phases}
+            activePhaseId={resolvedActivePhaseId}
+            onSelect={setActivePhaseId}
+            onRename={(id, name) => handleUpdatePhase(id, { name })}
+            onMove={handleMovePhase}
+            onDelete={handleDeletePhase}
+            onAdd={handleAddPhase}
+          />
+        )}
       </div>
 
       {/* Content Area */}
-      <div className="flex-1 overflow-y-auto py-4 space-y-4">
+      <div className="flex-1 overflow-y-auto space-y-5 py-6">
+        <SupplementQuestionsPanel
+          questions={visibleSupplementQuestions}
+          decisions={questionDecisions}
+          onChooseOption={(questionId, value) => setQuestionDecision(questionId, { value, status: "answered" })}
+          onCustomAnswer={(questionId, value) => setQuestionDecision(questionId, { value, status: "answered" })}
+          onSkip={(questionId) => setQuestionDecision(questionId, { value: "不涉及", status: "skipped" })}
+        />
+
         {/* Active Phase Detail */}
         {activePhase && (
           <PhaseDetail
             key={activePhase.id}
             phase={activePhase}
-            onConfirm={() => handleConfirmPhase(activePhase.id)}
-            onAnswerQuestion={(qId, answer) => handleAnswerQuestion(activePhase.id, qId, answer)}
+            phaseIndex={Math.max(0, phases.findIndex((p) => p.id === activePhase.id))}
+            totalPhases={phases.length}
             onUpdatePhase={(patch) => handleUpdatePhase(activePhase.id, patch)}
           />
         )}
 
         {/* Overview sections (shown after all phases confirmed, or always for context) */}
-        <div className="px-4 space-y-3">
+        <div className="space-y-4 px-6">
           {/* Fallbacks */}
           {config.fallbacks && config.fallbacks.length > 0 && (
-            <OverviewSection title="兜底机制" icon={<AlertTriangle className="w-3.5 h-3.5 text-amber-500" />}>
+            <OverviewSection title="异常情况怎么处理" icon={<AlertTriangle className="w-3.5 h-3.5 text-amber-500" />}>
               <div className="space-y-2">
                 {config.fallbacks.map((fb: AgenticFallback, i: number) => (
                   <div key={i} className="flex items-start gap-2 text-xs group/fb">
-                    <Badge variant="outline" className={`text-[10px] h-5 shrink-0 ${
-                      fb.severity === "critical" ? "text-red-600 border-red-200" :
-                      fb.severity === "warning" ? "text-amber-600 border-amber-200" :
-                      "text-blue-600 border-blue-200"
-                    }`}>
-                      {fb.severity}
+                    <Badge
+                      variant="outline"
+                      className={`text-[10px] h-5 shrink-0 ${FALLBACK_SEVERITY_STYLE[fb.severity]?.className || FALLBACK_SEVERITY_STYLE.info.className}`}
+                    >
+                      {FALLBACK_SEVERITY_STYLE[fb.severity]?.label || FALLBACK_SEVERITY_STYLE.info.label}
                     </Badge>
                     <div className="flex-1">
                       <span className="font-medium text-zinc-700">
@@ -565,122 +854,97 @@ export default function AgenticCanvas() {
             </OverviewSection>
           )}
 
-          {/* Execution Overview */}
-          {config.executionOverview && (
-            <OverviewSection title="执行概览" icon={<Eye className="w-3.5 h-3.5 text-blue-500" />}>
-              <div className="text-xs text-zinc-600 leading-relaxed">
-                <EditableText value={config.executionOverview} onSave={(v) => updateAgenticField("executionOverview", v)} multiline />
-              </div>
-            </OverviewSection>
-          )}
-
-          {/* Risk Assessment */}
-          {config.riskAssessment && config.riskAssessment.length > 0 && (
-            <OverviewSection title="风险评估" icon={<AlertTriangle className="w-3.5 h-3.5 text-red-500" />}>
-              <div className="space-y-2">
-                {config.riskAssessment.map((r: AgenticRiskItem, i: number) => (
-                  <div key={i} className="rounded-lg bg-zinc-50 p-2.5 group/risk">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Badge variant="outline" className={`text-[10px] h-5 ${
-                        r.likelihood === "high" ? "text-red-600 border-red-200" :
-                        r.likelihood === "medium" ? "text-amber-600 border-amber-200" :
-                        "text-green-600 border-green-200"
-                      }`}>
-                        {r.likelihood}
-                      </Badge>
-                      <span className="text-xs font-medium text-zinc-700 flex-1">
-                        <EditableText value={r.risk} onSave={(v) => {
-                          const next = [...config.riskAssessment!];
-                          next[i] = { ...r, risk: v };
-                          updateAgenticField("riskAssessment", next);
-                        }} />
-                      </span>
-                      <button
-                        onClick={() => updateAgenticField("riskAssessment", config.riskAssessment!.filter((_, j) => j !== i))}
-                        className="opacity-0 group-hover/risk:opacity-100 text-zinc-300 hover:text-red-400 transition-all shrink-0"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    </div>
-                    <div className="text-[11px] text-zinc-500">
-                      <EditableText value={r.mitigation} onSave={(v) => {
-                        const next = [...config.riskAssessment!];
-                        next[i] = { ...r, mitigation: v };
-                        updateAgenticField("riskAssessment", next);
-                      }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </OverviewSection>
-          )}
-
           {/* Reporting */}
           {config.reporting && (
-            <OverviewSection title="汇报机制" icon={<Bell className="w-3.5 h-3.5 text-violet-500" />}>
-              <div className="space-y-2 text-xs text-zinc-600">
+            <OverviewSection title="复盘与通知要求（可选）" icon={<Bell className="w-3.5 h-3.5 text-violet-500" />}>
+              <div className="space-y-3 text-xs text-zinc-600">
+                <div>
+                  <div className="mb-1 text-[10px] font-medium text-zinc-500">通知渠道</div>
+                  <div className="rounded-lg bg-zinc-50 p-2">
+                    <EditableText
+                      value={config.reporting.channel || "未指定"}
+                      onSave={(v) => updateAgenticField("reporting", { ...config.reporting!, channel: v })}
+                    />
+                  </div>
+                </div>
                 {config.reporting.daily?.enabled && (
                   <div>
-                    <span className="font-medium">日报</span>
+                    <div className="mb-1 text-[10px] font-medium text-zinc-500">日复盘内容</div>
                     {config.reporting.daily.sampleContent && (
-                      <div className="mt-1 text-[11px] text-zinc-500 bg-zinc-50 rounded p-2">{config.reporting.daily.sampleContent}</div>
+                      <div className="rounded-lg bg-zinc-50 p-2 text-[11px] text-zinc-500">
+                        <EditableText
+                          value={config.reporting.daily.sampleContent}
+                          onSave={(v) => updateAgenticField("reporting", {
+                            ...config.reporting!,
+                            daily: { ...config.reporting!.daily, sampleContent: v },
+                          })}
+                          multiline
+                        />
+                      </div>
                     )}
                   </div>
                 )}
                 {config.reporting.weekly?.enabled && (
                   <div>
-                    <span className="font-medium">周报</span>：{config.reporting.weekly.content}
+                    <div className="mb-1 text-[10px] font-medium text-zinc-500">周复盘关注项</div>
+                    <div className="rounded-lg bg-zinc-50 p-2 text-[11px] text-zinc-500">
+                      <EditableText
+                        value={config.reporting.weekly.content}
+                        onSave={(v) => updateAgenticField("reporting", {
+                          ...config.reporting!,
+                          weekly: { ...config.reporting!.weekly, content: v },
+                        })}
+                        multiline
+                      />
+                    </div>
                     {config.reporting.weekly.sampleContent && (
-                      <div className="mt-1 text-[11px] text-zinc-500 bg-zinc-50 rounded p-2 whitespace-pre-line">{config.reporting.weekly.sampleContent}</div>
+                      <>
+                        <div className="mb-1 mt-2 text-[10px] font-medium text-zinc-500">周复盘示例</div>
+                        <div className="rounded-lg bg-zinc-50 p-2 text-[11px] text-zinc-500 whitespace-pre-line">
+                          <EditableText
+                            value={config.reporting.weekly.sampleContent}
+                            onSave={(v) => updateAgenticField("reporting", {
+                              ...config.reporting!,
+                              weekly: { ...config.reporting!.weekly, sampleContent: v },
+                            })}
+                            multiline
+                          />
+                        </div>
+                      </>
                     )}
                   </div>
                 )}
+                {config.reporting.alerts?.triggers?.length ? (
+                  <div>
+                    <div className="mb-1 text-[10px] font-medium text-zinc-500">需要提醒的情况</div>
+                    <EditableList
+                      items={config.reporting.alerts.triggers.map((trigger) => (
+                        typeof trigger === "string" ? trigger : trigger.condition
+                      ))}
+                      onSave={(items) => updateAgenticField("reporting", {
+                        ...config.reporting!,
+                        alerts: { triggers: items.map((condition) => ({ condition, severity: "warning" as const })) },
+                      })}
+                      placeholder="例如：客户满意度连续下降、同类问题重复咨询上升"
+                    />
+                  </div>
+                ) : null}
+                {config.reporting.milestones?.length ? (
+                  <div>
+                    <div className="mb-1 text-[10px] font-medium text-zinc-500">阶段检查点</div>
+                    <EditableList
+                      items={config.reporting.milestones}
+                      onSave={(items) => updateAgenticField("reporting", { ...config.reporting!, milestones: items })}
+                      placeholder="例如：首周完成规则验收"
+                    />
+                  </div>
+                ) : null}
               </div>
             </OverviewSection>
           )}
 
-          {/* Tech Config */}
-          {allConfirmed && (
-            <OverviewSection title="技术配置" icon={<Settings className="w-3.5 h-3.5 text-zinc-500" />}>
-              {config.skills.length > 0 ? (
-                <div className="space-y-2">
-                  <div className="text-xs font-medium text-zinc-700">Skills ({config.skills.length})</div>
-                  {config.skills.map((sk: AgenticSkill) => (
-                    <div key={sk.id} className="rounded-lg bg-zinc-50 p-2 text-xs">
-                      <span className="font-medium text-zinc-700">{sk.name}</span>
-                      <span className="text-zinc-500 ml-1">— {sk.description}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-4">
-                  <p className="text-xs text-zinc-500">提交技术评审后将自动生成技术配置</p>
-                </div>
-              )}
-            </OverviewSection>
-          )}
         </div>
       </div>
-
-      {/* Bottom Action Bar */}
-      {!allConfirmed && (
-        <div className="px-4 py-3 bg-white border-t border-zinc-200 flex items-center justify-between">
-          <div className="text-[11px] text-zinc-500">
-            {phases.filter((p: AgenticPhase) => p.status === "confirmed").length}/{phases.length} 个阶段已确认
-          </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              useFlowAgentStore.getState().confirmAllPhases();
-              toast.success("所有阶段已确认");
-            }}
-            className="text-xs gap-1"
-          >
-            <CheckCircle2 className="w-3.5 h-3.5" /> 全部确认
-          </Button>
-        </div>
-      )}
     </div>
   );
 }

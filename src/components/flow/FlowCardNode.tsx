@@ -38,7 +38,6 @@ function FlowCardNode({ data, id }: NodeProps) {
     annotations,
     allNodeConfidence,
     deferredNodeIds,
-    collectedAnswers,
     techBindings,
   } = useFlowAgentStore();
   const nodeBinding = techBindings.nodesById[id];
@@ -50,13 +49,7 @@ function FlowCardNode({ data, id }: NodeProps) {
   const isSelected = selectedNodeId === id;
   const nodeConf = allNodeConfidence.find((nc) => nc.nodeId === id);
   const isDeferred = deferredNodeIds.includes(id);
-  const nodeQuestions = nodeConf?.questions || [];
-  const unansweredQuestions = nodeQuestions.filter((q) => {
-    const answers = collectedAnswers[id];
-    if (!answers) return true;
-    return !answers.some((a) => a.question === q.question);
-  });
-  const hasAnnotationContent = currentRole === "tech" && unresolvedCount > 0;
+  const hasAnnotationContent = unresolvedCount > 0;
 
 
   const isFirstNode = nodeData.stepIndex === 1;
@@ -66,40 +59,13 @@ function FlowCardNode({ data, id }: NodeProps) {
       className={`
         relative w-[320px] bg-white rounded-xl border-2 shadow-sm cursor-pointer
         transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md
-        ${isSelected ? "border-blue-400 ring-2 ring-blue-100" : "border-zinc-200"}
+        ${isSelected ? "border-blue-400 ring-2 ring-blue-100" : unresolvedCount > 0 ? "border-red-200" : "border-zinc-200"}
       `}
       onClick={() => {
         setSelectedNodeId(id);
       }}
       {...(isFirstNode ? { "data-onboarding": "flow-node" } : {})}
     >
-      {hasAnnotationContent && (
-        <button
-          type="button"
-          className="absolute -top-2 -right-2 z-10 flex items-center justify-center"
-          data-annotation-trigger
-          onClick={(e) => {
-            e.stopPropagation();
-            setShowBubble((v) => !v);
-          }}
-        >
-          <span
-            className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-md transition-transform hover:scale-110 ${
-              currentRole === "tech" && unresolvedCount > 0
-                ? "bg-purple-500"
-                : unansweredQuestions.length > 0
-                  ? "bg-blue-500"
-                  : "bg-orange-400"
-            }`}
-          >
-            {currentRole === "tech" && unresolvedCount > 0
-              ? unresolvedCount
-              : unansweredQuestions.length > 0
-                ? unansweredQuestions.length
-                : "!"}
-          </span>
-        </button>
-      )}
       {showBubble && (
         <div
           className="absolute top-0 left-full ml-4 z-50"
@@ -175,10 +141,14 @@ function FlowCardNode({ data, id }: NodeProps) {
               {nodeConf.confidence === "medium" ? "待确认" : "需补充"}
             </button>
           )}
-          {currentRole === "tech" && unresolvedCount > 0 && (
+          {hasAnnotationContent && (
             <button
               type="button"
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-purple-50 text-purple-600 text-xs hover:bg-purple-100 transition-colors"
+              className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold transition-colors ${
+                currentRole === "tech"
+                  ? "bg-purple-50 text-purple-600 hover:bg-purple-100"
+                  : "bg-red-50 text-red-600 hover:bg-red-100"
+              }`}
               data-annotation-trigger
               onClick={(e) => {
                 e.stopPropagation();
@@ -186,7 +156,7 @@ function FlowCardNode({ data, id }: NodeProps) {
               }}
             >
               <MessageSquare className="w-3 h-3" />
-              {unresolvedCount}
+              技术批注 {unresolvedCount}
             </button>
           )}
           <span className="text-xs text-zinc-400">{nodeData.stepIndex}/{nodeData.totalSteps}</span>

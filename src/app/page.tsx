@@ -8,12 +8,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import {
   Workflow, ArrowRight, Sparkles, BarChart3, PenTool,
-  ShieldCheck, Zap, LayoutDashboard, Bot, GitBranch,
-  CheckCircle2, ArrowUpRight, Code2, ListChecks,
+  ShieldCheck, Zap, GitBranch, Bot,
+  ArrowUpRight, Code2, ListChecks,
   Paperclip, X, FileText, Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
-import { CONSOLE_STATS } from "@/lib/mock-console";
 import { useFlowAgentStore, type ChatAttachment } from "@/lib/store";
 import QuizPromptBuilder from "@/components/ui/QuizPromptBuilder";
 
@@ -53,6 +52,15 @@ const EXAMPLES = [
     steps: 4,
     time: "约 12 分钟",
     prompt: "我们客服部每天处理约500个咨询，其中60%是重复性问题（退换货政策、物流查询、账号问题）。想用Agent来处理这些，先从简单的FAQ开始，逐步扩展到能处理复杂投诉。人工客服目前8人，希望3个月后能减少到4人。Agent回复前需要经过质检，投诉类必须转人工。",
+  },
+  {
+    icon: "🛍️",
+    title: "跨境电商售后处理",
+    description: "多语言退款、退货、物流争议每天涌进来？先把真实处理规则讲清楚。",
+    type: "agentic" as const,
+    steps: 4,
+    time: "约 12 分钟",
+    prompt: "我们做跨境电商，售后团队每天大概处理1200条咨询，主要是退款、退货、物流延误、商品破损和支付失败。现在客服会先看客户使用的语言，再确认客户的问题类型。如果客户没有提供订单号，会让客户补充订单号、邮箱或付款截图；商品破损还需要客户提供照片。拿到信息后，客服会去订单系统、物流系统和支付系统里查状态。我们的规则是：50美元以内、符合售后政策的小额退款，普通客服可以直接处理；超过50美元、高风险退款、疑似欺诈、客户投诉升级、政策外补偿，都需要转给主管或专门客服处理。物流延误类问题会先查承运商状态，如果确实超过预计送达时间，再根据国家和物流渠道判断是否给优惠券、补发或退款。现在多语言沟通、查订单和判断规则占用大量客服时间，我们希望平均解决时间从10分钟降到2分钟，重复咨询率降低20%，但不能降低客户满意度。",
   },
   {
     icon: "👥",
@@ -159,18 +167,17 @@ export default function HomePage() {
         </div>
         <div className="flex items-center gap-2">
           <Link
-            href="/tech"
+            href="/me"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-zinc-900 text-white text-sm font-medium hover:bg-zinc-800 transition-colors shadow-sm"
+          >
+            我的项目
+          </Link>
+          <Link
+            href="/tech/me"
             className="flex items-center gap-2 px-3 py-2 rounded-lg border border-zinc-200 text-zinc-600 text-sm font-medium hover:bg-zinc-50 transition-colors"
           >
             <Code2 className="w-3.5 h-3.5" />
             技术方入口
-          </Link>
-          <Link
-            href="/console"
-            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-zinc-900 text-white text-sm font-medium hover:bg-zinc-800 transition-colors shadow-sm"
-          >
-            <LayoutDashboard className="w-4 h-4" />
-            管控后台
           </Link>
         </div>
       </header>
@@ -339,12 +346,13 @@ export default function HomePage() {
           <p className="text-xs text-zinc-400 mb-3 text-center tracking-wide uppercase">先看看效果长什么样</p>
           <div className="bg-white rounded-2xl border border-zinc-200/80 divide-y divide-zinc-100 overflow-hidden">
             {[
-              { href: "/editor?reviewId=review-3&role=business", icon: "💰", label: "财务报销审批", meta: "5 个步骤 · 含人工审批节点", color: "text-blue-500" },
-              { href: "/editor?reviewId=review-1&role=business", icon: "📱", label: "小红书账号运营", meta: "4 阶段 · 90天 · 含批准点", color: "text-violet-500" },
-              { href: "/editor?reviewId=review-5&role=business", icon: "📋", label: "App 改版项目管理", meta: "4 阶段 · 35天 · 自动跟进催办", color: "text-violet-500" },
-              { href: "/editor?reviewId=review-6&role=business", icon: "🎧", label: "智能客服系统", meta: "4 阶段 · 90天 · 渐进式替代人工", color: "text-violet-500" },
-              { href: "/editor?reviewId=review-7&role=business", icon: "👥", label: "校招批量招聘", meta: "4 阶段 · 45天 · 50人规模", color: "text-violet-500" },
-              { href: "/editor?reviewId=review-8&role=business", icon: "🌐", label: "TikTok 矩阵运营", meta: "4 阶段 · 90天 · 200个账号", color: "text-violet-500" },
+              { href: "/editor?demoId=review-3", icon: "💰", label: "财务报销审批", meta: "5 个步骤 · 含人工审批节点", color: "text-blue-500" },
+              { href: "/editor?demoId=review-1", icon: "📱", label: "小红书账号运营", meta: "4 阶段 · 90天 · 含批准点", color: "text-violet-500" },
+              { href: "/editor?demoId=review-5", icon: "📋", label: "App 改版项目管理", meta: "4 阶段 · 35天 · 自动跟进催办", color: "text-violet-500" },
+              { href: "/editor?demoId=review-6", icon: "🎧", label: "智能客服系统", meta: "4 阶段 · 90天 · 渐进式替代人工", color: "text-violet-500" },
+              { href: "/editor?demoId=review-9", icon: "🛍️", label: "跨境电商售后处理", meta: "4 模块 · 多语言售后 · 异常工单", color: "text-violet-500" },
+              { href: "/editor?demoId=review-7", icon: "👥", label: "校招批量招聘", meta: "4 阶段 · 45天 · 50人规模", color: "text-violet-500" },
+              { href: "/editor?demoId=review-8", icon: "🌐", label: "TikTok 矩阵运营", meta: "4 阶段 · 90天 · 200个账号", color: "text-violet-500" },
             ].map((item) => (
               <Link
                 key={item.href}
@@ -377,32 +385,6 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Console entry card */}
-        <div className="w-full max-w-2xl mt-8">
-          <Link
-            href="/console"
-            className="flex items-center gap-5 p-5 rounded-2xl bg-gradient-to-r from-zinc-900 to-zinc-800 text-white hover:from-zinc-800 hover:to-zinc-700 transition-all shadow-lg shadow-zinc-300/50 group"
-          >
-            <div className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center shrink-0">
-              <LayoutDashboard className="w-6 h-6 text-white/80" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <h3 className="text-sm font-bold">管控后台</h3>
-              <p className="text-xs text-zinc-400 mt-0.5">查看已部署 Agent 的运行状态、任务监控、人工确认</p>
-            </div>
-            <div className="flex items-center gap-3 shrink-0 text-xs text-zinc-400">
-              <div className="flex items-center gap-1">
-                <Bot className="w-3.5 h-3.5" />
-                <span>{CONSOLE_STATS.activeAgents} 个 Agent</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>{CONSOLE_STATS.successRate}% 成功率</span>
-              </div>
-              <ArrowRight className="w-4 h-4 text-white/40 group-hover:translate-x-1 transition-transform" />
-            </div>
-          </Link>
-        </div>
       </main>
     </div>
   );

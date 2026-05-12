@@ -4,10 +4,8 @@ import { useEffect, useRef, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import TopBar from "@/components/layout/TopBar";
-import ChatPanel from "@/components/panels/ChatPanel";
 import AgenticConfigPanel from "@/components/panels/AgenticConfigPanel";
 import AgenticCanvas from "@/components/panels/AgenticCanvas";
-import KnowledgePanel from "@/components/panels/KnowledgePanel";
 import NodeDetailPanel from "@/components/panels/NodeDetailPanel";
 import TechWorkspacePanel from "@/components/panels/TechWorkspacePanel";
 import TechNodePanel from "@/components/panels/TechNodePanel";
@@ -16,19 +14,89 @@ import { MessageSquare, PanelRightClose } from "lucide-react";
 import { useFlowAgentStore } from "@/lib/store";
 import { MOCK_ANNOTATIONS } from "@/lib/mock-data";
 import { getReviewById } from "@/lib/mock-reviews";
+import type { Annotation, FlowNodeData } from "@/lib/types";
+import type { Node } from "@xyflow/react";
 
 const FlowCanvas = dynamic(() => import("@/components/flow/FlowCanvas"), { ssr: false });
+const ChatPanel = dynamic(() => import("@/components/panels/ChatPanel"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-full w-full flex-col border-r border-zinc-200 bg-white">
+      <div className="flex-1 p-4 text-xs text-zinc-400">正在加载流程澄清助手...</div>
+    </div>
+  ),
+});
+const DEMO_NODE_Y_GAP = 360;
+
+function normalizeWorkflowNodeLayout(nodes: unknown[] | undefined): unknown[] | undefined {
+  if (!Array.isArray(nodes)) return nodes;
+  const flowNodes = nodes as Node<FlowNodeData>[];
+  const orderedIds = new Map(
+    [...flowNodes]
+      .sort((a, b) => {
+        const aStep = typeof a.data?.stepIndex === "number" ? a.data.stepIndex : 0;
+        const bStep = typeof b.data?.stepIndex === "number" ? b.data.stepIndex : 0;
+        return aStep - bStep;
+      })
+      .map((node, index) => [node.id, index])
+  );
+
+  return flowNodes.map((node) => {
+    const index = orderedIds.get(node.id) ?? 0;
+    return {
+      ...node,
+      position: {
+        x: node.position?.x ?? 300,
+        y: index * DEMO_NODE_Y_GAP,
+      },
+    };
+  });
+}
+
+function extractAnnotationsFromTimeline(timeline: unknown[]): Annotation[] {
+  return timeline.flatMap((event) => {
+    if (!event || typeof event !== "object") return [];
+    const e = event as {
+      id?: unknown;
+      at?: unknown;
+      actor?: unknown;
+      meta?: { nodeComments?: unknown };
+    };
+    const raw = e.meta?.nodeComments;
+    if (!Array.isArray(raw)) return [];
+    return raw.flatMap((comment, index) => {
+      if (!comment || typeof comment !== "object") return [];
+      const c = comment as { nodeId?: unknown; content?: unknown };
+      if (typeof c.nodeId !== "string" || typeof c.content !== "string") return [];
+      const role = e.actor === "business" ? "business" : "tech";
+      return [{
+        id: `${String(e.id ?? "timeline")}-${c.nodeId}-${index}`,
+        nodeId: c.nodeId,
+        author: {
+          name: role === "tech" ? "技术方" : "业务方",
+          role,
+        },
+        content: c.content,
+        attachments: [],
+        status: "pending",
+        createdAt: typeof e.at === "string" ? e.at : new Date().toISOString(),
+        replies: [],
+      } satisfies Annotation];
+    });
+  });
+}
 
 function EditorContent() {
   const searchParams = useSearchParams();
   const q = searchParams.get("q");
   const roleParam = searchParams.get("role");
   const reviewId = searchParams.get("reviewId");
+  const demoId = searchParams.get("demoId");
   const timestamp = searchParams.get("t");
   const {
-    project, showKnowledgePanel,
+    project,
     selectedNodeId, taskType,
-    currentRole, setCurrentRole, setViewMode,
+    currentRole,
   } = useFlowAgentStore();
   const initDoneRef = useRef(false);
   const reviewLoadedRef = useRef(false);
@@ -37,47 +105,46 @@ function EditorContent() {
     if (reviewLoadedRef.current) return;
     reviewLoadedRef.current = true;
 
-    if (reviewId) {
-      const review = getReviewById(reviewId);
-      if (!review) {
-        useFlowAgentStore.getState().resetAll();
-        return;
-      }
+    if (demoId && !reviewId) {
+      const demo = getReviewById(demoId);
+      const store = useFlowAgentStore.getState();
+      store.resetAll();
+      store.setIsReviewMode(false);
+      store.setCurrentReviewId(null);
+      store.setCurrentRole("business");
+      store.setViewMode("business");
 
-      const statusMap = { pending: "tech_reviewing" as const, reviewed: "tech_reviewing" as const, confirmed: "confirmed" as const };
-      const resolvedRole = roleParam === "tech" ? "tech" as const : "business" as const;
-      const resolvedStatus = statusMap[review.status];
-
-      useFlowAgentStore.getState().resetAll();
+      if (!demo) return;
 
       const patch: Record<string, unknown> = {
-        isReviewMode: true,
-        currentRole: resolvedRole,
-        viewMode: resolvedRole,
-        originalPrompt: review.prompt,
-        taskType: review.type,
+        originalPrompt: demo.prompt,
+        taskType: demo.type,
         project: {
           ...useFlowAgentStore.getState().project,
-          name: review.projectName,
-          status: resolvedStatus,
+          name: demo.projectName,
+          status: "business_editing",
         },
-        chatMessages: review.chatMessages,
+        chatMessages: demo.chatMessages,
+        annotations: [],
       };
 
-      if (review.type === "workflow" && review.nodes && review.edges) {
-        patch.nodes = review.nodes;
-        patch.edges = review.edges;
+      if (demo.type === "workflow" && demo.nodes && demo.edges) {
+        patch.nodes = normalizeWorkflowNodeLayout(demo.nodes);
+        patch.edges = demo.edges;
         patch.chatPhase = "ready";
-      } else if (review.type === "agentic" && review.agenticConfig) {
-        patch.agenticConfig = review.agenticConfig;
+      } else if (demo.type === "agentic" && demo.agenticConfig) {
+        patch.agenticConfig = demo.agenticConfig;
         patch.chatPhase = "agentic_ready";
       }
 
       useFlowAgentStore.setState(patch);
+      return;
+    }
 
-    } else {
+    if (!reviewId) {
       const store = useFlowAgentStore.getState();
       store.setIsReviewMode(false);
+      store.setCurrentReviewId(null);
       if (roleParam === "tech") {
         store.setCurrentRole("tech");
         store.setViewMode("tech");
@@ -85,13 +152,110 @@ function EditorContent() {
         store.setCurrentRole("business");
         store.setViewMode("business");
       }
+      return;
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+
+    const resolvedRole = roleParam === "tech" ? "tech" as const : "business" as const;
+
+    const applyReviewData = (
+      payload: {
+        id: string;
+        status: string;
+        prompt: string;
+        type: "workflow" | "agentic";
+        projectName: string;
+        chatMessages: unknown[];
+        nodes?: unknown[];
+        edges?: unknown[];
+        agenticConfig?: unknown;
+        timeline?: unknown[];
+      },
+      source: "mock" | "server"
+    ) => {
+      const statusMap = { pending: "tech_reviewing" as const, reviewed: "tech_reviewing" as const, confirmed: "confirmed" as const };
+      const fallbackStatus =
+        resolvedRole === "tech"
+          ? (payload.status === "confirmed" ? "confirmed" as const : "tech_reviewing" as const)
+          : (payload.status as "draft" | "business_editing" | "ai_generating" | "pending_review" | "tech_reviewing" | "needs_revision" | "confirmed");
+      const resolvedStatus =
+        source === "mock"
+          ? statusMap[payload.status as keyof typeof statusMap] ?? "tech_reviewing"
+          : fallbackStatus;
+
+      useFlowAgentStore.getState().resetAll();
+
+      const patch: Record<string, unknown> = {
+        isReviewMode: true,
+        currentReviewId: payload.id,
+        currentRole: resolvedRole,
+        viewMode: resolvedRole,
+        originalPrompt: payload.prompt,
+        taskType: payload.type,
+        project: {
+          ...useFlowAgentStore.getState().project,
+          name: payload.projectName,
+          status: resolvedStatus,
+        },
+        chatMessages: payload.chatMessages,
+        annotations: extractAnnotationsFromTimeline(payload.timeline ?? []),
+      };
+
+      if (payload.type === "workflow" && payload.nodes && payload.edges) {
+        patch.nodes = normalizeWorkflowNodeLayout(payload.nodes);
+        patch.edges = payload.edges;
+        patch.chatPhase = "ready";
+      } else if (payload.type === "agentic" && payload.agenticConfig) {
+        patch.agenticConfig = payload.agenticConfig;
+        patch.chatPhase = "agentic_ready";
+      }
+
+      useFlowAgentStore.setState(patch);
+    };
+
+    const localReview = getReviewById(reviewId);
+    if (localReview) {
+      applyReviewData(localReview, "mock");
+      return;
+    }
+
+    let cancelled = false;
+    const loadServerReview = async () => {
+      try {
+        const res = await fetch(`/api/submissions/${reviewId}`);
+        const result = await res.json();
+        if (cancelled) return;
+        if (result?.success && result?.item) {
+          applyReviewData(
+            {
+              id: result.item.id,
+              status: result.item.status,
+              prompt: result.item.prompt,
+              type: result.item.taskType,
+              projectName: result.item.projectName,
+              chatMessages: result.item.chatMessages || [],
+              nodes: result.item.nodes,
+              edges: result.item.edges,
+              agenticConfig: result.item.agenticConfig,
+              timeline: result.item.timeline || [],
+            },
+            "server"
+          );
+          return;
+        }
+      } catch {
+        // fallback below
+      }
+      useFlowAgentStore.getState().resetAll();
+    };
+    void loadServerReview();
+    return () => {
+      cancelled = true;
+    };
+  }, [demoId, reviewId, roleParam]);
 
   // Load from ?q= param (AI generation flow)
   useEffect(() => {
-    if (reviewId) return;
+    if (reviewId || demoId) return;
     if (!q || initDoneRef.current) return;
 
     const store = useFlowAgentStore.getState();
@@ -121,6 +285,7 @@ function EditorContent() {
 
     const savedFiles = [...store.initFiles];
     store.resetAll();
+    store.setCurrentReviewId(null);
     if (savedFiles.length > 0) {
       useFlowAgentStore.getState().setInitFiles(savedFiles);
     }
@@ -148,12 +313,12 @@ function EditorContent() {
       s.setInitQuery(q);
     }, 0);
     return () => clearTimeout(timerId);
-  }, [q, roleParam, reviewId]);
+  }, [demoId, q, roleParam, reviewId, timestamp]);
 
   // When tech role and flow/config is ready via AI, auto-set to tech_reviewing
   const techStatusRef = useRef(false);
   useEffect(() => {
-    if (techStatusRef.current || reviewId) return;
+    if (techStatusRef.current || reviewId || demoId) return;
     if (roleParam !== "tech") return;
     const store = useFlowAgentStore.getState();
     const hasContent = store.nodes.length > 0 || store.agenticConfig !== null;
@@ -204,12 +369,20 @@ function EditorContent() {
 
   // 新手引导：方案生成完成后触发（仅首次、非 review 模式）
   const isFlowReady = chatPhase === "ready" || chatPhase === "agentic_ready";
-  const showOnboarding = isFlowReady && !reviewId;
+  const showOnboarding = isFlowReady && !reviewId && !demoId;
   const [onboardingDone, setOnboardingDone] = useState(false);
+  const [topBarBackHrefOverride, setTopBarBackHrefOverride] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    const timerId = window.setTimeout(() => {
+      setTopBarBackHrefOverride(demoId && !reviewId ? "/" : undefined);
+    }, 0);
+    return () => window.clearTimeout(timerId);
+  }, [demoId, reviewId]);
 
   return (
     <div className="h-screen flex flex-col bg-zinc-50">
-      <TopBar />
+      <TopBar backHrefOverride={topBarBackHrefOverride} />
       <div className="flex-1 flex overflow-hidden relative">
         {/* Mobile chat toggle */}
         <button
@@ -310,7 +483,7 @@ function EditorContent() {
                   </span>
                 </div>
               )}
-              <p className="text-xs text-zinc-400 text-center pt-2">{isEnriching ? "正在补全每个节点的操作清单与关键字段" : "通常需要 10-20 秒"}</p>
+              <p className="text-xs text-zinc-400 text-center pt-2">{isEnriching ? "正在补全每个节点的操作清单与校对规则" : "通常需要 10-20 秒"}</p>
             </div>
           </div>
         ) : currentRole === "tech" ? (
@@ -360,7 +533,6 @@ function EditorContent() {
             {selectedNodeId && <NodeDetailPanel />}
           </div>
         )}
-        {showKnowledgePanel && <KnowledgePanel />}
       </div>
       <OnboardingGuide
         visible={showOnboarding && !onboardingDone}
@@ -372,7 +544,7 @@ function EditorContent() {
 
 function EditorPageInner() {
   const searchParams = useSearchParams();
-  const editorKey = `${searchParams.get("q") || ""}-${searchParams.get("reviewId") || ""}-${searchParams.get("role") || ""}-${searchParams.get("t") || ""}`;
+  const editorKey = `${searchParams.get("q") || ""}-${searchParams.get("reviewId") || ""}-${searchParams.get("demoId") || ""}-${searchParams.get("role") || ""}-${searchParams.get("t") || ""}`;
   return <EditorContent key={editorKey} />;
 }
 
