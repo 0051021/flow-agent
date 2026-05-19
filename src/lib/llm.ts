@@ -403,7 +403,7 @@ async function callViaCursorSDK(
     : "";
 
   const jsonRule = options.expectJson !== false
-    ? "\n\n【输出规则】不要创建或修改任何文件。最终回复必须只包含一个合法 JSON 对象，直接以 { 开头，不要用 markdown 代码块包裹。"
+    ? "\n\n【输出规则】不要创建或修改任何文件。最终回复必须只包含一个合法 JSON 对象，直接以 { 开头，以 } 结尾。不要写任何解释、前言、总结或 markdown 代码块。"
     : "";
 
   const fullPrompt = [
@@ -593,7 +593,7 @@ export async function* streamViaCursorSDK(
     : "";
 
   const jsonRule = options.expectJson !== false
-    ? "\n\n【输出规则】不要创建或修改任何文件。最终回复必须只包含一个合法 JSON 对象，直接以 { 开头，不要用 markdown 代码块包裹。"
+    ? "\n\n【输出规则】不要创建或修改任何文件。最终回复必须只包含一个合法 JSON 对象，直接以 { 开头，以 } 结尾。不要写任何解释、前言、总结或 markdown 代码块。"
     : "";
 
   const fullPrompt = [

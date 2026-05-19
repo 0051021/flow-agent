@@ -47,6 +47,27 @@ const ROLE_CONFIG: Record<UserRole, { label: string; icon: React.ComponentType<{
   },
 };
 
+type SchemeReviewStatus = "pass" | "warning" | "block";
+
+type SchemeReviewItem = {
+  label: string;
+  status: SchemeReviewStatus;
+  note: string;
+};
+
+type SchemeReviewSuggestion = {
+  title: string;
+  detail: string;
+};
+
+type SchemeReviewResult = {
+  level: "ready" | "needs_attention" | "not_ready";
+  title: string;
+  summary: string;
+  items: SchemeReviewItem[];
+  suggestions: SchemeReviewSuggestion[];
+};
+
 function sanitizeAgenticConfigForReview(config: AgenticTaskConfig): AgenticTaskConfig {
   return {
     ...config,
@@ -93,6 +114,184 @@ function computeDiff(
   return diffs;
 }
 
+function hasMeaningfulText(value: unknown): boolean {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function hasMeaningfulList(value: unknown): boolean {
+  return Array.isArray(value) && value.some((item) => {
+    if (typeof item === "string") return item.trim().length > 0;
+    return Boolean(item);
+  });
+}
+
+function nodeHasRuleOrOperation(data: FlowNodeData): boolean {
+  return hasMeaningfulList(data.operationSteps)
+    || hasMeaningfulList(data.executionRules)
+    || hasMeaningfulText(data.checkRulesText)
+    || hasMeaningfulText(data.doneCriteria)
+    || hasMeaningfulList(data.agenticSpec?.aiActions)
+    || hasMeaningfulText(data.agenticSpec?.riskBoundaries);
+}
+
+function buildSchemeReview(params: {
+  taskType: "workflow" | "agentic";
+  nodes: Node<FlowNodeData>[];
+  agenticConfig: AgenticTaskConfig | null;
+  unansweredCount: number;
+  deferredCount: number;
+}): SchemeReviewResult {
+  const { taskType, nodes, agenticConfig, unansweredCount, deferredCount } = params;
+  const items: SchemeReviewItem[] = [];
+  const suggestions: SchemeReviewSuggestion[] = [];
+
+  if (taskType === "agentic" && agenticConfig) {
+    const phases = agenticConfig.phases || [];
+    const phasesMissingAction = phases.filter((phase) => !hasMeaningfulList(phase.actions));
+    const phasesMissingExit = phases.filter((phase) => !hasMeaningfulText(phase.exitCondition));
+
+    items.push({
+      label: "任务目标",
+      status: hasMeaningfulText(agenticConfig.goal) ? "pass" : "block",
+      note: hasMeaningfulText(agenticConfig.goal) ? "已说明要达成的业务目标。" : "还缺少一句清楚的任务目标。",
+    });
+    items.push({
+      label: "阶段拆解",
+      status: phases.length >= 2 ? "pass" : phases.length > 0 ? "warning" : "block",
+      note: phases.length > 0 ? `已拆成 ${phases.length} 个阶段。` : "还没有形成可讨论的阶段。",
+    });
+    items.push({
+      label: "每阶段动作",
+      status: phasesMissingAction.length === 0 ? "pass" : "warning",
+      note: phasesMissingAction.length === 0 ? "各阶段已有动作说明。" : `${phasesMissingAction.length} 个阶段还缺少具体动作。`,
+    });
+    items.push({
+      label: "完成条件",
+      status: phasesMissingExit.length === 0 ? "pass" : "warning",
+      note: phasesMissingExit.length === 0 ? "各阶段已有退出或完成条件。" : `${phasesMissingExit.length} 个阶段还缺少完成条件。`,
+    });
+
+    if (phasesMissingAction.length > 0) {
+      suggestions.push({
+        title: "补充阶段动作",
+        detail: `建议先补充：${phasesMissingAction.slice(0, 3).map((phase) => phase.name).join("、")}。`,
+      });
+    }
+    if (phasesMissingExit.length > 0) {
+      suggestions.push({
+        title: "补充完成条件",
+        detail: "说明每个阶段做到什么程度算完成，后续技术方才好定义停止条件和验收口径。",
+      });
+    }
+  } else {
+    const flowNodes = nodes.map((node) => node.data as unknown as FlowNodeData);
+    const nodesMissingDescription = flowNodes.filter((node) => !hasMeaningfulText(node.description));
+    const nodesMissingInputs = flowNodes.filter((node) => !hasMeaningfulList(node.inputs));
+    const nodesMissingOutputs = flowNodes.filter((node) => !hasMeaningfulList(node.outputs));
+    const nodesMissingRules = flowNodes.filter((node) => !nodeHasRuleOrOperation(node));
+    const confirmationNodes = flowNodes.filter((node) => node.executionMode !== "ai_auto" || node.workUnitKind === "human_gate");
+
+    items.push({
+      label: "流程骨架",
+      status: flowNodes.length >= 3 ? "pass" : flowNodes.length > 0 ? "warning" : "block",
+      note: flowNodes.length > 0 ? `当前共有 ${flowNodes.length} 个节点。` : "还没有形成流程节点。",
+    });
+    items.push({
+      label: "节点说明",
+      status: nodesMissingDescription.length === 0 ? "pass" : "warning",
+      note: nodesMissingDescription.length === 0 ? "每个节点都有说明。" : `${nodesMissingDescription.length} 个节点还缺少说明。`,
+    });
+    items.push({
+      label: "资料与产出",
+      status: nodesMissingInputs.length === 0 && nodesMissingOutputs.length === 0 ? "pass" : "warning",
+      note: nodesMissingInputs.length === 0 && nodesMissingOutputs.length === 0
+        ? "输入资料和输出结果基本清楚。"
+        : `${nodesMissingInputs.length} 个节点缺输入，${nodesMissingOutputs.length} 个节点缺输出。`,
+    });
+    items.push({
+      label: "判断规则/操作说明",
+      status: nodesMissingRules.length === 0 ? "pass" : "warning",
+      note: nodesMissingRules.length === 0 ? "关键操作或判断口径已有记录。" : `${nodesMissingRules.length} 个节点还缺少操作清单或判断规则。`,
+    });
+    items.push({
+      label: "人工确认边界",
+      status: confirmationNodes.length > 0 ? "pass" : "warning",
+      note: confirmationNodes.length > 0 ? `已有 ${confirmationNodes.length} 个节点保留人工确认。` : "还没有标出哪些地方必须由人确认。",
+    });
+
+    if (nodesMissingInputs.length > 0 || nodesMissingOutputs.length > 0) {
+      suggestions.push({
+        title: "先补齐资料与产出",
+        detail: `重点看：${[...new Set([...nodesMissingInputs, ...nodesMissingOutputs].map((node) => node.label))].slice(0, 4).join("、")}。`,
+      });
+    }
+    if (nodesMissingRules.length > 0) {
+      suggestions.push({
+        title: "补充操作或判断口径",
+        detail: `建议补充：${nodesMissingRules.slice(0, 4).map((node) => node.label).join("、")}。固定操作写 SOP，策略判断写看什么信息、怎么判断、什么情况升级。`,
+      });
+    }
+    if (confirmationNodes.length === 0) {
+      suggestions.push({
+        title: "标出人工确认点",
+        detail: "至少说明哪些节点需要业务人员确认、审批或兜底处理，避免技术方案误判为全自动。",
+      });
+    }
+  }
+
+  items.push({
+    label: "待确认问题",
+    status: unansweredCount === 0 && deferredCount === 0 ? "pass" : "warning",
+    note: unansweredCount === 0 && deferredCount === 0
+      ? "当前没有未答追问。"
+      : `${unansweredCount} 个追问未答，${deferredCount} 个节点使用了默认建议。`,
+  });
+
+  if (unansweredCount > 0 || deferredCount > 0) {
+    suggestions.push({
+      title: "处理待确认问题",
+      detail: "提交技术评审前，建议先回答追问或明确哪些内容可以暂按默认建议处理。",
+    });
+  }
+
+  const blockCount = items.filter((item) => item.status === "block").length;
+  const warningCount = items.filter((item) => item.status === "warning").length;
+  if (suggestions.length === 0) {
+    suggestions.push({
+      title: "可以进入下一步",
+      detail: "当前方案已经具备提交讨论的基础，可以继续确认方案或导出给相关同事看。",
+    });
+  }
+
+  if (blockCount > 0) {
+    return {
+      level: "not_ready",
+      title: "暂不建议提交",
+      summary: "当前还缺少生成方案的基础信息，建议先补齐关键描述。",
+      items,
+      suggestions,
+    };
+  }
+
+  if (warningCount > 0) {
+    return {
+      level: "needs_attention",
+      title: "可继续，但建议补充",
+      summary: "方案已经有骨架，但部分节点还缺资料、规则或确认边界。",
+      items,
+      suggestions,
+    };
+  }
+
+  return {
+    level: "ready",
+    title: "基本可提交",
+    summary: "方案结构、输入输出和规则信息较完整，可以进入确认或技术评审。",
+    items,
+    suggestions,
+  };
+}
+
 export default function TopBar({ backHrefOverride }: { backHrefOverride?: string }) {
   const {
     project, currentRole,
@@ -106,6 +305,7 @@ export default function TopBar({ backHrefOverride }: { backHrefOverride?: string
   const [showUnansweredReminder, setShowUnansweredReminder] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showTechProgress, setShowTechProgress] = useState(false);
+  const [showSchemeReview, setShowSchemeReview] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -133,12 +333,12 @@ export default function TopBar({ backHrefOverride }: { backHrefOverride?: string
     const timerId = window.setTimeout(() => {
       const params = new URLSearchParams(window.location.search);
       const isDemoMode = params.has("demoId") && !params.has("reviewId");
-      setHydratedBackHref(backHrefOverride ?? (isDemoMode ? "/" : isTech ? "/tech/me" : currentReviewId ? "/me" : "/"));
+      setHydratedBackHref(backHrefOverride ?? (isDemoMode ? "/" : isTech ? "/tech" : currentReviewId ? "/me" : "/"));
     }, 0);
     return () => window.clearTimeout(timerId);
   }, [backHrefOverride, currentReviewId, isTech]);
 
-  const backHref = hydratedBackHref ?? (isTech ? "/tech/me" : "/me");
+  const backHref = hydratedBackHref ?? (isTech ? "/tech" : "/me");
 
   const patchServerSubmission = useCallback(async (submissionId: string, body: Record<string, unknown>) => {
     try {
@@ -568,6 +768,13 @@ export default function TopBar({ backHrefOverride }: { backHrefOverride?: string
     const answers = collectedAnswers[nc.nodeId] || [];
     return nc.questions.some((q) => !answers.some((a) => a.question === q.question && (a.answer || "").trim() !== ""));
   }).length;
+  const schemeReview = buildSchemeReview({
+    taskType: taskType as "workflow" | "agentic",
+    nodes: nodes as Node<FlowNodeData>[],
+    agenticConfig,
+    unansweredCount,
+    deferredCount: deferredNodeIds.length,
+  });
 
   const diffs = showConfirmModal
     ? computeDiff(initialSnapshot?.nodes as Node<FlowNodeData>[] | undefined, nodes as Node<FlowNodeData>[])
@@ -708,6 +915,21 @@ export default function TopBar({ backHrefOverride }: { backHrefOverride?: string
   const headerBorder = isTech ? "border-slate-700" : "border-zinc-200";
   const titleColor = isTech ? "text-white" : "text-zinc-900";
   const subtitleColor = isTech ? "text-slate-400" : "text-zinc-600";
+  const schemeReviewTone = {
+    ready: "border-green-200 bg-green-50 text-green-700",
+    needs_attention: "border-amber-200 bg-amber-50 text-amber-700",
+    not_ready: "border-red-200 bg-red-50 text-red-700",
+  }[schemeReview.level];
+  const schemeReviewDotClass: Record<SchemeReviewStatus, string> = {
+    pass: "bg-green-500",
+    warning: "bg-amber-500",
+    block: "bg-red-500",
+  };
+  const schemeReviewStatusLabel: Record<SchemeReviewStatus, string> = {
+    pass: "已具备",
+    warning: "建议补充",
+    block: "缺关键项",
+  };
 
   return (
     <header className={`h-14 border-b ${headerBorder} ${headerBg} flex items-center justify-between px-4 shrink-0 transition-colors duration-300`}>
@@ -739,7 +961,7 @@ export default function TopBar({ backHrefOverride }: { backHrefOverride?: string
           <RoleIcon className={`w-3.5 h-3.5 ${roleConfig.color}`} />
           <span className={`text-xs font-semibold ${roleConfig.color}`}>{roleConfig.label}</span>
           <Link
-            href={isTech ? "/" : "/tech/me"}
+            href={isTech ? "/" : "/tech"}
             className={`ml-1 flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded transition-colors ${
               isTech
                 ? "text-slate-400 hover:text-slate-200 hover:bg-slate-700"
@@ -764,6 +986,17 @@ export default function TopBar({ backHrefOverride }: { backHrefOverride?: string
         <div className={`w-px h-6 ${isTech ? "bg-slate-700" : "bg-zinc-200"} mx-1`} />
 
         <NotificationBell isTech={isTech} />
+
+        {currentRole === "business" && hasContent && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 text-xs border-blue-200 text-blue-700 hover:bg-blue-50"
+            onClick={() => setShowSchemeReview(true)}
+          >
+            <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> 方案 Review
+          </Button>
+        )}
 
         {/* Export */}
         {hasContent && (
@@ -828,6 +1061,76 @@ export default function TopBar({ backHrefOverride }: { backHrefOverride?: string
           </Badge>
         )}
       </div>
+
+      {/* Scheme review */}
+      {showSchemeReview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-[560px] max-h-[82vh] overflow-hidden rounded-xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4">
+              <div>
+                <h3 className="text-sm font-semibold text-zinc-900">方案 Review</h3>
+                <p className="mt-1 text-xs text-zinc-500">提交前检查这份业务方案是否说清楚了。</p>
+              </div>
+              <button onClick={() => setShowSchemeReview(false)} className="text-zinc-400 hover:text-zinc-600">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="max-h-[62vh] space-y-4 overflow-y-auto px-5 py-4">
+              <div className={`rounded-xl border px-4 py-3 ${schemeReviewTone}`}>
+                <p className="text-sm font-semibold">{schemeReview.title}</p>
+                <p className="mt-1 text-xs leading-5">{schemeReview.summary}</p>
+              </div>
+
+              <div>
+                <p className="mb-2 text-xs font-semibold text-zinc-800">检查项</p>
+                <div className="space-y-2">
+                  {schemeReview.items.map((item) => (
+                    <div key={item.label} className="rounded-lg border border-zinc-100 bg-zinc-50 px-3 py-2.5">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          <span className={`h-2 w-2 rounded-full ${schemeReviewDotClass[item.status]}`} />
+                          <span className="text-xs font-medium text-zinc-900">{item.label}</span>
+                        </div>
+                        <span className="shrink-0 text-[11px] text-zinc-500">{schemeReviewStatusLabel[item.status]}</span>
+                      </div>
+                      <p className="mt-1.5 text-xs leading-5 text-zinc-600">{item.note}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-2 text-xs font-semibold text-zinc-800">建议下一步</p>
+                <div className="space-y-2">
+                  {schemeReview.suggestions.map((suggestion) => (
+                    <div key={suggestion.title} className="rounded-lg border border-blue-100 bg-blue-50/70 px-3 py-2.5">
+                      <p className="text-xs font-medium text-blue-900">{suggestion.title}</p>
+                      <p className="mt-1 text-xs leading-5 text-blue-700">{suggestion.detail}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-2 border-t border-zinc-100 px-5 py-4">
+              <Button variant="outline" size="sm" className="flex-1 h-9 text-xs" onClick={() => setShowSchemeReview(false)}>
+                继续完善
+              </Button>
+              <Button
+                size="sm"
+                className="flex-1 h-9 text-xs bg-green-600 hover:bg-green-700"
+                onClick={() => {
+                  setShowSchemeReview(false);
+                  openConfirmFlow();
+                }}
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> 去确认方案
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Unanswered reminder */}
       {showUnansweredReminder && (
@@ -945,7 +1248,7 @@ export default function TopBar({ backHrefOverride }: { backHrefOverride?: string
           onStayOnPage={() => setShowTechProgress(false)}
           onGoToList={() => {
             setShowTechProgress(false);
-            window.location.href = isTech ? "/tech/me" : "/me";
+            window.location.href = isTech ? "/tech" : "/me";
           }}
         />
       )}

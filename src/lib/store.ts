@@ -105,6 +105,7 @@ interface FlowAgentState {
   nodeLabelMap: Record<string, string>;
   initQuery: string | null;
   initFiles: ChatAttachment[];
+  jobMaterials: ChatAttachment[];
 
   taskType: TaskType;
   agenticConfig: AgenticTaskConfig | null;
@@ -175,6 +176,8 @@ interface FlowAgentState {
   setNodeLabelMap: (map: Record<string, string>) => void;
   setInitQuery: (query: string | null) => void;
   setInitFiles: (files: ChatAttachment[]) => void;
+  setJobMaterials: (files: ChatAttachment[]) => void;
+  addJobMaterials: (files: ChatAttachment[]) => void;
 
   setTaskType: (type: TaskType) => void;
   setAgenticConfig: (config: AgenticTaskConfig | null) => void;
@@ -280,6 +283,7 @@ const initialState = {
   nodeLabelMap: {} as Record<string, string>,
   initQuery: null as string | null,
   initFiles: [] as ChatAttachment[],
+  jobMaterials: [] as ChatAttachment[],
   taskType: "workflow" as TaskType,
   agenticConfig: null as AgenticTaskConfig | null,
   agenticConfirmItems: [] as AgenticConfirmItem[],
@@ -423,6 +427,13 @@ export const useFlowAgentStore = create<FlowAgentState>()(
       setNodeLabelMap: (map) => set({ nodeLabelMap: map }),
       setInitQuery: (query) => set({ initQuery: query }),
       setInitFiles: (files) => set({ initFiles: files }),
+      setJobMaterials: (files) => set({ jobMaterials: files }),
+      addJobMaterials: (files) =>
+        set((state) => {
+          const byPath = new Map(state.jobMaterials.map((file) => [file.path, file]));
+          for (const file of files) byPath.set(file.path, file);
+          return { jobMaterials: Array.from(byPath.values()) };
+        }),
 
       setTaskType: (type) => set({ taskType: type }),
       setAgenticConfig: (config) => set({ agenticConfig: config }),
@@ -821,6 +832,7 @@ export const useFlowAgentStore = create<FlowAgentState>()(
         pendingNodes: state.pendingNodes,
         currentNodeIdx: state.currentNodeIdx,
         nodeLabelMap: state.nodeLabelMap,
+        jobMaterials: state.jobMaterials,
         taskType: state.taskType,
         agenticConfig: state.agenticConfig,
         allNodeConfidence: state.allNodeConfidence,

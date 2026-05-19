@@ -19,12 +19,16 @@
 9. 执行分层
 10. Validator、审批与审计规则如何分发
 11. 运行时上下文调整
-12. 中断恢复与重试
-13. 审计、证据链与失败归因
-14. 示例一：Workflow 类型 Job
-15. 示例二：Agentic 类型 Job
-16. 发布前检查清单
-17. 总结
+12. Agent Planning：Agent 意图识别与执行规划
+13. on_fail：校验失败后的处理策略
+14. 状态机
+15. Hard Gates：生产硬约束
+16. 中断恢复与重试
+17. 审计、证据链与失败归因
+18. 示例一：Workflow 类型 Job
+19. 示例二：Agentic 类型 Job
+20. 发布前检查清单
+21. 总结
 
 ---
 
@@ -254,8 +258,13 @@ Execution Result：
 | 当前业务下幂等键怎么组成 | FlowAgent Schema | 技术方 |
 | 当前业务下哪些字段必须有证据 | FlowAgent Schema | 业务方 + 技术方 |
 | 当前业务下什么情况必须人工审核 | FlowAgent Schema | 业务方 + 技术方 |
-| Validator / ApprovalPolicy / AuditPolicy 定义 | 资源平台 | 技术方 / 管理员 |
-| 当前 Task 使用哪些 Validator / 审批 / 审计策略 | FlowAgent Schema | 技术方 |
+| Validator 绑定、执行阶段、失败策略 | JobSpec / Task `control_bindings.validators` | 技术方 |
+| 复杂且可复用的 Validator 实现 | 资源平台，后续资源化 | 技术方 / 管理员 |
+| 审批触发条件 | ReviewPolicy 或 Task 审批字段 | 业务方 + 技术方 |
+| 审计记录范围 | JobSpec / RuntimeProfile / 平台默认配置 | 技术方 / 管理员 |
+| 数据质量、版本、鲜度要求 | ContextSource / ContextPolicy | 数据负责人 + 技术方 |
+| 写系统保护策略 | Tool 能力声明 + Task `effect/write_policy` | 技术方 |
+| 中断恢复与重试策略 | RuntimeProfile + Task `retry_resume_policy` | 技术方 |
 | 运行时哪些字段允许被用户或 AI 调整 | JobSpec Release | 技术方 / 业务方 |
 | 运行时调整请求和审批记录 | Runtime Context / Audit | 平台 |
 | 编译后的可执行配置 | JobSpec Release | 编译器 |
@@ -278,6 +287,28 @@ JobSpec Release 回答：
 Runtime / Control Pack 回答：
 
 > 这次 Task Run 给谁看什么、执行时如何控制。
+
+### 4.3 生产控制字段的归属原则
+
+不要因为某个控制能力重要，就立刻新增一个顶层资源类型。第一阶段更推荐“扩展现有资源字段 + JobSpec / Task 引用”，等复用和治理需求真实出现后再资源化。
+
+| 控制能力 | 第一阶段放在哪里 | 什么时候再抽成顶层资源 |
+|---|---|---|
+| Validator | Task 的 `control_bindings.validators` | 多个 Job 复用同一校验器，且需要独立版本、发布、审批 |
+| ApprovalPolicy | 先扩展 `ReviewPolicy` 或 Task 审批字段 | 审批规则跨多个 Job / 高风险动作复用，且由专门团队维护 |
+| AuditPolicy | JobSpec、RuntimeProfile 或平台默认审计配置 | 不同业务线有独立审计标准、留存周期、发布流程 |
+| DataProduct | ContextSource / ContextPolicy 的质量、版本、鲜度字段 | 数据资产由数据团队独立维护，并被多个 Job 消费 |
+| WritePolicy | Tool 的能力声明 + Task `effect/write_policy` 字段 | 同一写入策略跨多个 Tool / Job 复用，且需要单独审批 |
+| RetryResumePolicy | RuntimeProfile 默认策略 + Task `retry_resume_policy` 覆盖 | 多个 Runtime / Job 共用同一恢复策略，且需要灰度和版本管理 |
+
+判断口诀：
+
+```text
+局部配置，放 Task。
+能力属性，放 Tool / Skill / Runtime / Context。
+业务审核，优先放 ReviewPolicy。
+跨 Job 复用、有独立生命周期、需要单独发布，才抽成资源。
+```
 
 ---
 
@@ -316,7 +347,7 @@ meta:
   id: ap-three-way-match
   name: 应付发票三单匹配与 ERP 入账
   version: 1.0.0
-  task_type: workflow
+  job_type: workflow
   owner:
     business: finance-ap-team
     tech: automation-platform-team
@@ -386,18 +417,47 @@ nodes:
   - id: extract-invoice-fields
     identity: {}
     task_type: agentic
+    agent_task_mode: extract_with_evidence
+    agent_execution: {}
     data_contract: {}
     business_intent: []
     technical_binding: {}
     effect: {}
     risk: {}
     evidence_policy: {}
-    write_policy: {}
+    control_bindings: {}
+    write_policy: {}          # 仅 write_system / external_commit 必填
     retry_resume_policy: {}
     human_gate: {}
     agentic_controls: {}
+    data_dependency: {}
     quality_hint: {}
-    error_strategy: {}
+    edges: []
+```
+
+`job_type` 描述整个 Job 的形态；`task_type` 描述节点由哪类执行器处理；`agent_task_mode` 只对 `agentic` Task 生效，并会被编译进 Runtime Pack。
+
+推荐枚举：
+
+```yaml
+job_type:
+  - workflow
+  - agentic
+  - hybrid
+
+task_type:
+  - deterministic
+  - integration
+  - agentic
+  - human_review
+  - manual_action
+
+agent_task_mode:
+  - extract_with_evidence
+  - review_and_recommend
+  - reason_and_plan
+  - draft_only
+  - execute_fixed_instruction
 ```
 
 ### 5.7 identity
@@ -710,40 +770,63 @@ review_policy:
   require_reason_for_change: true
 ```
 
-### 6.5 DataProduct 注册
+### 6.5 数据资产质量字段
 
 ```yaml
-data_product:
-  code: supplier-master-data
+context_source:
+  code: supplier-master-data-source
   owner: master-data-team
   source_system: erp
-  schema_version: 2.1.0
-  primary_key:
-    - supplier_id
-  freshness_sla_days: 365
-  quality_rules:
-    - field: review_status
-      rule: equals
-      value: approved
+  data_contract:
+    schema_version: 2.1.0
+    primary_key:
+      - supplier_id
+    freshness_sla_hours: 24
+    quality_rules:
+      - field: review_status
+        rule: equals
+        value: approved
+    missing_policy:
+      strategy: block
 ```
 
-### 6.6 Validator 注册
+这里不要求第一阶段单独新增 `DataProduct` 注册表。更轻的做法是先把数据质量、版本、鲜度、缺失处理、责任人放进 `ContextSource` / `ContextPolicy`。只有当这些数据资产被多个 Job 复用、由数据团队独立维护、需要单独发布和治理时，才考虑抽成顶层 `DataProduct`。
 
-Validator 是平台裁判资源，不是 Agent 自己执行的检查。
+### 6.6 Validator 配置
+
+Validator 是平台裁判能力。它可以由平台、Worker、外部系统或人执行，但调度、采信、失败处理和审计必须归平台控制面。
 
 常见 Validator 有三类：
 
 1. 平台内置 Validator，例如 `not_empty`、`regex`、`enum`、`json_schema`。
-2. Skill / Tool 注册时附带的推荐 Validator。
-3. 技术方为企业业务单独注册的自定义 Validator。
+2. Tool / Skill / RuntimeProfile 声明的能力型校验，例如 `supports_dry_run`、`supports_idempotency_key`、`output_schema`。
+3. JobSpec / Task 中绑定的业务校验，例如三单匹配、重复发票、写后确认。
 
-自定义脚本型 Validator：
+第一阶段不一定需要新增 Validator 注册表。可以先由 JobSpec / Task 的 `control_bindings.validators` 声明校验 code、phase、executor、authority 和 on_fail：
+
+```yaml
+control_bindings:
+  validators:
+    - code: ap-three-way-match-validator
+      phase: post_task
+      executor: platform
+      authority: authoritative
+      input_mapping:
+        invoice: tasks.invoice-understanding.result
+        reference_data: context.ap_reference_data
+      on_fail:
+        strategy: route_to_review
+```
+
+当某个 Validator 需要跨多个 Job 复用、独立版本、独立发布和审批时，再提升为资源平台中的 Validator：
 
 ```yaml
 validator:
   code: ap-three-way-match-validator
   version: 1.0.0
   type: script
+  default_executor: platform
+  default_authority: authoritative
   runtime: node20
   entrypoint: validate.js
   artifact_digest: sha256:validator-ap-match-100
@@ -762,20 +845,22 @@ validator:
   visibility: platform_only
 ```
 
-HTTP 型 Validator：
+HTTP 型 Validator 也一样，只有在它具备独立生命周期时才建议资源化：
 
 ```yaml
 validator:
   code: erp-ap-dry-run-validator
   version: 1.0.0
   type: http
+  default_executor: external_system
+  default_authority: authoritative
   endpoint: internal://erp-ap/dry-run
   auth:
     secret_ref: validator-service-secret
   visibility: platform_only
 ```
 
-Validator 注册在资源平台。FlowAgent 当前节点只引用它：
+无论 Validator 是否资源化，FlowAgent 当前节点都只表达“这个 Task 在哪个阶段需要什么裁判，以及失败后怎么办”：
 
 ```yaml
 control_bindings:
@@ -783,36 +868,54 @@ control_bindings:
     - code: ap-three-way-match-validator
       version: 1.0.0
       phase: post_task
-      on_fail: block
+      executor: platform
+      authority: authoritative
+      on_fail:
+        strategy: block
 ```
 
-### 6.7 ApprovalPolicy 注册
+### 6.7 审批策略字段
 
-ReviewPolicy 更偏“人如何审核一个 Task”。ApprovalPolicy 更偏“某类变更或提交是否允许生效”。
+第一阶段优先扩展 `ReviewPolicy` 或 Task 审批字段，不建议立刻新增 `ApprovalPolicy` 顶层资源。
+
+`ReviewPolicy` 回答：
+
+> 人审任务由谁审、多久审、超时怎么办。
+
+审批字段回答：
+
+> 什么高风险动作必须在生效前得到批准。
 
 ```yaml
-approval_policy:
-  code: finance-high-value-approval
-  version: 1.0.0
+review_policy:
+  code: finance-high-value-review
   approver_roles:
     - finance_manager
     - internal_control
+  trigger:
+    - total_amount_above: 100000
+    - write_system: sap-ap
   timeout_seconds: 86400
   on_timeout: escalate
 ```
 
-### 6.8 AuditPolicy 注册
+如果同一套审批策略跨多个 Job、多个高风险动作复用，并且需要独立版本和发布流程，再考虑抽成顶层 `ApprovalPolicy`。
+
+### 6.8 审计策略字段
+
+第一阶段优先把审计要求放在 JobSpec、RuntimeProfile 或平台默认配置中：
 
 ```yaml
-audit_policy:
-  code: enterprise-default-audit
-  version: 1.0.0
+audit:
   record_tool_calls: true
-  record_secret_access: true
+  record_secret_access_refs: true
   record_validator_results: true
   record_human_review_diff: true
+  record_before_after_data: true
   retention_days: 365
 ```
+
+如果不同业务线有独立审计标准、独立留存周期、单独审批发布需求，再抽成顶层 `AuditPolicy`。
 
 ---
 
@@ -868,11 +971,14 @@ resource_lock:
 
 JobSpec 中每个 Task 是编译后的执行定义。
 
+`type` 是设计态 `task_type` 的发布态字段，必须由编译器固定，不能让 Runtime 或 Agent 临时推断。
+
 ```yaml
 tasks:
   - code: extract-invoice-fields
     name: 提取发票字段
     type: agentic
+    agent_task_mode: extract_with_evidence
     instruction: "从供应商发票 PDF 中提取结构化字段"
     runtime_profile_code: agentic-extraction-stable
     skill_codes:
@@ -887,6 +993,16 @@ tasks:
     evidence_policy: {}
     retry_resume_policy: {}
     agentic_controls: {}
+    agent_execution:
+      intent_recognition_required: true
+      planning_required: true
+      plan_validation:
+        required: true
+      plan_must_respect:
+        - output_schema
+        - allowed_tools
+        - forbidden_actions
+        - evidence_policy
 ```
 
 ### 7.5 flow
@@ -917,10 +1033,21 @@ execution-envelope:
   task:
     code: extract-invoice-fields
     type: agentic
+    agent_task_mode: extract_with_evidence
     instruction: "从供应商发票 PDF 中提取结构化字段"
     output_schema: {}
     skill_codes:
       - invoice-field-extractor
+    agent_execution:
+      intent_recognition_required: true
+      planning_required: true
+      plan_validation:
+        required: true
+      plan_must_respect:
+        - output_schema
+        - allowed_tools
+        - forbidden_actions
+        - evidence_policy
   policies:
     timeout_seconds: 600
     max_tool_calls: 20
@@ -969,11 +1096,14 @@ control_bindings:
     - code: ap-three-way-match-validator
       version: 1.0.0
       phase: post_task
+      executor: platform
+      authority: authoritative
       input_mapping:
         invoice: tasks.extract-invoice-fields.result.invoice_record
         po_records: tasks.query-po-gr.result.po_records
         gr_records: tasks.query-po-gr.result.gr_records
-      on_fail: block
+      on_fail:
+        strategy: block
   approval_policy:
     code: finance-high-value-approval
     version: 1.0.0
@@ -990,6 +1120,8 @@ control-pack:
       type: script
       artifact_digest: sha256:validator-ap-match-100
       phase: post_task
+      executor: platform
+      authority: authoritative
       input_mapping:
         invoice: tasks.extract-invoice-fields.result.invoice_record
         po_records: tasks.query-po-gr.result.po_records
@@ -997,7 +1129,8 @@ control-pack:
       execution:
         engine: platform-validator-runner
         timeout_seconds: 30
-      on_fail: block
+      on_fail:
+        strategy: block
   approval_policy:
     code: finance-high-value-approval
     version: 1.0.0
@@ -1008,7 +1141,7 @@ control-pack:
 
 关键原则：
 
-> Validator 是平台裁判资源。FlowAgent 只声明当前 Task 用哪个 Validator、在哪个阶段执行、失败后怎么办；Agent 不自己运行 Validator。
+> Validator 是平台裁判资源。FlowAgent 只声明当前 Task 用哪个 Validator、在哪个阶段执行、由谁执行、谁有裁判权、失败后怎么办；Agent 可以做 advisory 自检，但不能绕过平台裁判。
 
 ### 8.3 可见性
 
@@ -1028,6 +1161,213 @@ visibility:
     - secret_resolution
     - failure_classification_rules
 ```
+
+### 8.4 Runtime Pack 的上下文分配
+
+Runtime Pack 不应该作为一个大上下文一次性塞给 Agent。对于 `agentic` Task，task-platform 需要通过 Context Assembler 生成分层上下文视图：
+
+```text
+Runtime Pack + Control Pack
+  ↓
+Context Assembler
+  ↓
+Understanding Context
+Planning Context
+Execution Context
+Feedback Context
+```
+
+这四个上下文视图分别服务于 Agent Runtime 的不同阶段：
+
+| 上下文视图 | 主要消费者 | 作用 | 典型内容 |
+|---|---|---|---|
+| Understanding Context | 理解层 | 把任务翻译成 Agent 可理解的目标、标准、风险 | instruction、output_schema、输入摘要、Skill/Tool 摘要、证据要求摘要、可见控制投影 |
+| Planning Context | 规划层 | 生成可执行计划 | TaskUnderstanding、完整 allowed_skills / allowed_tools、Skill/Tool schema、agentic_controls、plan_must_respect |
+| Execution Context | 执行层 | 调用 Skill / Tool 并产生结果 | ExecutionPlan、原始输入、上游输出、工具句柄、checkpoint、工作记忆 |
+| Feedback Context | 反馈层 / 平台控制面 | 校验、诊断、审计、重试或回环 | TaskUnderstanding、ExecutionPlan、TaskResult、Trace、validators、on_fail、audit_policy |
+
+推荐结构：
+
+```yaml
+context_distribution:
+  understanding_context:
+    include:
+      - task.instruction
+      - task.agent_task_mode
+      - task.output_schema
+      - context.inputs_summary
+      - capabilities.skill_summaries
+      - capabilities.tool_summaries
+      - control_projection.semantic_success_criteria
+      - control_projection.visible_validation_rules
+      - evidence_policy.visible_summary
+      - agentic_controls.forbidden_actions
+      - agentic_controls.ask_human_when
+
+  planning_context:
+    include:
+      - task_understanding
+      - capabilities.allowed_skills
+      - capabilities.allowed_tools
+      - capabilities.skill_input_output_schemas
+      - capabilities.tool_input_schemas
+      - agentic_controls
+      - evidence_policy
+      - human_gate.visible_trigger
+      - task.agent_execution.plan_output_schema
+      - task.agent_execution.plan_must_respect
+
+  execution_context:
+    include:
+      - execution_plan
+      - context.inputs
+      - context.upstream_outputs
+      - resolved_tool_handles
+      - checkpoint_policy
+      - working_memory
+
+  feedback_context:
+    include:
+      - task_understanding
+      - execution_plan
+      - task_result
+      - execution_trace
+      - validators
+      - on_fail
+      - retry_resume_policy
+      - failure_classification_rules
+      - audit_policy
+```
+
+核心原则：
+
+> Agent 看到的是 Context View；平台持有的是 Control Truth。
+
+#### 8.4.1 Control Projection
+
+Control Pack 中的完整裁判规则不应该直接暴露给 Agent。Context Assembler 需要生成 `control_projection`，只把可见、可解释、能帮助 Agent 主动遵守的语义摘要给理解层和规划层。
+
+```yaml
+control_projection:
+  semantic_success_criteria:
+    - "必须返回指定来源的最新三条信息"
+    - "每条分析结论必须引用来源 URL"
+  visible_validation_rules:
+    - "items.length == 3"
+    - "item.url 必须属于 allowed_domains"
+    - "items 必须按 published_at 倒序"
+  visible_write_awareness:
+    - "本 Task 不允许写系统"
+  hidden_controls:
+    - validator_source_code
+    - secret_resolution
+    - internal_risk_scoring_rule
+```
+
+`control_projection` 不是业务人员手写字段，而是由平台根据 Control Pack、visibility 和当前 Task 的风险策略生成。
+
+#### 8.4.2 Effective Scope
+
+一些能力边界可以在 Skill 中注册，一些边界来自当前 Task。Runtime 执行时必须合成为 `effective_scope`。
+
+例如专用网站抓取 Skill：
+
+```yaml
+skill:
+  code: xxx-site-top-news-fetcher
+  version: 1.0.0
+  allowed_domains:
+    - xxx.com
+  supported_sections:
+    - 政策公告
+    - 新闻动态
+  default_sort_rule: published_at_desc
+```
+
+当前 Task 再给出本次运行参数：
+
+```yaml
+context:
+  inputs:
+    section: 政策公告
+    item_limit: 3
+    analysis_dimensions:
+      - 对我司产品准入是否有影响
+      - 是否需要销售或法务跟进
+```
+
+Context Assembler 合成：
+
+```yaml
+effective_scope:
+  source:
+    skill_code: xxx-site-top-news-fetcher
+    allowed_domains:
+      - xxx.com
+    section: 政策公告
+    item_limit: 3
+    sort_rule: published_at_desc
+  provenance:
+    allowed_domains: skill_registry
+    item_limit: task_input
+    sort_rule: skill_default
+```
+
+如果 Skill 是通用网页抓取能力，`allowed_domains`、`entry_url`、`section` 等边界必须由 JobSpec / Runtime Pack 明确提供。
+
+#### 8.4.3 Agentic Task 示例
+
+固定网站取前三条信息并分析，可以作为一个 `agentic` Task，但 Runtime Pack 必须能分配出足够上下文：
+
+```yaml
+task:
+  code: fetch-and-analyze-top3
+  type: agentic
+  agent_task_mode: retrieve_and_analyze
+  instruction: "从指定网站政策公告栏目获取最新前三条信息，并分析对公司产品的影响。"
+  output_schema:
+    required:
+      - items
+      - analysis
+      - evidence
+
+capabilities:
+  allowed_skills:
+    - xxx-site-top-news-fetcher
+    - policy-impact-analyzer
+  allowed_tools:
+    - browser-reader
+
+agentic_controls:
+  max_steps: 8
+  max_tool_calls: 10
+  forbidden_actions:
+    - login
+    - form_submit
+    - write_database
+    - send_external_email
+
+ambiguity_policy:
+  if_source_unreachable: ask_human
+  if_less_than_required_items: ask_human
+  if_sort_order_unclear: ask_human
+  if_date_missing: mark_uncertain_and_review
+
+evidence_policy:
+  required: true
+  required_for_fields:
+    - title
+    - url
+    - published_at
+    - impact_summary
+```
+
+其中：
+
+- `allowed_domains` 可以来自专用 Skill。
+- `item_limit`、`section`、`analysis_dimensions` 通常来自当前 Task。
+- `ambiguity_policy` 可以有 Skill 默认建议，但当前 Job 可以覆盖。
+- `plan_validation_result` 是运行时产物，不能预先写在 Skill 或 Runtime Pack 中。
 
 ---
 
@@ -1057,6 +1397,8 @@ runtime_profile_code
 - HTTP Integration Worker。
 - Script Worker。
 - Human Gateway。
+
+这里的 `task.type` 来自 JobSpec Release，不是 Agent 自己判断出来的意图。Agent 可以在自己的执行边界内做 planning，但不能改变 Task 的执行类型。
 
 ### L3 Worker / Agent：任务执行层
 
@@ -1127,20 +1469,36 @@ Worker 只拿 Runtime Pack。
 
 ### 10.1 分发链路
 
-validators、审批、审计规则不应该由 FlowAgent 直接塞脚本给 Runtime，而是走资源引用和平台物化：
+validators、审批、审计规则不应该由 FlowAgent 直接塞脚本给 Runtime，而是走 JobSpec 字段、现有资源能力声明和平台物化。
+
+第一阶段推荐链路：
+
+```text
+技术方扩展现有资源字段
+  例如 Tool.supports_dry_run、ContextSource.data_contract、RuntimeProfile.retry
+  ↓
+FlowAgent 当前节点声明需要哪些控制能力
+  例如 control_bindings.validators、write_policy、retry_resume_policy、audit
+  ↓
+编译器写入 JobSpec Release
+  ↓
+Job Run 时 task-platform 读取 JobSpec 和资源能力声明
+  ↓
+task-platform 生成 Control Pack
+  ↓
+平台调度 Validator 执行，采信结果，并由 Review / Approval / Audit / RetryResume / Write Guard 完成控制
+```
+
+后续如果某类控制策略出现跨 Job 复用和独立发布需求，可以升级为资源化链路：
 
 ```text
 技术方在资源平台注册 Validator / ApprovalPolicy / AuditPolicy
   ↓
-FlowAgent 当前节点引用这些资源
+FlowAgent 当前节点引用这些资源 code/version
   ↓
-编译器写入 JobSpec Release
+编译器写入 JobSpec Release 并锁定版本
   ↓
-Job Run 时 task-platform 读取 JobSpec
-  ↓
-task-platform 生成 Control Pack
-  ↓
-平台 Validator Engine / Approval Engine / Audit Engine 执行
+TaskRun 时物化 Control Pack
 ```
 
 ### 10.2 Validator 阶段
@@ -1172,14 +1530,21 @@ control_bindings:
     - code: duplicate-invoice-validator
       version: 1.0.0
       phase: pre_commit
-      on_fail: block
+      executor: platform
+      authority: authoritative
+      on_fail:
+        strategy: block
 
     - code: erp-ap-dry-run-validator
       version: 1.0.0
       phase: pre_commit
+      executor: external_system
+      authority: authoritative
       input_mapping:
         posting_payload: task.input.posting_payload
-      on_fail: block
+      on_fail:
+        strategy: human_fix_and_retry
+        max_attempts: 2
 
   approval_policy:
     code: finance-posting-approval
@@ -1195,18 +1560,47 @@ control_bindings:
       retention_days: 1095
 ```
 
-### 10.4 运行时谁执行
+### 10.4 执行位置与裁判权
 
-| 内容 | 执行者 |
-|---|---|
-| Validator | 平台 Validator Engine |
-| ApprovalPolicy | 平台 Approval / Review Engine |
-| AuditPolicy | 平台 Audit Logger |
-| Skill / Tool 任务逻辑 | Worker / Agent |
+Validator 的执行位置可以不同，但调度、采信、失败处理和审计必须由平台控制面掌握。
+
+```yaml
+validator_binding:
+  code: erp-ap-dry-run-validator
+  version: 1.0.0
+  phase: pre_commit
+  executor: external_system
+  authority: authoritative
+  on_fail:
+    strategy: block
+```
+
+| 阶段 | 推荐 executor | 说明 |
+|---|---|---|
+| `pre_task` | platform | Task 开始前检查输入、权限、数据依赖 |
+| `post_task` | platform，必要时 worker 先本地自检 | Task 输出后检查 schema、evidence、业务字段 |
+| `pre_commit` | platform + external_system | 写系统前做 dry-run、重复提交检查、审批检查 |
+| `post_commit` | platform + external_system | 写系统后确认是否真的提交成功 |
+| `post_job` | platform | Job 完成后做全局一致性和审计完整性检查 |
+
+推荐枚举：
+
+```yaml
+executor:
+  - platform
+  - worker
+  - external_system
+  - human
+
+authority:
+  - advisory        # 建议或自检，不是最终裁判
+  - provisional     # 临时采信，平台可复验
+  - authoritative   # 最终裁判
+```
 
 核心原则：
 
-> Worker / Agent 是运动员，Validator / Approval / Audit 是裁判和赛事系统。两者不能混在一起。
+> 执行可以分布式，裁判权必须集中在平台控制面。Worker / Agent 是运动员，Validator / Approval / Audit 是裁判和赛事系统。
 
 ---
 
@@ -1393,9 +1787,277 @@ adjustment_history:
 
 ---
 
-## 12. 中断恢复与重试
+## 12. Agent Planning：Agent 意图识别与执行规划
 
-### 12.1 不能只写 retry: 3
+分发给 Agent 的 Task 可以先做意图识别和执行规划，但这一步不能替代平台已经固化的 `task_type`、`effect`、`allowed_tools` 和 `forbidden_actions`。
+
+平台先决定：
+
+```text
+这个 Task 能不能交给 Agent
+Agent 可以使用哪些工具
+Agent 禁止做哪些动作
+输出必须满足什么 schema
+哪些字段必须有 evidence
+```
+
+Agent 再在这些边界内规划怎么做。
+
+### 12.1 Runtime Pack 中的 Agent Planning 配置
+
+Agent Planning 消费的是 Planning Context，而不是完整 Runtime Pack。Planning Context 由 Context Assembler 从 Runtime Pack、Skill Registry、Tool Registry 和 Control Projection 中组装。
+
+```yaml
+agent_execution:
+  intent_recognition_required: true
+  planning_required: true
+  plan_output_schema:
+    required:
+      - task_intent
+      - planned_steps
+      - needed_tools
+      - evidence_plan
+      - risk_flags
+      - selected_skills
+      - selected_tools
+      - source_selection_strategy
+  plan_validation:
+    required: true
+    on_fail:
+      strategy: revise_plan
+      max_attempts: 2
+  plan_must_respect:
+    - output_schema
+    - allowed_tools
+    - forbidden_actions
+    - evidence_policy
+    - max_steps
+    - max_tool_calls
+```
+
+计划生成后，Runtime 必须记录 `plan_validation_result`：
+
+```yaml
+plan_validation_result:
+  passed: true
+  plan_hash: sha256:plan-001
+  checked_at: "2026-05-13T10:00:00+08:00"
+  violations: []
+```
+
+### 12.2 Agent 计划示例
+
+```json
+{
+  "task_intent": "review_contract_risk",
+  "planned_steps": [
+    "读取合同条款索引",
+    "检索相关 playbook 条款",
+    "逐条对比偏离项",
+    "为高风险条款生成建议",
+    "为每条结论附上合同原文和 playbook 引用"
+  ],
+  "needed_tools": [
+    "contract-clause-reader",
+    "legal-playbook-search"
+  ],
+  "selected_skills": [
+    "contract-risk-reviewer",
+    "clause-comparison"
+  ],
+  "selected_tools": [
+    "contract-clause-reader",
+    "legal-playbook-search"
+  ],
+  "evidence_plan": {
+    "risk_level": "contract_clause_span + playbook_policy_id",
+    "recommendation": "playbook_policy_id"
+  },
+  "source_selection_strategy": {
+    "allowed_sources": [
+      "contract_document",
+      "legal_playbook"
+    ],
+    "fallback_when_missing": "ask_human"
+  },
+  "risk_flags": [
+    "playbook 未覆盖时请求人工审核"
+  ],
+  "will_not_do": [
+    "不会发送客户邮件",
+    "不会接受合同条款",
+    "不会更新 CRM"
+  ]
+}
+```
+
+### 12.3 Plan 校验
+
+平台或 Agent Runtime 需要检查：
+
+- 是否使用未授权工具。
+- 是否包含 forbidden action。
+- 是否遗漏 evidence 要求。
+- 是否超过 max steps。
+- 是否试图写系统或外部提交。
+
+核心原则：
+
+> Agent 可以先读战术、判断打法、写出计划；但比赛规则、禁区和裁判权由平台提前确定。
+
+---
+
+## 13. on_fail：校验失败后的处理策略
+
+`on_fail` 处理的是“系统正常运行，但校验、dry run、审批或业务规则明确失败”的情况。
+
+它不同于 Runtime 意外中断。Runtime 意外中断由 `retry_resume_policy`、checkpoint 和 commit confirmation 处理。
+
+### 13.1 推荐策略
+
+```yaml
+on_fail:
+  strategy:
+    - block
+    - abort_job
+    - human_review
+    - human_fix_and_retry
+    - retry_same_task
+    - fallback_path
+    - skip_with_warning
+    - return_partial
+    - manual_override
+    - create_ticket
+    - escalate
+```
+
+| 策略 | 含义 | 适合场景 |
+|---|---|---|
+| `block` | 阻断当前 Task | 高风险校验失败 |
+| `abort_job` | 终止整个 Job | 核心业务规则失败 |
+| `human_review` | 进入人工审核 | 需要人判断 |
+| `human_fix_and_retry` | 人修正后重试当前阶段 | 字段可修正 |
+| `retry_same_task` | 自动重试当前 Task | 结构化输出不稳定 |
+| `fallback_path` | 走备用路径 | 自动流程失败转人工 |
+| `skip_with_warning` | 跳过并告警 | 非关键节点 |
+| `return_partial` | 返回部分结果 | 分析报告类任务 |
+| `manual_override` | 高权限人工强制放行 | 少数例外处理 |
+| `create_ticket` | 创建工单 | IT / 运维问题 |
+| `escalate` | 升级 | 超时或多次失败 |
+
+### 13.2 dry run 失败示例
+
+```yaml
+dry_run:
+  validator_code: erp-ap-dry-run-validator
+  on_fail:
+    strategy: human_fix_and_retry
+    max_attempts: 2
+    review_policy_code: finance-dry-run-fix-review
+    fallback_after_max_attempts: abort_job
+```
+
+核心区别：
+
+```text
+on_fail:
+  裁判已经判定不通过，接下来怎么处理。
+
+retry_resume_policy:
+  运行过程意外中断，先确认状态，再决定是否恢复或重试。
+```
+
+---
+
+## 14. 状态机
+
+生产协议必须有状态机，否则无法稳定处理等待、审批、中断、恢复和复盘。
+
+### 14.1 Job 状态
+
+```text
+draft
+  -> reviewed
+  -> approved
+  -> published
+  -> running
+  -> succeeded
+  -> failed
+  -> paused
+  -> cancelled
+  -> rolled_back
+```
+
+### 14.2 Task 状态
+
+```text
+pending
+  -> pre_task_checking
+  -> ready
+  -> running
+  -> post_task_validating
+  -> waiting_human
+  -> pre_commit_checking
+  -> committing
+  -> post_commit_confirming
+  -> succeeded
+  -> failed
+  -> blocked
+  -> skipped
+```
+
+### 14.3 Runtime Context Update 状态
+
+```text
+requested
+  -> validating
+  -> waiting_approval
+  -> approved
+  -> applied
+  -> rejected
+  -> expired
+```
+
+状态机回答：
+
+```text
+任务卡在哪里？
+人审是否完成？
+写系统前还是写系统后中断？
+运行时调整有没有生效？
+失败后是否还能恢复？
+```
+
+---
+
+## 15. Hard Gates：生产硬约束
+
+Hard Gates 是不可绕过的发布和执行规则。
+
+如果这些规则不满足，系统必须阻断发布或执行。
+
+```text
+release.status != published -> block
+skill/tool/runtime/validator version missing -> block
+effect = write_system/external_commit 且 write_policy missing -> block
+risk >= high 且 human_gate missing -> block
+agentic task 且 agentic_controls missing -> block
+Agent plan contains forbidden_action -> revise_plan or block
+dry_run_required = true 但 Tool 不支持 dry run 且无补偿措施 -> block
+write_system/external_commit 缺少 idempotency_key -> block
+commit status unknown -> human_review
+runtime update approval_required = true 但未审批 -> block apply
+```
+
+Hard Gates 的目标不是保证 AI 永远正确，而是保证：
+
+> AI 可以犯错，但不能越权；系统可以失败，但不能静默失败。
+
+---
+
+## 16. 中断恢复与重试
+
+### 16.1 不能只写 retry: 3
 
 Runtime 中断后，必须判断：
 
@@ -1406,7 +2068,7 @@ Runtime 中断后，必须判断：
 - 是否有 checkpoint？
 - 失败是不是临时故障？
 
-### 12.2 重试决策依赖字段
+### 16.2 重试决策依赖字段
 
 ```text
 effect.type
@@ -1417,7 +2079,7 @@ commit_confirmation
 failure_classification
 ```
 
-### 12.3 处理流程
+### 16.3 处理流程
 
 ```text
 Runtime 中断
@@ -1436,7 +2098,7 @@ write_system / external_commit:
   状态不明 -> human_review
 ```
 
-### 12.4 可重试与不可重试
+### 16.4 可重试与不可重试
 
 可重试：
 
@@ -1461,9 +2123,9 @@ do_not_retry_on:
 
 ---
 
-## 13. 审计、证据链与失败归因
+## 17. 审计、证据链与失败归因
 
-### 13.1 Execution Result
+### 17.1 Execution Result
 
 ```json
 {
@@ -1479,7 +2141,7 @@ do_not_retry_on:
 }
 ```
 
-### 13.2 evidence
+### 17.2 evidence
 
 ```json
 {
@@ -1492,7 +2154,7 @@ do_not_retry_on:
 }
 ```
 
-### 13.3 failure
+### 17.3 failure
 
 ```yaml
 failure:
@@ -1522,9 +2184,9 @@ policy_violation
 
 ---
 
-## 14. 示例一：Workflow 类型 Job
+## 18. 示例一：Workflow 类型 Job
 
-### 14.1 场景
+### 18.1 场景
 
 应付发票三单匹配与 ERP 入账。
 
@@ -1537,13 +2199,13 @@ policy_violation
   -> ERP 入账
 ```
 
-### 14.2 FlowAgent Schema 片段
+### 18.2 FlowAgent Schema 片段
 
 ```yaml
 meta:
   id: ap-three-way-match
   name: 应付发票三单匹配与 ERP 入账
-  task_type: workflow
+  job_type: workflow
 
 nodes:
   - id: receive-invoice
@@ -1556,6 +2218,7 @@ nodes:
 
   - id: extract-invoice-fields
     task_type: agentic
+    agent_task_mode: extract_with_evidence
     identity:
       label: 提取发票字段
       description: "从发票 PDF 提取供应商、发票号、金额、税额和行项目"
@@ -1575,6 +2238,16 @@ nodes:
         - supplier_id
         - total_amount
         - tax_amount
+    agent_execution:
+      intent_recognition_required: true
+      planning_required: true
+      plan_must_respect:
+        - output_schema
+        - allowed_tools
+        - forbidden_actions
+        - evidence_policy
+      plan_validation:
+        required: true
     agentic_controls:
       max_steps: 6
       max_tool_calls: 12
@@ -1619,7 +2292,7 @@ nodes:
         - exception_review_required: true
 ```
 
-### 14.3 JobSpec Release 片段
+### 18.3 JobSpec Release 片段
 
 ```yaml
 release:
@@ -1631,6 +2304,7 @@ release:
 tasks:
   - code: extract-invoice-fields
     type: agentic
+    agent_task_mode: extract_with_evidence
     runtime_profile_code: agentic-extraction-stable
     skill_codes:
       - invoice-field-extractor
@@ -1638,6 +2312,16 @@ tasks:
     output_schema: {}
     evidence_policy: {}
     agentic_controls: {}
+    agent_execution:
+      intent_recognition_required: true
+      planning_required: true
+      plan_validation:
+        required: true
+      plan_must_respect:
+        - output_schema
+        - allowed_tools
+        - forbidden_actions
+        - evidence_policy
 
   - code: post-to-erp-ap
     type: integration
@@ -1668,7 +2352,7 @@ flow:
       match_status: pass
 ```
 
-### 14.4 执行重点
+### 18.4 执行重点
 
 - 发票提取可重试，但两次输出不一致要进入人工审核。
 - ERP 入账不能直接重试，必须先用 idempotency key 查询是否已提交。
@@ -1677,9 +2361,9 @@ flow:
 
 ---
 
-## 15. 示例二：Agentic 类型 Job
+## 19. 示例二：Agentic 类型 Job
 
-### 15.1 场景
+### 19.1 场景
 
 合同风险审查与红线建议。
 
@@ -1693,17 +2377,18 @@ flow:
   -> 如需回复客户，草拟回复并审批后外发
 ```
 
-### 15.2 FlowAgent Schema 片段
+### 19.2 FlowAgent Schema 片段
 
 ```yaml
 meta:
   id: contract-risk-review
   name: 合同风险审查与红线建议
-  task_type: agentic
+  job_type: agentic
 
 nodes:
   - id: review-contract-risk
     task_type: agentic
+    agent_task_mode: review_and_recommend
     identity:
       label: 审查合同风险
       description: "对照公司合同 playbook 审查客户合同条款，识别偏离项和风险等级"
@@ -1721,6 +2406,16 @@ nodes:
     risk:
       level: high
       reason: "法律风险判断会影响客户谈判"
+    agent_execution:
+      intent_recognition_required: true
+      planning_required: true
+      plan_must_respect:
+        - allowed_tools
+        - forbidden_actions
+        - evidence_policy
+        - max_steps
+      plan_validation:
+        required: true
     agentic_controls:
       max_steps: 14
       max_tool_calls: 40
@@ -1794,7 +2489,7 @@ nodes:
       block_if_recipient_not_verified: true
 ```
 
-### 15.3 执行重点
+### 19.3 执行重点
 
 - Agent 可以审查和建议，但不能接受合同、更新 CRM 阶段、外发邮件。
 - 每个风险结论必须引用合同原文和 playbook。
@@ -1804,36 +2499,49 @@ nodes:
 
 ---
 
-## 16. 发布前检查清单
+## 20. 发布前检查清单
 
 发布 JobSpec Release 前，平台必须检查：
 
-### 16.1 资源完整性
+### 20.1 资源完整性
 
+- `meta.job_type` 是否明确为 `workflow`、`agentic` 或 `hybrid`。
+- FlowAgent 中每个 Task 是否明确 `task_type`，JobSpec 中每个 Task 是否明确 `type`，且只能是 `deterministic`、`integration`、`agentic`、`human_review`、`manual_action`。
 - 每个非人工 Task 是否绑定 RuntimeProfile。
 - 每个需要 Skill 的 Task 是否绑定 Skill。
 - 每个 Tool 是否已注册并锁定版本。
 - 每个 Secret 是否已注册。
 - 每个 ReviewPolicy 是否存在。
-- 引用的 Validator / ApprovalPolicy / AuditPolicy 是否存在并锁定版本。
+- Task 中声明的 Validator 是否具备 `phase`、`executor`、`authority` 和 `on_fail`。
+- 如果 Validator / ApprovalPolicy / AuditPolicy 已资源化，引用的 code/version 是否存在并锁定版本。
 
-### 16.2 数据完整性
+### 20.2 数据完整性
 
 - 每个 required input 是否有来源。
 - 每条 edge 的 sourceOutput / targetInput 是否存在。
 - output_schema 是否完整。
-- 外部数据依赖是否有数据产品注册。
+- 外部数据依赖是否在 ContextSource / ContextPolicy 中声明质量、版本、鲜度和缺失处理。
+- 如果 DataProduct 已资源化，引用的数据产品 code/version 是否存在并锁定版本。
 
-### 16.3 风险控制
+### 20.3 风险控制
 
 - `write_system` 是否有 `write_policy`。
 - `external_commit` 是否有审批和收件人/目标校验。
 - 高风险 Task 是否有 `human_gate`。
 - Agentic Task 是否有 `agentic_controls`。
+- Agentic Task 若允许 planning，是否有 `agent_execution`、`plan_validation` 和 `plan_must_respect`。
+- Agentic Task 是否能生成 Understanding / Planning / Execution / Feedback 四个 Context View。
+- Control Pack 是否通过 `control_projection` 暴露给 Agent，而不是完整下发。
+- 检索类或网页类 Agentic Task 是否能生成 `effective_scope`，并记录来源来自 Skill 默认、Task 输入还是平台策略。
+- 检索类或网页类 Agentic Task 是否声明 `ambiguity_policy`。
+- Agent plan 是否被检查过未授权 Tool、forbidden action、缺失 evidence、越权写系统。
+- Agent plan 是否记录 `plan_hash` 和 `plan_validation_result`。
 - 关键字段是否有 `evidence_policy`。
-- 引用的 Validator 是否声明执行阶段和失败处理。
+- 写系统 Tool 是否声明 dry-run、幂等、快照、提交确认等能力；Task 是否声明当前业务下的 `write_policy`。
+- RuntimeProfile 是否声明默认 retry / timeout / checkpoint 能力；Task 是否声明当前业务下的 `retry_resume_policy` 覆盖。
+- 高风险 `manual_override` 是否要求审批人、原因、影响范围和审计留痕。
 
-### 16.4 中断恢复
+### 20.4 中断恢复
 
 - 每个 Task 是否有 retry 策略。
 - 写系统 Task 是否有 idempotency key。
@@ -1841,7 +2549,7 @@ nodes:
 - 是否定义不可重试错误。
 - 会触发提交或预算变化的运行时调整是否有审批策略。
 
-### 16.5 运行时调整
+### 20.5 运行时调整
 
 - `runtime_adjustable` 中声明的字段是否存在于输入、配置或运行上下文。
 - 每个可调整字段是否有范围、枚举或布尔约束。
@@ -1850,7 +2558,7 @@ nodes:
 - 调整是否声明作用范围：Task Run、Job Run 还是 Job Template。
 - 会影响已生成中间结果的调整是否声明重跑或失效策略。
 
-### 16.6 审计复盘
+### 20.6 审计复盘
 
 - 是否开启平台 trace。
 - 是否记录 Tool 调用。
@@ -1860,9 +2568,18 @@ nodes:
 - 是否记录 Validator 执行结果。
 - 是否启用失败归因。
 
+### 20.7 Hard Gates
+
+- 未发布的 Release 不能执行。
+- 资源版本或 digest 缺失不能发布。
+- 写系统或外部提交缺少 idempotency key 不能执行。
+- `dry_run_required = true` 但 Tool 不支持 dry run 且无替代控制时不能执行。
+- commit 状态不明必须进入人工确认，不能静默重试。
+- 需要审批的运行时调整未获批不能生效。
+
 ---
 
-## 17. 总结
+## 21. 总结
 
 FlowAgent 企业级协议的核心不是让 AI 自由执行，而是把企业业务方案变成一个可发布、可控制、可审计、可复盘的自动化系统。
 
@@ -1870,19 +2587,20 @@ FlowAgent 企业级协议的核心不是让 AI 自由执行，而是把企业业
 
 ```text
 资源平台：
-  定义能力本身，包括 Skill / Tool / Runtime / ReviewPolicy / DataProduct / Validator / ApprovalPolicy / AuditPolicy。
+  定义能力本身，包括 Skill / Tool / Runtime / Context / ReviewPolicy 等。
+  生产控制能力优先作为这些资源的扩展字段，例如 Tool 的 dry-run / 幂等能力、Runtime 的 checkpoint / retry 能力、Context 的数据质量字段。
 
 FlowAgent Schema：
-  定义当前业务怎么使用这些能力，以及当前业务下的风险、证据、人审、写入保护要求。
+  定义当前业务怎么使用这些能力，以及当前业务下的风险、证据、人审、校验、写入保护、恢复要求。
 
 JobSpec Release：
-  冻结这次正式发布的执行配置，包括可运行的资源版本、控制策略引用、runtime_adjustable 声明。
+  冻结这次正式发布的执行配置，包括可运行的资源版本、Task 控制字段、必要的控制策略引用、runtime_adjustable 声明。
 
 Runtime Pack：
   给 Worker / Agent 最小必要执行信息。
 
 Control Pack：
-  给平台裁判、审批、审计、写入保护、运行时调整校验和失败归因规则。
+  由 task-platform 根据 JobSpec 和资源能力声明物化，给平台裁判、审批、审计、写入保护、运行时调整校验和失败归因规则。
 
 Execution Result：
   给业务方和技术方结果、证据、审计引用和复盘线索。

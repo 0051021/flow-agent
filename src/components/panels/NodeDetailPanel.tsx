@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import type { FlowNodeData, FlowNodeInput, FlowNodeOutput, NodeExecutionMode, ConfirmStrategy, ConfirmStrategyConfig, ExecutionRule, FileAttachment } from "@/lib/types";
+import type { AgenticNodeSpec, FlowNodeData, FlowNodeInput, FlowNodeOutput, NodeExecutionMode, ConfirmStrategy, ConfirmStrategyConfig, ExecutionRule, FileAttachment } from "@/lib/types";
 import {
   RotateCcw, UserCheck, SkipForward,
   OctagonX, Settings, X, Bot, User as UserIcon,
@@ -35,6 +35,180 @@ function ExampleFileChips({ files, onRemove }: { files: FileAttachment[]; onRemo
       ))}
     </div>
   );
+}
+
+function getWorkUnitCopy(kind: FlowNodeData["workUnitKind"]) {
+  const copies = {
+    workflow_step: {
+      nature: "固定操作",
+      tabLabel: "🧾 操作步骤",
+      stepTitle: "具体操作步骤",
+      addLabel: "添加步骤",
+      emptyHint: "例如：查看客户是否提供订单号 → 要求补充必要材料 → 材料齐全后进入查询",
+      stepPlaceholder: "填写这一步具体动作",
+      rulesTitle: "业务规则",
+      rulesHint: "写清楚这一步要遵守的规则、例外情况或校对要求；也可以上传规则文件。",
+      rulesPlaceholder: "例如：破损类问题必须提供照片；客户未提供订单号时，可用邮箱或付款截图辅助定位。",
+      doneTitle: "完成标准",
+      donePlaceholder: "例如：必要材料已补齐，能支持下一步订单/物流/支付查询。",
+      specTitle: "这一步怎么判断",
+    },
+    agentic_judgment: {
+      nature: "业务判断",
+      tabLabel: "🧭 判断规则",
+      stepTitle: "判断逻辑",
+      addLabel: "添加判断",
+      emptyHint: "例如：先看客户语言和诉求，再判断问题类型；无法理解时转人工澄清。",
+      stepPlaceholder: "填写这一步如何判断",
+      rulesTitle: "判断规则",
+      rulesHint: "写清楚看哪些信息、怎么判断、什么情况下需要升级或转人工。",
+      rulesPlaceholder: "例如：无法识别语义或客户情绪极端时转人工；涉及退款承诺前必须先完成订单和政策判断。",
+      doneTitle: "判断结果标准",
+      donePlaceholder: "例如：已识别语言、问题类型、缺失材料和情绪风险。",
+      specTitle: "这一步怎么判断",
+    },
+    agentic_strategy: {
+      nature: "处理策略",
+      tabLabel: "🧭 处理策略",
+      stepTitle: "处理策略",
+      addLabel: "添加策略",
+      emptyHint: "例如：≤50美元且符合政策可普通处理；超过50美元、高风险或政策外补偿转主管确认。",
+      stepPlaceholder: "填写判断后的处理策略",
+      rulesTitle: "策略规则",
+      rulesHint: "写清楚不同情况对应什么处理方式，以及哪些情况必须确认。",
+      rulesPlaceholder: "例如：物流延误先查承运商状态；超过预计送达时间后，按国家和物流渠道判断优惠券、补发或退款。",
+      doneTitle: "策略输出标准",
+      donePlaceholder: "例如：输出处理建议、推荐理由、风险等级、是否需要主管确认。",
+      specTitle: "这一步怎么判断",
+    },
+    agentic_generation: {
+      nature: "内容生成",
+      tabLabel: "✍️ 生成要求",
+      stepTitle: "生成要求",
+      addLabel: "添加要求",
+      emptyHint: "例如：根据处理方案生成客户回复，涉及金额和政策时使用标准话术。",
+      stepPlaceholder: "填写生成内容的要求",
+      rulesTitle: "表达规则",
+      rulesHint: "写清楚语气、禁用表达、必须包含的信息和需要确认的内容。",
+      rulesPlaceholder: "例如：不得承诺政策外补偿；拒绝售后必须说明依据和下一步渠道。",
+      doneTitle: "内容验收标准",
+      donePlaceholder: "例如：客户回复包含处理结论、原因、下一步动作和预计时效。",
+      specTitle: "这一步怎么生成",
+    },
+    agentic_feedback: {
+      nature: "复盘沉淀",
+      tabLabel: "📊 复盘内容",
+      stepTitle: "复盘记录",
+      addLabel: "添加记录项",
+      emptyHint: "例如：记录客户是否接受、重复咨询原因、规则缺口和需要补充的话术。",
+      stepPlaceholder: "填写要沉淀或复盘的内容",
+      rulesTitle: "复盘规则",
+      rulesHint: "写清楚哪些结果要回写、哪些情况要进入周复盘或规则更新。",
+      rulesPlaceholder: "例如：每日汇总未解决问题和重复咨询原因；高频争议规则进入周复盘。",
+      doneTitle: "沉淀结果标准",
+      donePlaceholder: "例如：产出每日复盘摘要、规则补充建议和高频问题清单。",
+      specTitle: "这一步怎么复盘",
+    },
+    human_gate: {
+      nature: "确认关口",
+      tabLabel: "✅ 确认标准",
+      stepTitle: "确认动作",
+      addLabel: "添加确认项",
+      emptyHint: "例如：主管确认是否同意退款、补偿或转异常工单。",
+      stepPlaceholder: "填写需要确认的事项",
+      rulesTitle: "确认规则",
+      rulesHint: "写清楚谁确认、确认什么、哪些情况必须升级。",
+      rulesPlaceholder: "例如：金额>50美元、疑似欺诈、政策外补偿、客户连续不满必须主管确认。",
+      doneTitle: "确认完成标准",
+      donePlaceholder: "例如：已形成可执行处理结果，并记录确认人、理由和审计信息。",
+      specTitle: "这一步怎么确认",
+    },
+    manual_operation: {
+      nature: "人工操作",
+      tabLabel: "🧾 人工操作",
+      stepTitle: "人工操作步骤",
+      addLabel: "添加操作",
+      emptyHint: "例如：查看领导邮件 → 按 BBN/Part 查找 GSDS → 打开申请大表填写字段。",
+      stepPlaceholder: "填写业务人员实际会做的动作",
+      rulesTitle: "业务规则",
+      rulesHint: "写清楚这一步原人工处理时会遵守的规则、注意事项或例外情况。",
+      rulesPlaceholder: "例如：UN 编号必须来自 GSDS；目的港按邮件描述填写。",
+      doneTitle: "完成标准",
+      donePlaceholder: "例如：申请表关键字段已填写完整，能进入下一步提交。",
+      specTitle: "这一步怎么做",
+    },
+    business_judgment: {
+      nature: "业务判断",
+      tabLabel: "🧭 判断口径",
+      stepTitle: "判断过程",
+      addLabel: "添加判断",
+      emptyHint: "例如：先看客户诉求和材料是否齐全，再判断问题类型和是否需要升级。",
+      stepPlaceholder: "填写业务人员实际如何判断",
+      rulesTitle: "判断规则",
+      rulesHint: "写清楚业务人员会看哪些信息、按什么口径判断、什么情况升级。",
+      rulesPlaceholder: "例如：无法识别语义或客户情绪极端时转主管；涉及退款承诺前必须先完成订单和政策判断。",
+      doneTitle: "判断结果标准",
+      donePlaceholder: "例如：已形成问题类型、缺失材料、风险等级和下一步处理方向。",
+      specTitle: "这一步怎么判断",
+    },
+    document_check: {
+      nature: "文件检查",
+      tabLabel: "🔍 检查规则",
+      stepTitle: "检查动作",
+      addLabel: "添加检查项",
+      emptyHint: "例如：核对证书编号、有效期、品名、目的港是否与申请表一致。",
+      stepPlaceholder: "填写业务人员实际检查的内容",
+      rulesTitle: "检查规则",
+      rulesHint: "写清楚需要对照哪些文件、检查哪些字段、发现错误后怎么处理。",
+      rulesPlaceholder: "例如：证书编号和有效期必须回填到 IMI 申请大表；字段有误需整理错误值和正确值发回海关。",
+      doneTitle: "检查完成标准",
+      donePlaceholder: "例如：证书内容已核对，无误则回填；有误则形成返修说明。",
+      specTitle: "这一步怎么检查",
+    },
+    handoff_wait: {
+      nature: "交接等待",
+      tabLabel: "⏳ 交接等待",
+      stepTitle: "交接/等待动作",
+      addLabel: "添加动作",
+      emptyHint: "例如：把申请资料发送给海关 → 等待海关返回 IMI 证书。",
+      stepPlaceholder: "填写交接或等待动作",
+      rulesTitle: "跟进规则",
+      rulesHint: "写清楚交给谁、等待什么结果、多久后跟进。",
+      rulesPlaceholder: "例如：发出申请资料后通常两周收到 IMI 证书；超过时限需邮件跟进。",
+      doneTitle: "完成标准",
+      donePlaceholder: "例如：已收到对方返回的证书或明确反馈。",
+      specTitle: "这一步怎么交接",
+    },
+    rework_update: {
+      nature: "返修回填",
+      tabLabel: "🔁 返修回填",
+      stepTitle: "返修/回填动作",
+      addLabel: "添加动作",
+      emptyHint: "例如：证书有错时发送错误字段和正确值；无误时回填证书编号和有效期。",
+      stepPlaceholder: "填写返修或回填动作",
+      rulesTitle: "返修规则",
+      rulesHint: "写清楚什么情况下返修、什么情况下回填，以及回填到哪里。",
+      rulesPlaceholder: "例如：证书字段有误时发回海关；无误时把证书编号、有效期填写到 IMI 申请大表。",
+      doneTitle: "完成标准",
+      donePlaceholder: "例如：错误已发回处理，或证书信息已回填归档。",
+      specTitle: "这一步怎么返修/回填",
+    },
+  } satisfies Record<NonNullable<FlowNodeData["workUnitKind"]>, {
+    nature: string;
+    tabLabel: string;
+    stepTitle: string;
+    addLabel: string;
+    emptyHint: string;
+    stepPlaceholder: string;
+    rulesTitle: string;
+    rulesHint: string;
+    rulesPlaceholder: string;
+    doneTitle: string;
+    donePlaceholder: string;
+    specTitle: string;
+  }>;
+
+  return copies[kind || "workflow_step"];
 }
 
 function useFileUpload(onUploaded: (file: FileAttachment) => void) {
@@ -508,6 +682,165 @@ function ExecutionRulesSection({ rules, canEdit, onChange }: {
   );
 }
 
+function StrategyListField({
+  title,
+  hint,
+  values,
+  placeholder,
+  onChange,
+}: {
+  title: string;
+  hint: string;
+  values: string[];
+  placeholder: string;
+  onChange: (values: string[]) => void;
+}) {
+  const safeValues = Array.isArray(values) ? values : [];
+  const updateItem = (idx: number, value: string) => {
+    onChange(safeValues.map((item, itemIdx) => (itemIdx === idx ? value : item)));
+  };
+  const removeItem = (idx: number) => onChange(safeValues.filter((_, itemIdx) => itemIdx !== idx));
+  const addItem = () => onChange([...safeValues, ""]);
+
+  return (
+    <div>
+      <div className="mb-1.5 flex items-start justify-between gap-2">
+        <div>
+          <p className="text-[11px] font-medium text-zinc-600">{title}</p>
+          <p className="mt-0.5 text-[10px] leading-4 text-zinc-400">{hint}</p>
+        </div>
+        <button onClick={addItem} className="flex shrink-0 items-center gap-1 text-[10px] text-blue-600 hover:text-blue-700">
+          <Plus className="h-3 w-3" /> 添加
+        </button>
+      </div>
+      {safeValues.length === 0 ? (
+        <button
+          type="button"
+          onClick={addItem}
+          className="w-full rounded-lg border border-dashed border-zinc-200 bg-zinc-50 px-2.5 py-2 text-left text-[11px] text-zinc-400 hover:border-blue-200 hover:text-blue-500"
+        >
+          {placeholder}
+        </button>
+      ) : (
+        <div className="space-y-1.5">
+          {safeValues.map((item, idx) => (
+            <div key={idx} className="flex items-center gap-2">
+              <span className="w-5 shrink-0 text-[11px] text-zinc-400">{idx + 1}.</span>
+              <Input
+                value={item}
+                onChange={(e) => updateItem(idx, e.target.value)}
+                className="h-8 text-xs"
+                placeholder={placeholder}
+              />
+              <button onClick={() => removeItem(idx)} className="p-1 text-zinc-400 hover:text-red-500">
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StrategyBusinessFields({
+  data,
+  checkRuleFiles,
+  updateAgenticSpec,
+  updateField,
+  addCheckRuleFile,
+  removeCheckRuleFile,
+}: {
+  data: FlowNodeData;
+  checkRuleFiles: FileAttachment[];
+  updateAgenticSpec: (patch: Partial<AgenticNodeSpec>) => void;
+  updateField: (field: string, value: unknown) => void;
+  addCheckRuleFile: (file: FileAttachment) => void;
+  removeCheckRuleFile: (storedName: string) => void;
+}) {
+  const spec = data.agenticSpec || {
+    strategyActionType: data.workUnitKind || "agentic_strategy",
+    decisionSubject: "",
+    focusSignals: [],
+    aiActions: [],
+    recommendationOutputs: [],
+    humanConfirmation: [],
+    riskBoundaries: [],
+  };
+  const boundaryValues = [...(spec.humanConfirmation || []), ...(spec.riskBoundaries || [])];
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-violet-100 bg-violet-50/40 px-3 py-3">
+        <p className="text-[11px] font-semibold text-violet-800">这一步的判断口径</p>
+        <p className="mt-0.5 text-[10px] leading-4 text-violet-500">
+          按你平时做业务判断的方式填写：要决定什么、看什么、怎么判、输出什么、哪些必须人确认。
+        </p>
+      </div>
+
+      <div>
+        <p className="mb-1.5 text-[11px] font-medium text-zinc-600">要决定什么</p>
+        <Textarea
+          value={spec.decisionSubject || ""}
+          onChange={(e) => updateAgenticSpec({ decisionSubject: e.target.value })}
+          className="min-h-[56px] text-xs"
+          placeholder="例如：判断客户应该退款、退货、补发、给优惠券、拒绝说明，还是转主管处理。"
+        />
+      </div>
+
+      <StrategyListField
+        title="判断依据"
+        hint="写业务人员会看的信息、资料、指标或上下文。"
+        values={spec.focusSignals || []}
+        placeholder="例如：退款金额、售后期限、物流延误天数、客户历史投诉"
+        onChange={(values) => updateAgenticSpec({ focusSignals: values })}
+      />
+
+      <div>
+        <div className="mb-1.5">
+          <p className="text-[11px] font-medium text-zinc-600">判断规则</p>
+          <p className="mt-0.5 text-[10px] leading-4 text-zinc-400">
+            用“如果……就……”写清楚怎么判断，什么情况走哪个处理方式。
+          </p>
+        </div>
+        <Textarea
+          value={typeof data.checkRulesText === "string" ? data.checkRulesText : ""}
+          onChange={(e) => updateField("checkRulesText", e.target.value)}
+          className="mb-2 min-h-[84px] text-xs"
+          placeholder="例如：如果金额≤50美元且符合政策，可普通处理；如果超过50美元、疑似欺诈或政策外补偿，必须转主管确认。"
+        />
+        <RuleFileUploader files={checkRuleFiles} onAddFile={addCheckRuleFile} onRemoveFile={removeCheckRuleFile} />
+      </div>
+
+      <StrategyListField
+        title="输出结果"
+        hint="写判断后可能产出的结论、分支或建议。"
+        values={spec.recommendationOutputs || []}
+        placeholder="例如：问题类型、所需补充材料、情绪风险等级、推荐处理方案"
+        onChange={(values) => updateAgenticSpec({ recommendationOutputs: values })}
+      />
+
+      <StrategyListField
+        title="确认与边界"
+        hint="写哪些情况必须人确认，以及这一步不能越过的业务边界。"
+        values={boundaryValues}
+        placeholder="例如：超过50美元转主管；不得承诺政策外补偿；资金动作必须留审计记录"
+        onChange={(values) => updateAgenticSpec({ humanConfirmation: values, riskBoundaries: [] })}
+      />
+
+      <div>
+        <p className="mb-1.5 text-[11px] font-medium text-zinc-600">完成标准</p>
+        <Textarea
+          value={typeof data.doneCriteria === "string" ? data.doneCriteria : ""}
+          onChange={(e) => updateField("doneCriteria", e.target.value)}
+          className="min-h-[64px] text-xs"
+          placeholder="例如：已输出处理建议、推荐理由、风险等级，以及是否需要主管确认。"
+        />
+      </div>
+    </div>
+  );
+}
+
 const PANEL_WIDTH = "min(520px, 42vw)";
 
 export default function NodeDetailPanel() {
@@ -613,12 +946,26 @@ export default function NodeDetailPanel() {
 
   const operationSteps = Array.isArray(data.operationSteps) ? data.operationSteps : [];
   const checkRuleFiles = Array.isArray(data.checkRuleFiles) ? data.checkRuleFiles : [];
+  const workUnitCopy = getWorkUnitCopy(data.workUnitKind);
+  const isStrategyLikeNode = Boolean(data.agenticSpec) && data.workUnitKind !== "workflow_step";
 
   const addOperationStep = () => updateField("operationSteps", [...operationSteps, ""]);
   const updateOperationStep = (idx: number, value: string) =>
     updateField("operationSteps", operationSteps.map((s, i) => (i === idx ? value : s)));
   const removeOperationStep = (idx: number) =>
     updateField("operationSteps", operationSteps.filter((_, i) => i !== idx));
+  const updateAgenticSpec = (patch: Partial<AgenticNodeSpec>) => {
+    const currentSpec = data.agenticSpec || {
+      strategyActionType: data.workUnitKind || "agentic_strategy",
+      decisionSubject: "",
+      focusSignals: [],
+      aiActions: [],
+      recommendationOutputs: [],
+      humanConfirmation: [],
+      riskBoundaries: [],
+    };
+    updateField("agenticSpec", { ...currentSpec, ...patch });
+  };
 
   return (
     <div
@@ -654,7 +1001,7 @@ export default function NodeDetailPanel() {
         <TabsList className="w-full justify-start px-4 h-9 bg-zinc-50 rounded-none border-b border-zinc-100">
           <TabsTrigger value="basic" className="text-xs h-7">{isTech ? "📝 基本信息" : "📝 本步说明"}</TabsTrigger>
           <TabsTrigger value="io" className="text-xs h-7">{isTech ? "📥 输入输出" : "📥 资料与产出"}</TabsTrigger>
-          <TabsTrigger value="error" className="text-xs h-7">{isTech ? "⚠️ 异常处理" : "🧾 操作清单"}</TabsTrigger>
+          <TabsTrigger value="error" className="text-xs h-7">{isTech ? "⚠️ 异常处理" : workUnitCopy.tabLabel}</TabsTrigger>
           {viewMode === "tech" && (
             <TabsTrigger value="tech" className="text-xs h-7">⚙️ 技术配置</TabsTrigger>
           )}
@@ -833,17 +1180,27 @@ export default function NodeDetailPanel() {
               </>
             ) : (
               <>
+                {isStrategyLikeNode ? (
+                  <StrategyBusinessFields
+                    data={data}
+                    checkRuleFiles={checkRuleFiles}
+                    updateAgenticSpec={updateAgenticSpec}
+                    updateField={updateField}
+                    addCheckRuleFile={addCheckRuleFile}
+                    removeCheckRuleFile={removeCheckRuleFile}
+                  />
+                ) : (
                 <div className="space-y-4">
                   <div>
                     <div className="flex items-center justify-between mb-2">
-                      <p className="text-[11px] font-medium text-zinc-600">节点内操作步骤（SOP）</p>
+                      <p className="text-[11px] font-medium text-zinc-600">{workUnitCopy.stepTitle}</p>
                       <button onClick={addOperationStep} className="flex items-center gap-1 text-[10px] text-blue-600 hover:text-blue-700">
-                        <Plus className="w-3 h-3" /> 添加步骤
+                        <Plus className="w-3 h-3" /> {workUnitCopy.addLabel}
                       </button>
                     </div>
                     {operationSteps.length === 0 ? (
                       <p className="text-[11px] text-zinc-400 bg-zinc-50 rounded-lg px-2.5 py-2">
-                        例如：下载 IMI 证书 → 按申请编号定位行 → 对比关键字段
+                        {workUnitCopy.emptyHint}
                       </p>
                     ) : (
                       <div className="space-y-1.5">
@@ -854,7 +1211,7 @@ export default function NodeDetailPanel() {
                               value={step}
                               onChange={(e) => updateOperationStep(idx, e.target.value)}
                               className="h-8 text-xs"
-                              placeholder="填写这一步具体动作"
+                              placeholder={workUnitCopy.stepPlaceholder}
                             />
                             <button onClick={() => removeOperationStep(idx)} className="p-1 text-zinc-400 hover:text-red-500">
                               <Trash2 className="w-3.5 h-3.5" />
@@ -868,29 +1225,30 @@ export default function NodeDetailPanel() {
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <div>
-                        <p className="text-[11px] font-medium text-zinc-600">校对规则</p>
-                        <p className="mt-0.5 text-[10px] text-zinc-400">写清楚字段一致性、校对项和例外规则；也可以上传规则文件。</p>
+                        <p className="text-[11px] font-medium text-zinc-600">{workUnitCopy.rulesTitle}</p>
+                        <p className="mt-0.5 text-[10px] text-zinc-400">{workUnitCopy.rulesHint}</p>
                       </div>
                     </div>
                     <Textarea
                       value={typeof data.checkRulesText === "string" ? data.checkRulesText : ""}
                       onChange={(e) => updateField("checkRulesText", e.target.value)}
                       className="mb-2 min-h-[72px] text-xs"
-                      placeholder="例如：申请编号需与邮件主题一致；UN 编号必须来自 GSDS；运输方式决定写入哪个 IMI List sheet；品名中英文、目的港等字段需要逐项一致。"
+                      placeholder={workUnitCopy.rulesPlaceholder}
                     />
                     <RuleFileUploader files={checkRuleFiles} onAddFile={addCheckRuleFile} onRemoveFile={removeCheckRuleFile} />
                   </div>
 
                   <div>
-                    <p className="text-[11px] font-medium text-zinc-600 mb-2">结果输出标准</p>
+                    <p className="text-[11px] font-medium text-zinc-600 mb-2">{workUnitCopy.doneTitle}</p>
                     <Textarea
                       value={typeof data.doneCriteria === "string" ? data.doneCriteria : ""}
                       onChange={(e) => updateField("doneCriteria", e.target.value)}
                       className="text-xs min-h-[64px]"
-                      placeholder="例如：输出内容必须包含申请编号、证书编号、运输方式和归档位置；关键字段一致且附件齐全。"
+                      placeholder={workUnitCopy.donePlaceholder}
                     />
                   </div>
                 </div>
+                )}
               </>
             )}
           </TabsContent>

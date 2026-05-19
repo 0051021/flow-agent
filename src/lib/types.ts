@@ -6,6 +6,7 @@ export interface FileAttachment {
   size: number;
   type: string;
   ext: string;
+  jobMaterialCategory?: "workflow_plan" | "business_rule_knowhow" | "file_template" | "uncategorized";
 }
 
 // --- Feasibility Gate (v12) ---
@@ -100,6 +101,46 @@ export interface ExecutionRule {
   source: "ai_inferred" | "user_confirmed";
 }
 
+export type WorkUnitKind =
+  | "workflow_step"
+  | "agentic_judgment"
+  | "agentic_strategy"
+  | "agentic_generation"
+  | "agentic_feedback"
+  | "human_gate"
+  | "manual_operation"
+  | "business_judgment"
+  | "document_check"
+  | "handoff_wait"
+  | "rework_update";
+
+export interface AgenticNodeSpec {
+  strategyActionType: string;
+  /** 业务侧：这个策略/判断节点到底要判断或决定什么 */
+  decisionSubject?: string;
+  focusSignals: string[];
+  aiActions: string[];
+  recommendationOutputs: string[];
+  humanConfirmation?: string[];
+  feedbackUpdate?: string[];
+  riskBoundaries?: string[];
+}
+
+export interface JudgmentSpec {
+  /** 业务侧：这一步原本由业务人员判断什么 */
+  decisionSubject?: string;
+  /** 业务人员判断时会看的信息、材料或上下文 */
+  informationUsed?: string[];
+  /** 业务人员实际遵循的判断口径或规则 */
+  judgmentRules?: string[];
+  /** 判断完成后形成的业务结果 */
+  judgmentOutputs?: string[];
+  /** 原人工流程里升级、交接或找主管/专岗处理的条件 */
+  escalationConditions?: string[];
+  /** 业务人员不能越过的边界 */
+  riskBoundaries?: string[];
+}
+
 export interface FlowNodeData {
   [key: string]: unknown;
   label: string;
@@ -112,6 +153,12 @@ export interface FlowNodeData {
   inputs: FlowNodeInput[];
   outputs: FlowNodeOutput[];
   executionRules?: ExecutionRule[];
+  /** 业务侧：节点/工作单元语义，用于区分固定流程步骤和策略判断节点 */
+  workUnitKind?: WorkUnitKind;
+  /** 业务侧：偏 agentic/策略节点的补充字段 */
+  agenticSpec?: AgenticNodeSpec;
+  /** 业务侧：人工业务判断节点的补充字段，用于还原原人工流程 */
+  judgmentSpec?: JudgmentSpec;
   errorHandling: ErrorHandling[];
   techConfig: NodeTechConfig;
   confirmStrategy?: ConfirmStrategyConfig;
@@ -402,7 +449,9 @@ export interface AgenticPhase {
   name: string;
   dayRange: [number, number];
   status: AgenticPhaseStatus;
+  responsibility?: string;
   actions: string[];
+  focusSignals?: string[];
   successCriteria: AgenticPhaseSuccessCriteria;
   exitCondition: string;
   requiresApproval: boolean;
@@ -780,8 +829,7 @@ export type TechWorkspaceBindingTabId =
   | "binding_global"
   | "binding_documents"
   | "binding_externals"
-  | "adaptive"
-  | "job_split";
+  | "adaptive";
 
 /** Maps to task-platform Task.type / executable-schema taskType */
 export type PlatformTaskType = "agentic" | "integration" | "deterministic" | "human_review";

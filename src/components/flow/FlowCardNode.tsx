@@ -12,7 +12,7 @@ import {
   Activity, RefreshCw, UserCheck,
   MessageSquare, Search, FileText, Mail, Database,
   Zap, Eye, Settings, Upload, Download, Users, Globe, Lock, Bell,
-  ScrollText,
+  ScrollText, Sparkles,
 } from "lucide-react";
 
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -20,6 +20,7 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   Activity, RefreshCw, Search, FileText, Mail, Database,
   Zap, Eye, Settings, Upload, Download, Users, Globe, Lock, Bell,
   UserCheck, ScrollText,
+  Sparkles,
 };
 
 const DEFAULT_TECH_CONFIG = {
@@ -50,6 +51,19 @@ function FlowCardNode({ data, id }: NodeProps) {
   const nodeConf = allNodeConfidence.find((nc) => nc.nodeId === id);
   const isDeferred = deferredNodeIds.includes(id);
   const hasAnnotationContent = unresolvedCount > 0;
+  const kindMeta = {
+    workflow_step: { label: "固定流程", className: "border-zinc-200 bg-zinc-50 text-zinc-600" },
+    agentic_judgment: { label: "业务判断", className: "border-blue-200 bg-blue-50 text-blue-700" },
+    agentic_strategy: { label: "处理策略", className: "border-violet-200 bg-violet-50 text-violet-700" },
+    agentic_generation: { label: "内容生成", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+    agentic_feedback: { label: "复盘沉淀", className: "border-amber-200 bg-amber-50 text-amber-700" },
+    human_gate: { label: "确认关口", className: "border-rose-200 bg-rose-50 text-rose-700" },
+    manual_operation: { label: "人工操作", className: "border-zinc-200 bg-zinc-50 text-zinc-600" },
+    business_judgment: { label: "业务判断", className: "border-blue-200 bg-blue-50 text-blue-700" },
+    document_check: { label: "文件检查", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+    handoff_wait: { label: "交接等待", className: "border-amber-200 bg-amber-50 text-amber-700" },
+    rework_update: { label: "返修回填", className: "border-rose-200 bg-rose-50 text-rose-700" },
+  }[nodeData.workUnitKind || "workflow_step"];
 
 
   const isFirstNode = nodeData.stepIndex === 1;
@@ -92,6 +106,9 @@ function FlowCardNode({ data, id }: NodeProps) {
           </div>
           <div>
             <h3 className="text-sm font-semibold text-zinc-900">{nodeData.label}</h3>
+            <span className={`mt-1 inline-flex rounded border px-1.5 py-0.5 text-[10px] leading-none ${kindMeta.className}`}>
+              {kindMeta.label}
+            </span>
           </div>
         </div>
         <div className="flex items-center gap-1.5">
@@ -165,6 +182,44 @@ function FlowCardNode({ data, id }: NodeProps) {
 
       {/* Description */}
       <p className="px-4 text-xs text-zinc-500 leading-relaxed">{nodeData.description}</p>
+
+      {nodeData.agenticSpec && (
+        <div className="mx-4 mt-3 rounded-lg border border-dashed border-violet-100 bg-violet-50/40 px-3 py-2">
+          <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold text-violet-700">
+            <Sparkles className="h-3 w-3" />
+            这一步：{kindMeta.label}
+          </div>
+          {nodeData.agenticSpec.focusSignals.length > 0 && (
+            <p className="line-clamp-2 text-[11px] leading-4 text-zinc-600">
+              关注：{nodeData.agenticSpec.focusSignals.slice(0, 3).join("、")}
+            </p>
+          )}
+          {nodeData.agenticSpec.recommendationOutputs.length > 0 && (
+            <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-zinc-600">
+              输出：{nodeData.agenticSpec.recommendationOutputs.slice(0, 2).join("、")}
+            </p>
+          )}
+        </div>
+      )}
+
+      {nodeData.judgmentSpec && (
+        <div className="mx-4 mt-3 rounded-lg border border-dashed border-blue-100 bg-blue-50/40 px-3 py-2">
+          <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold text-blue-700">
+            <Sparkles className="h-3 w-3" />
+            这一步：{kindMeta.label}
+          </div>
+          {nodeData.judgmentSpec.informationUsed && nodeData.judgmentSpec.informationUsed.length > 0 && (
+            <p className="line-clamp-2 text-[11px] leading-4 text-zinc-600">
+              依据：{nodeData.judgmentSpec.informationUsed.slice(0, 3).join("、")}
+            </p>
+          )}
+          {nodeData.judgmentSpec.judgmentOutputs && nodeData.judgmentSpec.judgmentOutputs.length > 0 && (
+            <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-zinc-600">
+              结果：{nodeData.judgmentSpec.judgmentOutputs.slice(0, 2).join("、")}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Inputs & Outputs - business view */}
       <div className="px-4 mt-3 space-y-2">

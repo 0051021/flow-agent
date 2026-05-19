@@ -4,14 +4,12 @@ import { useMemo, useState, type ComponentType } from "react";
 import {
   Loader2,
   Server,
-
-  Shield,
-  Cloud,
+  FileText,
+  Database,
   ChevronRight,
   ChevronDown,
   Settings,
   Zap,
-  SplitSquareHorizontal,
 } from "lucide-react";
 import type { Node } from "@xyflow/react";
 import { useFlowAgentStore } from "@/lib/store";
@@ -20,8 +18,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { computeBindingCompletion } from "@/lib/tech-binding-helpers";
 import BindingGlobalSection from "./tech-workspace/BindingGlobalSection";
+import BindingDocumentsSection from "./tech-workspace/BindingDocumentsSection";
+import BindingExternalsSection from "./tech-workspace/BindingExternalsSection";
 import AdaptiveConfigSection from "./tech-workspace/AdaptiveConfigSection";
-import JobSplitPanel from "./tech-workspace/JobSplitPanel";
 import type {
   FlowNodeData,
   TechWorkspaceBindingTabId,
@@ -29,9 +28,6 @@ import type {
   GuardMonitor,
   GuardCheck,
   TechTabState,
-  TechDeploymentData,
-  DeploymentMessaging,
-  DeploymentService,
 } from "@/lib/types";
 
 // --- Reusable collapsible (matches AgenticConfigPanel Section) ---
@@ -89,24 +85,6 @@ const CHECK_RULE_BADGE: Record<GuardCheck["rule"], { label: string; class: strin
   type_check: { label: "类型", class: "bg-indigo-50 text-indigo-600" },
   range: { label: "范围", class: "bg-amber-50/80 text-amber-700" },
   format: { label: "格式", class: "bg-violet-50 text-violet-600" },
-};
-
-const MSG_TYPE_BADGE: Record<DeploymentMessaging["type"], { label: string; class: string }> = {
-  sync: { label: "同步", class: "bg-indigo-50 text-indigo-600" },
-  async: { label: "异步", class: "bg-violet-50 text-violet-600" },
-  human_gate: { label: "人工门", class: "bg-rose-50/80 text-rose-600" },
-};
-
-const RUNTIME_BADGE: Record<DeploymentService["runtime"], { label: string; class: string }> = {
-  python: { label: "Python", class: "bg-emerald-50/80 text-emerald-700" },
-  node: { label: "Node", class: "bg-indigo-50 text-indigo-600" },
-  browser_automation: { label: "浏览器", class: "bg-violet-50 text-violet-600" },
-};
-
-const RESOURCE_TEXT: Record<"low" | "medium" | "high", string> = {
-  low: "低",
-  medium: "中",
-  high: "高",
 };
 
 // --- Tab skeletons ---
@@ -250,123 +228,6 @@ function GuardsTabContent({ status, nodeGuards, nodeLabel }: { status: TechTabSt
   );
 }
 
-function maskSecretValue(secret: boolean): string {
-  if (!secret) return "—";
-  return "********";
-}
-
-function DeploymentTabContent({ status, data }: { status: TechTabState["status"]; data: TechDeploymentData | null }) {
-  if (status === "generating") {
-    return <LoadingBlock label="正在生成部署配置…" />;
-  }
-  if (status === "idle" && !data) {
-    return <EmptyBlock text="暂无部署配置。生成后将展示服务、消息拓扑与环境变量。" />;
-  }
-  if (!data) {
-    return <EmptyBlock text="本页无部署数据。" />;
-  }
-
-  return (
-    <div className="space-y-4">
-      <div>
-        <h3 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">微服务 / 运行单元</h3>
-        <div className="space-y-2">
-          {data.services.length === 0 && <p className="text-[12px] text-slate-400">—</p>}
-          {data.services.map((s) => {
-            const rt = RUNTIME_BADGE[s.runtime];
-            return (
-              <div key={`${s.nodeId}-${s.serviceName}`} className="rounded-xl border border-indigo-100/40 bg-white/60 backdrop-blur-sm p-3">
-                <div className="flex items-center flex-wrap gap-2 mb-1.5">
-                  <span className="text-[13px] font-semibold text-slate-800">{s.serviceName}</span>
-                  <Badge className={`text-[10px] h-5 border-0 ${rt.class}`}>{rt.label}</Badge>
-                </div>
-                <p className="text-[11px] text-slate-500 mb-1">节点 {s.nodeId}</p>
-                <p className="text-[11px] text-slate-600">
-                  资源：CPU {RESOURCE_TEXT[s.resourceRequirements.cpu]} / 内存 {RESOURCE_TEXT[s.resourceRequirements.memory]}
-                </p>
-                {s.dependencies.length > 0 && (
-                  <p className="text-[11px] text-slate-500 mt-1">依赖：{s.dependencies.join("、")}</p>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <div>
-        <h3 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">消息传递拓扑</h3>
-        <div className="space-y-1.5">
-          {data.messaging.length === 0 && <p className="text-[12px] text-slate-400">—</p>}
-          {data.messaging.map((m, i) => {
-            const t = MSG_TYPE_BADGE[m.type];
-            return (
-              <div
-                key={i}
-                className="flex items-center flex-wrap gap-2 rounded-lg border border-indigo-100/30 bg-white/50 backdrop-blur-sm px-2.5 py-2 text-[11px]"
-              >
-                <span className="font-medium text-slate-700">{m.from}</span>
-                <span className="text-indigo-300">→</span>
-                <span className="font-medium text-slate-700">{m.to}</span>
-                <Badge className={`text-[9px] h-4 px-1.5 border-0 ${t.class}`}>{t.label}</Badge>
-                <Badge variant="outline" className="text-[9px] h-4 px-1.5">
-                  {m.format}
-                </Badge>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <div>
-        <h3 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">环境变量</h3>
-        <div className="rounded-lg border border-indigo-100/40 overflow-hidden bg-white/50 backdrop-blur-sm">
-          <table className="w-full text-[11px]">
-            <thead>
-              <tr className="bg-indigo-50/30 text-slate-500">
-                <th className="text-left p-2 font-medium">名称</th>
-                <th className="text-left p-2 font-medium">值 / 脱敏</th>
-                <th className="text-left p-2 font-medium">说明</th>
-                <th className="text-left p-2 font-medium">节点</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.envVars.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="p-3 text-slate-400 text-center">
-                    —
-                  </td>
-                </tr>
-              ) : (
-                data.envVars.map((ev) => (
-                  <tr key={ev.name} className="border-t border-indigo-50/60">
-                    <td className="p-2 font-mono text-slate-700">{ev.name}</td>
-                    <td className="p-2 font-mono text-slate-500">{maskSecretValue(ev.secret)}</td>
-                    <td className="p-2 text-slate-500">{ev.description}</td>
-                    <td className="p-2 text-slate-400">{ev.relatedNode}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div>
-        <h3 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">资源限制</h3>
-        <ul className="space-y-1.5 text-[11px] text-slate-600">
-          {data.resourceLimits.length === 0 && <li className="text-slate-400">—</li>}
-          {data.resourceLimits.map((r, i) => (
-            <li key={i} className="rounded-lg border border-indigo-100/40 bg-white/60 backdrop-blur-sm px-2.5 py-2">
-              <span className="font-medium text-slate-800">{r.resource}</span>：{r.limit}
-              <span className="text-slate-400 ml-2">（{r.strategy}）</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-    </div>
-  );
-}
-
 // --- Main ---
 
 
@@ -376,8 +237,9 @@ const BINDING_TAB_DEFS: {
   icon: ComponentType<{ className?: string }>;
 }[] = [
   { id: "binding_global", label: "全局配置", icon: Settings },
+  { id: "binding_documents", label: "文档资源", icon: FileText },
+  { id: "binding_externals", label: "外部系统", icon: Database },
   { id: "adaptive", label: "自适应配置", icon: Zap },
-  { id: "job_split", label: "Job 拆分", icon: SplitSquareHorizontal },
 ];
 
 export default function TechWorkspacePanel() {
@@ -416,12 +278,11 @@ export default function TechWorkspacePanel() {
         <div className="flex-1 min-w-0">
           <h2 className="text-sm font-semibold text-slate-800">技术工作区</h2>
           <p className="text-[11px] text-slate-500 leading-snug">
-            Job 元信息、Trigger 与资源绑定 · 完成度{" "}
+            回填技术资源与运行配置 · 完成度{" "}
             <span className="text-indigo-600 font-semibold">{pct}%</span>
           </p>
           <p className="text-[10px] text-slate-400 mt-1 leading-snug">
-            需要编辑<strong className="font-medium text-slate-500">某一画布节点</strong>
-            的执行绑定（Skill 等）时，在画布上点击该节点即可。
+            全局信息在这里填写；每个节点的执行方式、技能和运行时配置请点击画布节点填写。
           </p>
         </div>
         <svg width="36" height="36" className="shrink-0 -rotate-90" aria-hidden>
@@ -465,13 +326,27 @@ export default function TechWorkspacePanel() {
           </ScrollArea>
         </TabsContent>
 
+        <TabsContent value="binding_documents" className="flex-1 min-h-0 mt-0 p-0 overflow-hidden">
+          <ScrollArea className="flex-1 min-h-0 h-full">
+            <div className="p-4 pb-6 space-y-4">
+              <BindingDocumentsSection />
+            </div>
+          </ScrollArea>
+        </TabsContent>
 
+        <TabsContent value="binding_externals" className="flex-1 min-h-0 mt-0 p-0 overflow-hidden">
+          <ScrollArea className="flex-1 min-h-0 h-full">
+            <div className="p-4 pb-6 space-y-4">
+              <BindingExternalsSection />
+            </div>
+          </ScrollArea>
+        </TabsContent>
 
         <TabsContent value="adaptive" className="flex-1 min-h-0 mt-0 p-0 overflow-hidden">
           <ScrollArea className="flex-1 min-h-0 h-full">
             <div className="p-4 pb-6 space-y-4">
               <p className="text-[11px] text-slate-500">
-                对应 JobSpec v2 的 runtime_adjustable / env_assumptions / adjustment_policies（设计态草稿）。
+                配置运行时可调整参数、环境假设和自动调整策略。
               </p>
               <AdaptiveConfigSection />
               <Section title="AI 参考 · 质量守护" badge="只读" defaultOpen={false}>
@@ -488,13 +363,6 @@ export default function TechWorkspacePanel() {
           </ScrollArea>
         </TabsContent>
 
-        <TabsContent value="job_split" className="flex-1 min-h-0 mt-0 p-0 overflow-hidden">
-          <ScrollArea className="flex-1 min-h-0 h-full">
-            <div className="p-4 pb-6">
-              <JobSplitPanel />
-            </div>
-          </ScrollArea>
-        </TabsContent>
       </Tabs>
     </div>
   );

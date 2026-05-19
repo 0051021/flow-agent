@@ -76,7 +76,10 @@ export default function EditableEdge({
 
   const edgeStyle = {
     ...style,
-    strokeWidth: selected ? 3 : (style.strokeWidth as number) || 2,
+    stroke: style.stroke || "#64748b",
+    strokeWidth: selected ? 3.5 : (style.strokeWidth as number) || 3,
+    strokeOpacity: style.strokeOpacity || 0.9,
+    vectorEffect: "non-scaling-stroke" as const,
     filter: selected ? "drop-shadow(0 0 3px rgba(59,130,246,0.5))" : undefined,
   };
 

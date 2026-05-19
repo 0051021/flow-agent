@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import type { Node } from "@xyflow/react";
 import { useFlowAgentStore } from "@/lib/store";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -12,6 +13,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { FlowNodeData, NodeBindingEntry, PlatformTaskType } from "@/lib/types";
+import { getEffectiveSkillCodes } from "@/lib/tech-binding-helpers";
+import { REGISTERED_CONTEXT_POLICY_OPTIONS } from "@/lib/registered-skills";
 
 const TASK_OPTIONS: { value: PlatformTaskType; label: string }[] = [
   { value: "agentic", label: "agentic — AI 自主" },
@@ -49,6 +52,18 @@ function recommendRuntime(tt: PlatformTaskType): string {
   }
 }
 
+function slugifyTaskCode(name: string, fallback: string): string {
+  const tokens = name
+    .replace(/[^a-zA-Z0-9\u4e00-\u9fff]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter((t) => /^[a-zA-Z0-9]+$/.test(t))
+    .map((t) => t.toLowerCase());
+
+  if (tokens.length === 0) return fallback;
+  return tokens.join("-");
+}
+
 function NodeRow({
   node,
   binding,
@@ -61,16 +76,45 @@ function NodeRow({
   const data = node.data as FlowNodeData;
   const tt = binding.taskType ?? inferTaskType(data);
   const needsSkill = tt !== "human_review";
+  const taskCode = binding.taskCode ?? slugifyTaskCode(data.label, `task-${data.stepIndex || node.id}`);
+  const skillText = getEffectiveSkillCodes(binding).join(", ");
 
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
+    <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-3 shadow-sm">
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-[10px] font-medium text-zinc-400 w-6">{data.stepIndex}</span>
+        <span className="text-[10px] font-medium text-zinc-400 w-6">
+          {data.stepIndex}/{data.totalSteps}
+        </span>
         <span className="text-[12px] font-semibold text-zinc-900">{data.label}</span>
+        <span className="text-[10px] font-mono text-zinc-400 ml-auto">nodes[{data.stepIndex - 1}]</span>
+      </div>
+      <div>
+        <label className="text-[10px] text-zinc-500 block mb-0.5">
+          执行器指令 <span className="font-mono text-zinc-400">identity.description</span>
+        </label>
+        <Textarea
+          value={data.description}
+          readOnly
+          rows={2}
+          className="text-[11px] text-zinc-500 bg-zinc-50 resize-none"
+        />
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div>
-          <label className="text-[10px] text-zinc-500 block mb-0.5">执行类型</label>
+          <label className="text-[10px] text-zinc-500 block mb-0.5">
+            Task 编码 <span className="font-mono text-zinc-400">identity.code</span>
+          </label>
+          <Input
+            value={taskCode}
+            onChange={(e) => setNodeBinding(node.id, { taskCode: e.target.value })}
+            placeholder="task code"
+            className="font-mono text-[11px] h-8"
+          />
+        </div>
+        <div>
+          <label className="text-[10px] text-zinc-500 block mb-0.5">
+            执行类型 <span className="font-mono text-zinc-400">taskType</span>
+          </label>
           <Select
             value={tt}
             onValueChange={(v) => {
@@ -80,7 +124,9 @@ function NodeRow({
                 runtimeProfileCode: recommendRuntime(next),
               };
               if (next === "human_review") {
-                patch.skillBindingCode = "";
+                patch.skillBindingCodes = [];
+                patch.skillBindingCode = undefined;
+                patch.contextPolicyCode = undefined;
               }
               setNodeBinding(node.id, patch);
             }}
@@ -98,7 +144,9 @@ function NodeRow({
           </Select>
         </div>
         <div>
-          <label className="text-[10px] text-zinc-500 block mb-0.5">运行时环境</label>
+          <label className="text-[10px] text-zinc-500 block mb-0.5">
+            运行时环境 <span className="font-mono text-zinc-400">runtimeBinding.profileCode</span>
+          </label>
           <Select
             value={binding.runtimeProfileCode ?? recommendRuntime(tt)}
             onValueChange={(v) =>
@@ -118,17 +166,51 @@ function NodeRow({
           </Select>
         </div>
         <div className={needsSkill ? "" : "opacity-50 pointer-events-none"}>
-          <label className="text-[10px] text-zinc-500 block mb-0.5">绑定技能</label>
+          <label className="text-[10px] text-zinc-500 block mb-0.5">
+            绑定技能 <span className="font-mono text-zinc-400">skillBinding.code</span>
+          </label>
           <Input
-            value={binding.skillBindingCode ?? ""}
-            onChange={(e) => setNodeBinding(node.id, { skillBindingCode: e.target.value })}
-            placeholder={needsSkill ? "skillBinding.code" : "人工操作无需技能"}
+            value={skillText}
+            onChange={(e) =>
+              setNodeBinding(node.id, {
+                skillBindingCodes: e.target.value
+                  .split(",")
+                  .map((c) => c.trim())
+                  .filter(Boolean),
+                skillBindingCode: undefined,
+              })
+            }
+            placeholder={needsSkill ? "skill-a, skill-b" : "人工操作无需技能"}
             disabled={!needsSkill}
             className="font-mono text-[11px] h-8"
           />
         </div>
+        {needsSkill ? (
+          <div>
+            <label className="text-[10px] text-zinc-500 block mb-0.5">
+              上下文策略 <span className="font-mono text-zinc-400">context_policy_code</span>
+            </label>
+            <Select
+              value={binding.contextPolicyCode ?? ""}
+              onValueChange={(v) => setNodeBinding(node.id, { contextPolicyCode: v || undefined })}
+            >
+              <SelectTrigger className="h-8 text-[11px]">
+                <SelectValue placeholder="选择上下文策略…" />
+              </SelectTrigger>
+              <SelectContent>
+                {REGISTERED_CONTEXT_POLICY_OPTIONS.map((p) => (
+                  <SelectItem key={p.code} value={p.code}>
+                    {p.title} · {p.code}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
         <div>
-          <label className="text-[10px] text-zinc-500 block mb-0.5">审核策略</label>
+          <label className="text-[10px] text-zinc-500 block mb-0.5">
+            审核策略 <span className="font-mono text-zinc-400">humanInteraction.reviewBinding.code</span>
+          </label>
           <Input
             value={binding.reviewPolicyCode ?? ""}
             onChange={(e) => setNodeBinding(node.id, { reviewPolicyCode: e.target.value })}

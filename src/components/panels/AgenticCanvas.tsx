@@ -326,19 +326,49 @@ function PhaseDetail({ phase, phaseIndex, totalPhases, onUpdatePhase }: {
       </div>
 
       <div className="space-y-6 p-5">
+        {/* Module responsibility */}
+        <div>
+          <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-zinc-700">
+            <Target className="w-3.5 h-3.5 text-violet-500" /> 模块职责
+          </div>
+          <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 text-xs leading-relaxed text-zinc-600">
+            <EditableText
+              value={phase.responsibility || ""}
+              onSave={(responsibility) => onUpdatePhase({ responsibility })}
+              placeholder="说明这个模块在持续业务里负责哪类判断、生成或运营事项"
+              multiline
+            />
+          </div>
+        </div>
+
         {/* Business handling */}
         <div>
           <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-zinc-700">
-            <Play className="w-3.5 h-3.5 text-blue-500" /> 业务处理内容
+            <Play className="w-3.5 h-3.5 text-blue-500" /> 业务动作
           </div>
-          <EditableList items={phase.actions || []} onSave={(actions) => onUpdatePhase({ actions })} placeholder="新增业务处理内容..." />
+          <EditableList items={phase.actions || []} onSave={(actions) => onUpdatePhase({ actions })} placeholder="新增业务动作..." />
+        </div>
+
+        {/* Focus signals */}
+        <div>
+          <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-zinc-700">
+            <BarChart3 className="w-3.5 h-3.5 text-emerald-500" /> 关注信号
+          </div>
+          <div className="mb-2 text-[10px] leading-relaxed text-zinc-400">
+            写这个模块运行中需要关注的业务变化、反馈、机会、风险或策略失效迹象。
+          </div>
+          <EditableList
+            items={phase.focusSignals || []}
+            onSave={(focusSignals) => onUpdatePhase({ focusSignals })}
+            placeholder="新增关注信号..."
+          />
         </div>
 
         {/* Business materials and requirements */}
         <div>
           <div className="mb-3 flex items-center justify-between gap-3">
             <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-700">
-              <Zap className="w-3.5 h-3.5 text-amber-500" /> 资料、规则文件与时效要求
+              <Zap className="w-3.5 h-3.5 text-amber-500" /> 资料与结果要求
             </div>
             <div className="flex items-center gap-2">
               <input
@@ -380,7 +410,7 @@ function PhaseDetail({ phase, phaseIndex, totalPhases, onUpdatePhase }: {
             ))}
             <button
               onClick={() => {
-                onUpdatePhase({ requiredCapabilities: [...requirementTags, "点击填写资料、规则文件或时效要求"] });
+                onUpdatePhase({ requiredCapabilities: [...requirementTags, "点击填写资料、规则文件、时效或结果要求"] });
               }}
               className="text-[10px] text-zinc-400 hover:text-blue-500 transition-colors flex items-center gap-0.5"
             >
@@ -414,7 +444,7 @@ function PhaseDetail({ phase, phaseIndex, totalPhases, onUpdatePhase }: {
             </div>
           )}
           <p className="mt-1.5 text-[10px] text-zinc-400">
-            可以上传规则文件、模板或表格，也可以用文字补充业务时效、材料要求、结果输出标准和例外口径；后续技术方再判断如何落地。
+            可以上传素材库、规则文件、模板或表格，也可以用文字补充业务时效、材料要求、结果输出标准和例外口径；后续技术方再判断如何落地。
           </p>
         </div>
 
@@ -619,7 +649,9 @@ export default function AgenticCanvas() {
       name: `新模块 ${phases.length + 1}`,
       dayRange: [lastDay + 1, lastDay + 1],
       status: "pending",
-      actions: ["描述这个模块需要处理的业务内容"],
+      responsibility: "说明这个模块在持续业务里负责哪类判断、生成或运营事项",
+      actions: ["描述这个模块会进行的业务动作"],
+      focusSignals: ["描述运行中需要关注的业务变化、反馈或风险"],
       successCriteria: {
         good: "规则明确后可直接处理",
         warning: "仍有业务口径需要补充",

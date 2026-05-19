@@ -11,9 +11,19 @@ import TechWorkspacePanel from "@/components/panels/TechWorkspacePanel";
 import TechNodePanel from "@/components/panels/TechNodePanel";
 import OnboardingGuide from "@/components/ui/OnboardingGuide";
 import { MessageSquare, PanelRightClose } from "lucide-react";
-import { useFlowAgentStore } from "@/lib/store";
+import { useFlowAgentStore, type ChatAttachment } from "@/lib/store";
 import { MOCK_ANNOTATIONS } from "@/lib/mock-data";
-import { getReviewById } from "@/lib/mock-reviews";
+import { getReviewById, presentAgenticReviewAsWorkflow } from "@/lib/mock-reviews";
+import {
+  GSDS_ADAPTIVE_CONFIG,
+  GSDS_CHAT_MESSAGES,
+  GSDS_EDGES,
+  GSDS_JOB_TRIGGER_CODES,
+  GSDS_NODES,
+  GSDS_TECH_BINDINGS,
+  GSDS_TECH_CONFIG,
+  GSDS_TECH_JOB_META,
+} from "@/lib/gsds-demo-seed";
 import type { Annotation, FlowNodeData } from "@/lib/types";
 import type { Node } from "@xyflow/react";
 
@@ -22,7 +32,7 @@ const ChatPanel = dynamic(() => import("@/components/panels/ChatPanel"), {
   ssr: false,
   loading: () => (
     <div className="flex h-full w-full flex-col border-r border-zinc-200 bg-white">
-      <div className="flex-1 p-4 text-xs text-zinc-400">正在加载流程澄清助手...</div>
+      <div className="flex-1 p-4 text-xs text-zinc-400">正在加载助手...</div>
     </div>
   ),
 });
@@ -51,6 +61,30 @@ function normalizeWorkflowNodeLayout(nodes: unknown[] | undefined): unknown[] | 
       },
     };
   });
+}
+
+function cloneStateValue<T>(value: T): T {
+  if (typeof structuredClone === "function") return structuredClone(value);
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function readJobMaterialsFromSession(runId: string | null): ChatAttachment[] {
+  if (!runId || typeof window === "undefined") return [];
+  try {
+    const raw = sessionStorage.getItem(`flow-agent-job-materials:${runId}`);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return Array.isArray(parsed) ? (parsed as ChatAttachment[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function isGsdsReview(payload: { id: string; title?: string; projectName?: string }) {
+  return (
+    payload.id === "sample-gsds-20260508" ||
+    payload.title === "GSDS PDF 自动入库流程" ||
+    payload.projectName === "GSDS PDF 自动入库流程"
+  );
 }
 
 function extractAnnotationsFromTimeline(timeline: unknown[]): Annotation[] {
@@ -116,19 +150,24 @@ function EditorContent() {
 
       if (!demo) return;
 
+      const workflowPresentation = demo.type === "agentic" ? presentAgenticReviewAsWorkflow(demo) : null;
       const patch: Record<string, unknown> = {
         originalPrompt: demo.prompt,
-        taskType: demo.type,
+        taskType: workflowPresentation ? "workflow" : demo.type,
         project: {
           ...useFlowAgentStore.getState().project,
           name: demo.projectName,
           status: "business_editing",
         },
-        chatMessages: demo.chatMessages,
+        chatMessages: workflowPresentation?.chatMessages ?? demo.chatMessages,
         annotations: [],
       };
 
-      if (demo.type === "workflow" && demo.nodes && demo.edges) {
+      if (workflowPresentation) {
+        patch.nodes = normalizeWorkflowNodeLayout(workflowPresentation.nodes);
+        patch.edges = workflowPresentation.edges;
+        patch.chatPhase = "ready";
+      } else if (demo.type === "workflow" && demo.nodes && demo.edges) {
         patch.nodes = normalizeWorkflowNodeLayout(demo.nodes);
         patch.edges = demo.edges;
         patch.chatPhase = "ready";
@@ -173,6 +212,7 @@ function EditorContent() {
       source: "mock" | "server"
     ) => {
       const statusMap = { pending: "tech_reviewing" as const, reviewed: "tech_reviewing" as const, confirmed: "confirmed" as const };
+      const useGsdsDemo = payload.type === "workflow" && resolvedRole === "tech" && isGsdsReview(payload);
       const fallbackStatus =
         resolvedRole === "tech"
           ? (payload.status === "confirmed" ? "confirmed" as const : "tech_reviewing" as const)
@@ -200,7 +240,42 @@ function EditorContent() {
         annotations: extractAnnotationsFromTimeline(payload.timeline ?? []),
       };
 
-      if (payload.type === "workflow" && payload.nodes && payload.edges) {
+      if (useGsdsDemo) {
+        Object.assign(patch, {
+          project: {
+            ...useFlowAgentStore.getState().project,
+            name: "GSDS 入库 Job",
+            description: "上传并查重（条件分支）→ PDF 解析（含校验）→ 人工比对 → 入库",
+            status: resolvedStatus,
+          },
+          originalPrompt: "GSDS 入库流程",
+          nodes: cloneStateValue(GSDS_NODES),
+          edges: cloneStateValue(GSDS_EDGES),
+          chatMessages: cloneStateValue(GSDS_CHAT_MESSAGES),
+          techConfig: cloneStateValue(GSDS_TECH_CONFIG),
+          techBindings: cloneStateValue(GSDS_TECH_BINDINGS),
+          adaptiveConfig: cloneStateValue(GSDS_ADAPTIVE_CONFIG),
+          techJobMeta: cloneStateValue(GSDS_TECH_JOB_META),
+          jobTriggerCodes: [...GSDS_JOB_TRIGGER_CODES],
+          chatPhase: "ready",
+        });
+        useFlowAgentStore.setState(patch);
+        return;
+      }
+
+      const localPayloadReview = source === "mock" ? getReviewById(payload.id) : undefined;
+      const businessWorkflowPresentation =
+        resolvedRole === "business" && localPayloadReview?.type === "agentic"
+          ? presentAgenticReviewAsWorkflow(localPayloadReview)
+          : null;
+
+      if (businessWorkflowPresentation) {
+        patch.taskType = "workflow";
+        patch.nodes = normalizeWorkflowNodeLayout(businessWorkflowPresentation.nodes);
+        patch.edges = businessWorkflowPresentation.edges;
+        patch.chatMessages = businessWorkflowPresentation.chatMessages;
+        patch.chatPhase = "ready";
+      } else if (payload.type === "workflow" && payload.nodes && payload.edges) {
         patch.nodes = normalizeWorkflowNodeLayout(payload.nodes);
         patch.edges = payload.edges;
         patch.chatPhase = "ready";
@@ -283,11 +358,18 @@ function EditorContent() {
       return;
     }
 
-    const savedFiles = [...store.initFiles];
+    const sessionFiles = readJobMaterialsFromSession(timestamp);
+    const currentJobFiles = store.originalPrompt === q ? store.jobMaterials : [];
+    const savedFiles = store.initFiles.length > 0
+      ? [...store.initFiles]
+      : sessionFiles.length > 0
+        ? sessionFiles
+        : currentJobFiles;
     store.resetAll();
     store.setCurrentReviewId(null);
     if (savedFiles.length > 0) {
       useFlowAgentStore.getState().setInitFiles(savedFiles);
+      useFlowAgentStore.getState().setJobMaterials(savedFiles);
     }
     store.setIsReviewMode(false);
 
@@ -437,9 +519,9 @@ function EditorContent() {
             <div className="w-72 space-y-5">
               {[
                 { label: "理解你的业务场景" },
-                { label: "判断任务类型" },
-                { label: "拆解工作步骤" },
-                { label: "分配人机分工" },
+                { label: "判断准入信息" },
+                { label: "拆解业务步骤" },
+                { label: "生成业务方案" },
               ].map((step, i) => {
                 const idx = i + 1;
                 const isDone = progressStep > idx || (progressStep >= 4 && idx <= 4);

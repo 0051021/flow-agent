@@ -4,7 +4,19 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { toast } from "sonner";
 import { useFlowAgentStore, type ChatMessage, type ChatPhase, type ChatAttachment } from "@/lib/store";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, Loader2, RotateCcw, Paperclip, X, FileText, FileSpreadsheet, Image as ImageIcon, File as FileIcon, Sparkles } from "lucide-react";
+import {
+  Send, Loader2, RotateCcw, Paperclip, X, FileText, FileSpreadsheet,
+  Image as ImageIcon, File as FileIcon, Sparkles, GitBranch, ShieldCheck, HelpCircle,
+} from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { v4 as uuidv4 } from "uuid";
 import { parseLLMResponse, serializeFlowForLLM } from "@/lib/flow-parser";
 import { generateDemoFlow } from "@/lib/mock-data";
@@ -26,6 +38,86 @@ function formatFileSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
+type UploadCategoryId = NonNullable<ChatAttachment["jobMaterialCategory"]>;
+
+const UPLOAD_CATEGORIES: Array<{
+  id: UploadCategoryId;
+  title: string;
+  description: string;
+  icon: typeof FileText;
+}> = [
+  {
+    id: "workflow_plan",
+    title: "流程方案",
+    description: "SOP、流程图、操作手册",
+    icon: GitBranch,
+  },
+  {
+    id: "business_rule_knowhow",
+    title: "业务规则和 Know-how",
+    description: "校验规则、审批口径、注意事项",
+    icon: ShieldCheck,
+  },
+  {
+    id: "file_template",
+    title: "文件模板",
+    description: "Excel 模板、申请表、样例文件",
+    icon: FileText,
+  },
+  {
+    id: "uncategorized",
+    title: "不确定，让 AI 识别",
+    description: "先上传，稍后可调整分类",
+    icon: HelpCircle,
+  },
+];
+
+const CATEGORY_LABEL: Record<UploadCategoryId, string> = {
+  workflow_plan: "流程方案",
+  business_rule_knowhow: "业务规则",
+  file_template: "文件模板",
+  uncategorized: "待识别",
+};
+
+function serializeFilesForLLM(files?: ChatAttachment[]) {
+  return (files || []).map((file) => ({
+    path: file.path,
+    originalName: file.originalName,
+    ext: file.ext,
+    type: file.type,
+    jobMaterialCategory: file.jobMaterialCategory ?? "uncategorized",
+  }));
+}
+
+type NodeMaterialPatch = {
+  nodeId: string;
+  attachedMaterials?: Array<{
+    fileName?: string;
+    category?: string;
+    reason?: string;
+  }>;
+  relatedRules?: Array<{
+    title?: string;
+    reason?: string;
+  }>;
+  confidence?: "high" | "medium" | "low";
+  reason?: string;
+  questions?: NodeConfidence["questions"];
+};
+
+type ReadinessQuestion = {
+  id?: string;
+  question?: string;
+  examples?: string[];
+};
+
+type ReadinessResult = {
+  canDraft?: boolean;
+  reason?: string;
+  missing?: string[];
+  questions?: ReadinessQuestion[];
+};
+
 export default function ChatPanel() {
   const {
     chatMessages, addChatMessage, loadGeneratedFlow, nodes, edges,
@@ -42,23 +134,29 @@ export default function ChatPanel() {
     setInitialSnapshot, setAllNodeConfidence, setDeferredNodeIds,
     showNodeQuestions, selectedNodeId,
     isReviewMode, currentRole, annotations, project,
+    addJobMaterials, setJobMaterials,
   } = useFlowAgentStore();
   const [input, setInput] = useState("");
   const [showCompletion, setShowCompletion] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<ChatAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [readinessQuestions, setReadinessQuestions] = useState<ReadinessQuestion[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadCategoryRef = useRef<UploadCategoryId>("uncategorized");
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const initTriggered = useRef(false);
   const inFlightRef = useRef(false);
   const lastDraftHadFilesRef = useRef(false);
+  const lastDraftFilesRef = useRef<ReturnType<typeof serializeFilesForLLM>>([]);
+  const readinessPendingRef = useRef(false);
 
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files?.length) return;
     setUploading(true);
     const newAttachments: ChatAttachment[] = [];
+    const category = uploadCategoryRef.current;
 
     for (const file of Array.from(files)) {
       const form = new FormData();
@@ -67,7 +165,7 @@ export default function ChatPanel() {
         const res = await fetch("/api/upload", { method: "POST", body: form });
         const result = await res.json();
         if (result.success) {
-          newAttachments.push(result.file);
+          newAttachments.push({ ...result.file, jobMaterialCategory: category });
         } else {
           toast.error(`上传失败：${file.name}`, { description: result.error });
         }
@@ -78,16 +176,34 @@ export default function ChatPanel() {
 
     setPendingFiles((prev) => [...prev, ...newAttachments]);
     setUploading(false);
+    uploadCategoryRef.current = "uncategorized";
     if (fileInputRef.current) fileInputRef.current.value = "";
+  }, []);
+
+  const openFilePicker = useCallback((category: UploadCategoryId) => {
+    uploadCategoryRef.current = category;
+    fileInputRef.current?.click();
   }, []);
 
   const removePendingFile = useCallback((storedName: string) => {
     setPendingFiles((prev) => prev.filter((f) => f.storedName !== storedName));
   }, []);
 
+  const appendReadinessAnswer = useCallback((question: string, answer: string) => {
+    const line = `${question}：${answer}`;
+    setInput((prev) => {
+      const trimmed = prev.trim();
+      if (!trimmed) return line;
+      if (trimmed.includes(line)) return prev;
+      return `${trimmed}\n${line}`;
+    });
+  }, []);
+
   const hasFlow = nodes.length > 0;
   const hasAgenticConfig = agenticConfig !== null;
+  const showReadinessCard = readinessPendingRef.current && readinessQuestions.length > 0 && !hasFlow && !hasAgenticConfig;
   const isBusinessReviewMode = isReviewMode && currentRole === "business";
+  const isTechReviewMode = isReviewMode && currentRole === "tech";
   const selectedNode = selectedNodeId ? nodes.find((node) => node.id === selectedNodeId) : null;
   const selectedNodeData = selectedNode?.data;
   const selectedNodeAnnotations = selectedNodeId
@@ -103,7 +219,7 @@ export default function ChatPanel() {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [chatMessages.length, isLoading, hasPendingQuestions, showCompletion, showNodeQuestions]);
+  }, [chatMessages.length, isLoading, hasPendingQuestions, showCompletion, showNodeQuestions, showReadinessCard, readinessQuestions.length]);
 
   useEffect(() => {
     const tryInit = () => {
@@ -128,7 +244,7 @@ export default function ChatPanel() {
   }, []);
 
   // ============================================================
-  // Phase 0+1: Unified draft (classify + draft in one LLM call)
+  // Phase 0+1: Unified draft (readiness + draft)
   // ============================================================
 
   const triggerUnifiedDraft = useCallback(async (prompt: string, files?: ChatAttachment[]) => {
@@ -143,11 +259,20 @@ export default function ChatPanel() {
     setInitialSnapshot(null);
     setAllNodeConfidence([]);
     setDeferredNodeIds([]);
+    setReadinessQuestions([]);
     useFlowAgentStore.getState().setGenerationStage("idle");
     useFlowAgentStore.getState().setEnrichProgress({ total: 0, done: 0, status: "idle" });
 
-    const filePaths = files?.map((f) => f.path) || [];
+    const effectiveFiles = files && files.length > 0
+      ? files
+      : useFlowAgentStore.getState().jobMaterials;
+    if (effectiveFiles.length > 0) {
+      setJobMaterials(effectiveFiles);
+    }
+    const requestFiles = serializeFilesForLLM(effectiveFiles);
+    const filePaths = requestFiles.map((f) => f.path);
     lastDraftHadFilesRef.current = filePaths.length > 0;
+    lastDraftFilesRef.current = requestFiles;
     const progressMsgId = uuidv4();
 
     addChatMessage({
@@ -161,7 +286,7 @@ export default function ChatPanel() {
       const res = await fetch("/api/generate-flow", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, action: "unified_draft", filePaths }),
+        body: JSON.stringify({ prompt, action: "unified_draft", filePaths, files: requestFiles }),
         signal: AbortSignal.timeout(300000),
       });
 
@@ -173,6 +298,15 @@ export default function ChatPanel() {
       const contentType = res.headers.get("content-type") || "";
       if (!contentType.includes("text/event-stream")) {
         const result = await res.json();
+        if (result.action === "ask_readiness_questions") {
+          const readiness = result.readiness as ReadinessResult;
+          const questions = (readiness?.questions || []).filter((item) => item.question).slice(0, 5);
+          readinessPendingRef.current = true;
+          setReadinessQuestions(questions);
+          useFlowAgentStore.getState().updateChatMessage(progressMsgId, "我还需要先确认几件事，避免一开始方向跑偏。你可以点选下面的选项，也可以直接输入自己的说法。");
+          setPhase("idle");
+          return;
+        }
         if (!result.success) throw new Error(result.error || "未知错误");
         const rawType = result.taskType as string;
         const effectiveType: "workflow" | "agentic" = rawType === "agentic" ? "agentic" : "workflow";
@@ -210,13 +344,16 @@ export default function ChatPanel() {
           } else if (event.type === "stage") {
             const stage = event.stage as "classify_start" | "classify_done" | "draft_start" | "draft_done";
             useFlowAgentStore.getState().setGenerationStage(stage);
-          } else if (event.type === "classify") {
+          } else if (event.type === "readiness") {
             classified = true;
-            const tt = (event.taskType as string) || "workflow";
-            const typeLabel = tt === "agentic" ? "智能体（Agentic）" : "工作流（Workflow）";
-            const reason = (event.classifyReason as string) || "";
-            useFlowAgentStore.getState().updateChatMessage(progressMsgId, `判断为 **${typeLabel}** 类型。${reason}`);
-            setTaskType(tt === "agentic" ? "agentic" : "workflow");
+            const readiness = event.readiness as ReadinessResult;
+            if (readiness?.canDraft === false) {
+              useFlowAgentStore.getState().updateChatMessage(progressMsgId, "还需要补充一点准入信息...");
+            } else {
+              const reason = readiness?.reason ? `\n${readiness.reason}` : "";
+              useFlowAgentStore.getState().updateChatMessage(progressMsgId, `已理解业务场景，正在整理第一版业务方案...${reason}`);
+            }
+            setTaskType("workflow");
           } else if (event.type === "text") {
             if (!classified) {
               useFlowAgentStore.getState().updateChatMessage(progressMsgId, "正在生成流程图...");
@@ -224,6 +361,16 @@ export default function ChatPanel() {
           } else if (event.type === "done") {
             gotDone = true;
             const result = event as Record<string, unknown>;
+            if (result.action === "ask_readiness_questions") {
+              const readiness = result.readiness as ReadinessResult;
+              const questions = (readiness?.questions || []).filter((item) => item.question).slice(0, 5);
+              readinessPendingRef.current = true;
+              setReadinessQuestions(questions);
+              useFlowAgentStore.getState().updateChatMessage(progressMsgId, "我还需要先确认几件事，避免一开始方向跑偏。你可以点选下面的选项，也可以直接输入自己的说法。");
+              setPhase("idle");
+              useFlowAgentStore.getState().setGenerationStage("idle");
+              continue;
+            }
             const rawType = (result.taskType as string) || "workflow";
             let effectiveType: "workflow" | "agentic" = rawType === "agentic" ? "agentic" : "workflow";
 
@@ -233,8 +380,7 @@ export default function ChatPanel() {
             setTaskType(effectiveType);
 
             if (!classified) {
-              const typeLabel = effectiveType === "agentic" ? "智能体（Agentic）" : "工作流（Workflow）";
-              useFlowAgentStore.getState().updateChatMessage(progressMsgId, `判断为 **${typeLabel}** 类型。`);
+              useFlowAgentStore.getState().updateChatMessage(progressMsgId, "已理解业务场景，正在整理第一版业务方案...");
             }
 
             try {
@@ -283,7 +429,119 @@ export default function ChatPanel() {
       useFlowAgentStore.getState().setGenerationStage("idle");
       inFlightRef.current = false;
     }
-  }, [addChatMessage, loadGeneratedFlow, setPhase, setOriginalPrompt, setTaskType, setPendingNodes, setCurrentNodeIdx, setCollectedAnswers, setInitialSnapshot, setAllNodeConfidence, setDeferredNodeIds]);
+  }, [addChatMessage, loadGeneratedFlow, setPhase, setOriginalPrompt, setTaskType, setPendingNodes, setCurrentNodeIdx, setCollectedAnswers, setInitialSnapshot, setAllNodeConfidence, setDeferredNodeIds, setJobMaterials]);
+
+  const enrichWorkflowNodeContext = useCallback(async (
+    sourceFlow: Record<string, unknown>,
+    originalReq: string,
+    labelMap: Record<string, string>,
+  ) => {
+    const requestFiles = lastDraftFilesRef.current;
+    if (requestFiles.length === 0) return;
+
+    try {
+      const filePaths = requestFiles.map((file) => file.path);
+      const res = await fetch("/api/generate-flow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "enrich_node_context",
+          prompt: originalReq,
+          currentFlow: sourceFlow,
+          filePaths,
+          files: requestFiles,
+        }),
+        signal: AbortSignal.timeout(180000),
+      });
+      const result = await res.json();
+      if (!result.success || !Array.isArray(result.data?.nodePatches)) return;
+
+      const patches = result.data.nodePatches as NodeMaterialPatch[];
+      const materialPatches = patches.filter((patch) => patch.nodeId);
+      if (materialPatches.length === 0) return;
+
+      const questionPatches: NodeConfidence[] = materialPatches
+        .filter((patch) => Array.isArray(patch.questions) && patch.questions.length > 0)
+        .map((patch) => ({
+          nodeId: patch.nodeId,
+          confidence: patch.confidence || "medium",
+          reason: patch.reason || "该节点需要根据上传材料进一步确认。",
+          questions: (patch.questions || []).map((question, idx) => ({
+            id: question.id || `${patch.nodeId}-material-q${idx + 1}`,
+            question: question.question,
+            context: question.context || patch.reason || "根据上传材料识别出的待确认点。",
+            defaultSuggestion: question.defaultSuggestion || "如果没有特别要求，建议按现有材料口径处理。",
+            options: question.options || [],
+          })).filter((question) => question.question),
+        }));
+
+      if (questionPatches.length > 0) {
+        const state = useFlowAgentStore.getState();
+        const existingByNode = new Map(state.allNodeConfidence.map((item) => [item.nodeId, item]));
+        for (const patch of questionPatches) {
+          const current = existingByNode.get(patch.nodeId);
+          if (!current) {
+            existingByNode.set(patch.nodeId, patch);
+            continue;
+          }
+          const existingQuestionIds = new Set((current.questions || []).map((question) => question.id));
+          const nextQuestions = [
+            ...(current.questions || []),
+            ...patch.questions.filter((question) => !existingQuestionIds.has(question.id)),
+          ];
+          existingByNode.set(patch.nodeId, {
+            ...current,
+            confidence: current.confidence === "low" ? current.confidence : patch.confidence,
+            reason: current.reason || patch.reason,
+            questions: nextQuestions,
+          });
+        }
+
+        const nextAllConfidence = Array.from(existingByNode.values());
+        const nextPendingNodes = nextAllConfidence.filter((item) => item.confidence !== "high" && item.questions.length > 0);
+        setAllNodeConfidence(nextAllConfidence);
+        setPendingNodes(nextPendingNodes);
+        useFlowAgentStore.setState({ currentNodeIdx: 0 });
+      }
+
+      const nodesWithMaterials = materialPatches.filter((patch) =>
+        (patch.attachedMaterials?.length || 0) > 0 || (patch.relatedRules?.length || 0) > 0
+      );
+      const lines = nodesWithMaterials.slice(0, 5).map((patch) => {
+        const label = labelMap[patch.nodeId] || patch.nodeId;
+        const materialNames = (patch.attachedMaterials || [])
+          .map((item) => item.fileName)
+          .filter(Boolean)
+          .slice(0, 2)
+          .join("、");
+        const ruleNames = (patch.relatedRules || [])
+          .map((item) => item.title)
+          .filter(Boolean)
+          .slice(0, 2)
+          .join("、");
+        const parts = [
+          materialNames ? `关联材料：${materialNames}` : "",
+          ruleNames ? `相关规则：${ruleNames}` : "",
+        ].filter(Boolean);
+        return `• ${label}：${parts.join("；")}`;
+      });
+
+      if (lines.length > 0 || questionPatches.length > 0) {
+        addChatMessage({
+          id: uuidv4(),
+          role: "assistant",
+          content: [
+            "**已根据上传材料补充节点依据**",
+            lines.length > 0 ? lines.join("\n") : "",
+            questionPatches.length > 0 ? `\n发现 **${questionPatches.length} 个节点** 还需要确认，已加入左侧追问卡。` : "",
+          ].filter(Boolean).join("\n"),
+          timestamp: new Date().toISOString(),
+        });
+      }
+    } catch {
+      // 节点材料依据是增强能力，失败不阻塞主流程
+    }
+  }, [addChatMessage, setAllNodeConfidence, setPendingNodes]);
 
   const enrichWorkflowNodeDetails = useCallback(async (sourceFlow: Record<string, unknown>, originalReq: string) => {
     try {
@@ -570,9 +828,10 @@ export default function ChatPanel() {
         timestamp: new Date().toISOString(),
       });
       setPhase("ready");
+      enrichWorkflowNodeContext(data as Record<string, unknown>, useFlowAgentStore.getState().originalPrompt, labelMap);
       enrichWorkflowNodeDetails(data as Record<string, unknown>, useFlowAgentStore.getState().originalPrompt);
     }, streamDoneMs);
-  }, [addChatMessage, loadGeneratedFlow, setPhase, setNodeLabelMap, setInitialSnapshot, setAllNodeConfidence, enrichWorkflowNodeDetails, forcePendingExecutionMode]);
+  }, [addChatMessage, loadGeneratedFlow, setPhase, setNodeLabelMap, setInitialSnapshot, setAllNodeConfidence, enrichWorkflowNodeContext, enrichWorkflowNodeDetails, forcePendingExecutionMode]);
 
   const handleAgenticResult = useCallback((result: Record<string, any>, prompt: string) => {
     const data = result.data;
@@ -1020,6 +1279,9 @@ export default function ChatPanel() {
     if ((!input.trim() && pendingFiles.length === 0) || isLoading) return;
     const userInput = input.trim();
     const attachments = pendingFiles.length > 0 ? [...pendingFiles] : undefined;
+    if (attachments?.length) {
+      addJobMaterials(attachments);
+    }
     addChatMessage({
       id: uuidv4(),
       role: "user",
@@ -1048,7 +1310,13 @@ export default function ChatPanel() {
 
     try {
       if (!hasFlow && !hasAgenticConfig && phase !== "questioning") {
-        await triggerUnifiedDraft(userInput, attachments);
+        const draftPrompt =
+          readinessPendingRef.current && originalPrompt.trim() && originalPrompt.trim() !== userInput.trim()
+            ? `${originalPrompt}\n\n用户针对准入问题的补充：${userInput}`
+            : userInput;
+        readinessPendingRef.current = false;
+        setReadinessQuestions([]);
+        await triggerUnifiedDraft(draftPrompt, attachments);
         return;
       }
 
@@ -1060,7 +1328,11 @@ export default function ChatPanel() {
         const { json: canvasJson } = serializeFlowForLLM(currentNodes, currentEdges);
         const refineAction = currentRole === "tech" ? "refine" : "refine_business";
 
-        const filePaths = attachments?.map((f) => f.path) || [];
+        const effectiveFiles = attachments && attachments.length > 0
+          ? attachments
+          : useFlowAgentStore.getState().jobMaterials;
+        const requestFiles = serializeFilesForLLM(effectiveFiles);
+        const filePaths = requestFiles.map((f) => f.path);
         const res = await fetch("/api/generate-flow", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1070,6 +1342,7 @@ export default function ChatPanel() {
             currentFlow: canvasJson,
             feedback: userInput,
             filePaths,
+            files: requestFiles,
           }),
           signal: AbortSignal.timeout(300000),
         });
@@ -1122,7 +1395,11 @@ export default function ChatPanel() {
       if (taskType === "agentic" && hasAgenticConfig && phase === "agentic_ready") {
         setPhase("refining_agentic");
 
-        const filePaths = attachments?.map((f) => f.path) || [];
+        const effectiveFiles = attachments && attachments.length > 0
+          ? attachments
+          : useFlowAgentStore.getState().jobMaterials;
+        const requestFiles = serializeFilesForLLM(effectiveFiles);
+        const filePaths = requestFiles.map((f) => f.path);
         const res = await fetch("/api/generate-flow", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1132,6 +1409,7 @@ export default function ChatPanel() {
             currentConfig: agenticConfig,
             feedback: userInput,
             filePaths,
+            files: requestFiles,
           }),
           signal: AbortSignal.timeout(300000),
         });
@@ -1293,7 +1571,7 @@ export default function ChatPanel() {
 
   const phaseLabel: Record<ChatPhase, string> = {
     idle: "",
-    classifying: "分析任务类型...",
+    classifying: "理解业务场景...",
     drafting: "整理业务流程草案...",
     questioning: "",
     refining_node: "优化节点中...",
@@ -1307,7 +1585,7 @@ export default function ChatPanel() {
 
   const placeholder: Record<ChatPhase, string> = {
     idle: "描述你的业务场景...",
-    classifying: "分析中，请稍候...",
+    classifying: "理解中，请稍候...",
     drafting: "生成中，请稍候...",
     questioning: "也可以直接打字补充...",
     refining_node: "优化中，请稍候...",
@@ -1324,7 +1602,10 @@ export default function ChatPanel() {
   const reviewPlaceholder = selectedNodeData
     ? "问我这条批注、补充项或回复怎么写..."
     : "问我技术批注是什么意思，或让我帮你整理补充项...";
-  const effectivePlaceholder = isBusinessReviewMode ? reviewPlaceholder : placeholder[phase];
+  const techPlaceholder = selectedNodeData
+    ? "记录这个节点的技术判断、风险或需要业务补充的内容..."
+    : "记录技术评审意见，或让我整理待补充问题...";
+  const effectivePlaceholder = isBusinessReviewMode ? reviewPlaceholder : isTechReviewMode ? techPlaceholder : placeholder[phase];
   const reviewQuickQuestions = [
     "帮我解释这条技术批注",
     "我需要补充哪些信息？",
@@ -1332,12 +1613,18 @@ export default function ChatPanel() {
     "这条批注涉及哪些资料和字段？",
   ];
   const draftQuickQuestions = [
-    "帮我把这个节点描述得更清楚",
-    "这个流程还缺哪些业务信息？",
-    "帮我补充校对规则",
-    "帮我调整节点顺序或增加步骤",
+    "帮我完善当前节点",
+    "检查这个方案哪里还没说清楚",
+    "帮我补充判断规则",
+    "帮我做一次方案 Review",
   ];
-  const shouldShowDraftAssistantIntro = !isBusinessReviewMode && (chatMessages.length > 0 || hasFlow || hasAgenticConfig || phase === "idle");
+  const techQuickQuestions = [
+    "整理还缺哪些资源编码",
+    "帮我写一条业务补充问题",
+    "总结当前节点的技术风险",
+    "检查导出前还缺什么",
+  ];
+  const shouldShowDraftAssistantIntro = !isBusinessReviewMode && !isTechReviewMode && (chatMessages.length > 0 || hasFlow || hasAgenticConfig || phase === "idle");
 
   return (
     <div className="w-full border-r border-zinc-200 bg-white flex flex-col h-full flex-1 min-h-0" data-onboarding="chat-panel">
@@ -1406,7 +1693,91 @@ export default function ChatPanel() {
             </div>
           )}
 
+          {isTechReviewMode && (
+            <div className="rounded-2xl border border-indigo-100 bg-indigo-50 px-3.5 py-3 text-[13px] leading-6 text-indigo-950">
+              <div className="flex items-start gap-2.5">
+                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white text-indigo-600 shadow-sm">
+                  <Sparkles className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="font-semibold">技术评审助手</p>
+                  <p className="mt-1 text-indigo-700">
+                    我帮你围绕当前流程整理技术评审意见、待注册资源、节点风险和需要业务方补充的问题；节点执行配置请在右侧技术工作区或点击画布节点填写。
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 space-y-2">
+                {techQuickQuestions.map((question) => (
+                  <button
+                    key={question}
+                    type="button"
+                    onClick={() => setInput(question)}
+                    className="block w-full rounded-xl border border-indigo-100 bg-white px-3 py-2 text-left text-xs text-zinc-700 hover:border-indigo-200 hover:bg-indigo-50"
+                  >
+                    {question}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {chatMessages.map(renderMessage)}
+
+          {showReadinessCard && (
+            <div className="rounded-2xl border border-blue-100 bg-blue-50 px-3.5 py-3 text-[13px] leading-6 text-blue-950">
+              <div className="flex items-start gap-2.5">
+                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white text-blue-600 shadow-sm">
+                  <HelpCircle className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <p className="font-semibold">补充到可以生成草稿</p>
+                  <p className="mt-1 text-xs leading-5 text-blue-700">
+                    点选下面的选项会自动填到输入框，也可以直接用自己的话补充。
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 space-y-3">
+                {readinessQuestions.map((item, index) => {
+                  const question = item.question || "";
+                  return (
+                    <div key={item.id || question || index} className="rounded-xl border border-blue-100 bg-white px-3 py-2.5">
+                      <p className="text-xs font-medium text-zinc-800">{index + 1}. {question}</p>
+                      {item.examples && item.examples.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {item.examples.map((example) => (
+                            <button
+                              key={`${question}-${example}`}
+                              type="button"
+                              onClick={() => appendReadinessAnswer(question, example)}
+                              className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[11px] leading-4 text-zinc-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                            >
+                              {example}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setInput("先按你的理解生成草稿，缺的内容后面再补。")}
+                  className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700"
+                >
+                  先生成草稿
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInput("")}
+                  className="rounded-xl border border-blue-100 bg-white px-3 py-2 text-xs text-blue-700 hover:bg-blue-50"
+                >
+                  我自己补充
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* 集中追问卡：业务侧统一在左侧回答，可暂缓/跳过，再一次性更新流程 */}
           {hasPendingQuestions && (() => {
@@ -1475,6 +1846,9 @@ export default function ChatPanel() {
               >
                 {fileIcon(f.ext)}
                 <span className="truncate flex-1">{f.originalName}</span>
+                <span className="rounded bg-white px-1.5 py-0.5 text-[10px] text-zinc-500 shrink-0">
+                  {CATEGORY_LABEL[f.jobMaterialCategory ?? "uncategorized"]}
+                </span>
                 <span className="text-zinc-400 shrink-0">{formatFileSize(f.size)}</span>
                 <button
                   type="button"
@@ -1510,15 +1884,56 @@ export default function ChatPanel() {
             className="text-[13px] min-h-[44px] max-h-[120px] resize-none rounded-xl border-zinc-200 bg-zinc-50 pl-10 pr-10 focus:bg-white transition-colors"
             disabled={inputDisabled}
           />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={inputDisabled || uploading}
-            className="absolute left-2 bottom-2 flex h-7 w-7 items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors disabled:opacity-30"
-            title="上传文件"
-          >
-            {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Paperclip className="w-3.5 h-3.5" />}
-          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              type="button"
+              disabled={inputDisabled || uploading}
+              className="absolute left-2 bottom-2 flex h-7 w-7 items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors disabled:opacity-30"
+              title="上传文件"
+            >
+              {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Paperclip className="w-3.5 h-3.5" />}
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="top" align="start" className="w-64 p-1.5">
+              <DropdownMenuGroup>
+                <DropdownMenuLabel className="px-2 py-1.5">上传为哪类方案材料？</DropdownMenuLabel>
+                {UPLOAD_CATEGORIES.slice(0, 3).map((category) => {
+                  const CategoryIcon = category.icon;
+                  return (
+                    <DropdownMenuItem
+                      key={category.id}
+                      onClick={() => openFilePicker(category.id)}
+                      className="items-start gap-2 px-2 py-2"
+                    >
+                      <CategoryIcon className="mt-0.5 h-4 w-4 text-zinc-500" />
+                      <span className="min-w-0">
+                        <span className="block text-xs font-medium text-zinc-800">{category.title}</span>
+                        <span className="block text-[11px] leading-4 text-zinc-400">{category.description}</span>
+                      </span>
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                {UPLOAD_CATEGORIES.slice(3).map((category) => {
+                  const CategoryIcon = category.icon;
+                  return (
+                    <DropdownMenuItem
+                      key={category.id}
+                      onClick={() => openFilePicker(category.id)}
+                      className="items-start gap-2 px-2 py-2"
+                    >
+                      <CategoryIcon className="mt-0.5 h-4 w-4 text-zinc-500" />
+                      <span className="min-w-0">
+                        <span className="block text-xs font-medium text-zinc-800">{category.title}</span>
+                        <span className="block text-[11px] leading-4 text-zinc-400">{category.description}</span>
+                      </span>
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <button
             type="button"
             onClick={handleSend}

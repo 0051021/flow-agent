@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import type { ExternalSystemBindingEntry } from "@/lib/types";
 
 interface ExternalSystemEntry {
   id: string;
@@ -91,11 +92,15 @@ function makeEmptySystem(): ExternalSystemEntry {
 
 function SystemCard({
   system,
+  binding,
   onChange,
+  onBindingChange,
   onRemove,
 }: {
   system: ExternalSystemEntry;
+  binding: ExternalSystemBindingEntry;
   onChange: (updated: ExternalSystemEntry) => void;
+  onBindingChange: (patch: Partial<ExternalSystemBindingEntry>) => void;
   onRemove: () => void;
 }) {
   const [expanded, setExpanded] = useState(true);
@@ -124,7 +129,7 @@ function SystemCard({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-[10px] text-zinc-500 block mb-0.5">
-                系统名称 <span className="font-mono text-zinc-400">name</span>
+                系统名称
               </label>
               <Input
                 value={system.name}
@@ -135,7 +140,7 @@ function SystemCard({
             </div>
             <div>
               <label className="text-[10px] text-zinc-500 block mb-0.5">
-                系统类型 <span className="font-mono text-zinc-400">type</span>
+                系统类型
               </label>
               <Select value={system.type} onValueChange={(v) => onChange({ ...system, type: v as ExternalSystemEntry["type"] })}>
                 <SelectTrigger className="text-[12px]"><SelectValue /></SelectTrigger>
@@ -151,11 +156,11 @@ function SystemCard({
           {/* 对接方式 */}
           <div>
             <p className="text-[10px] font-medium text-zinc-700 mb-1.5">
-              对接方式 <span className="font-mono text-zinc-400 font-normal">integration</span>
+              对接方式
             </p>
             <div className="grid grid-cols-3 gap-2">
               <div>
-                <label className="text-[9px] text-zinc-400 block mb-0.5">当前 current</label>
+                <label className="text-[9px] text-zinc-400 block mb-0.5">当前方式</label>
                 <Select value={system.integration.current} onValueChange={(v) => onChange({ ...system, integration: { ...system.integration, current: v as ExternalSystemEntry["integration"]["current"] } })}>
                   <SelectTrigger className="text-[11px] h-8"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -166,7 +171,7 @@ function SystemCard({
                 </Select>
               </div>
               <div>
-                <label className="text-[9px] text-zinc-400 block mb-0.5">目标 target</label>
+                <label className="text-[9px] text-zinc-400 block mb-0.5">目标方式</label>
                 <Select value={system.integration.target} onValueChange={(v) => onChange({ ...system, integration: { ...system.integration, target: v as ExternalSystemEntry["integration"]["target"] } })}>
                   <SelectTrigger className="text-[11px] h-8"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -177,7 +182,7 @@ function SystemCard({
                 </Select>
               </div>
               <div>
-                <label className="text-[9px] text-zinc-400 block mb-0.5">就绪度 readiness</label>
+                <label className="text-[9px] text-zinc-400 block mb-0.5">就绪度</label>
                 <Select value={system.integration.readiness} onValueChange={(v) => onChange({ ...system, integration: { ...system.integration, readiness: v as ExternalSystemEntry["integration"]["readiness"] } })}>
                   <SelectTrigger className="text-[11px] h-8"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -198,7 +203,7 @@ function SystemCard({
           {/* 认证方式 */}
           <div>
             <label className="text-[10px] text-zinc-500 block mb-0.5">
-              认证方式 <span className="font-mono text-zinc-400">auth.type</span>
+              认证方式
             </label>
             <Select value={system.auth.type} onValueChange={(v) => onChange({ ...system, auth: { type: v as ExternalSystemEntry["auth"]["type"] } })}>
               <SelectTrigger className="text-[12px] w-full"><SelectValue /></SelectTrigger>
@@ -210,10 +215,51 @@ function SystemCard({
             </Select>
           </div>
 
+          <div className="rounded-lg border border-zinc-200 bg-zinc-50/60 p-3">
+            <p className="text-[10px] font-medium text-zinc-700 mb-2">
+              技术资源绑定
+            </p>
+            <div className={`grid grid-cols-1 gap-2 ${binding.skipped ? "opacity-50" : ""}`}>
+              <div>
+                <label className="text-[10px] text-zinc-500 block mb-0.5">
+                  工具编码
+                </label>
+                <Input
+                  value={binding.toolCode ?? ""}
+                  onChange={(e) => onBindingChange({ toolCode: e.target.value })}
+                  placeholder="填写已注册的工具编码"
+                  className="font-mono text-[11px] h-8"
+                  disabled={binding.skipped}
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-zinc-500 block mb-0.5">
+                  凭证编码
+                </label>
+                <Input
+                  value={binding.secretCode ?? ""}
+                  onChange={(e) => onBindingChange({ secretCode: e.target.value })}
+                  placeholder="填写已注册的凭证编码"
+                  className="font-mono text-[11px] h-8"
+                  disabled={binding.skipped}
+                />
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant={binding.skipped ? "secondary" : "ghost"}
+              size="sm"
+              className="mt-2 h-7 text-[10px]"
+              onClick={() => onBindingChange({ skipped: !binding.skipped })}
+            >
+              {binding.skipped ? "恢复绑定" : "本系统不参与自动化，跳过绑定"}
+            </Button>
+          </div>
+
           {/* 能力 */}
           <div>
             <label className="text-[10px] text-zinc-500 block mb-0.5">
-              能力清单 <span className="font-mono text-zinc-400">capabilities</span>
+              能力清单
             </label>
             <Input
               value={system.capabilities.join("、")}
@@ -227,7 +273,7 @@ function SystemCard({
           {/* 约束条件 */}
           <div>
             <label className="text-[10px] text-zinc-500 block mb-0.5">
-              约束条件 <span className="font-mono text-zinc-400">constraints</span>
+              约束条件
             </label>
             <div className="space-y-1.5">
               {system.constraints.map((c, ci) => (
@@ -287,7 +333,7 @@ function SystemCard({
           {/* 人工兜底 */}
           <div>
             <label className="text-[10px] text-zinc-500 block mb-0.5">
-              人工兜底方案 <span className="font-mono text-zinc-400">humanFallback</span>
+              人工兜底方案
             </label>
             <Textarea
               value={system.humanFallback}
@@ -313,7 +359,9 @@ function SystemCard({
 
 export default function BindingExternalsSection() {
   const externalSystems = useFlowAgentStore((s) => s.techConfig.externals?.externalSystems);
+  const techBindings = useFlowAgentStore((s) => s.techBindings);
   const setTechExternals = useFlowAgentStore((s) => s.setTechExternals);
+  const setExternalBinding = useFlowAgentStore((s) => s.setExternalBinding);
 
   const systems: ExternalSystemEntry[] = (externalSystems ?? []).map((sys) => ({
     id: sys.id,
@@ -372,7 +420,9 @@ export default function BindingExternalsSection() {
         <SystemCard
           key={sys.id}
           system={sys}
+          binding={techBindings.externalsById[sys.id] ?? {}}
           onChange={(updated) => updateSystem(i, updated)}
+          onBindingChange={(patch) => setExternalBinding(sys.id, patch)}
           onRemove={() => removeSystem(i)}
         />
       ))}

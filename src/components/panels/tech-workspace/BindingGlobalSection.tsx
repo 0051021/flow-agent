@@ -20,7 +20,7 @@ import {
 
 /**
  * 从名称派生 kebab-case 编码：
- *   "GSDS 入库 Job" → "gsds-job"
+ *   "GSDS 入库流程" → "gsds"
  *   "PDF Parser Service" → "pdf-parser-service"
  *   纯中文 → "job-" + 4 位随机
  */
@@ -38,7 +38,7 @@ function slugify(name: string): string {
   return tokens.join("-");
 }
 
-/** 从首节点 inputs 自动推导 Job 输入 Schema 并展示只读预览 */
+/** 从首节点 inputs 自动推导平台入参结构并展示只读预览 */
 function InputSchemaPreview() {
   const nodes = useFlowAgentStore((s) => s.nodes);
 
@@ -94,8 +94,7 @@ function InputSchemaPreview() {
       <div className="flex items-start gap-1.5 mb-3">
         <Info className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
         <p className="text-[11px] text-zinc-400 leading-snug">
-          自动从首节点「{source || "—"}」的用户输入推导，导出 JobSpec 时写入{" "}
-          <span className="font-mono">input_schema</span>。无需手动编写。
+          自动从首节点「{source || "—"}」的用户输入推导，供平台启动任务时校验入参。无需手动编写。
         </p>
       </div>
       {schema ? (
@@ -183,26 +182,26 @@ export default function BindingGlobalSection() {
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
-        <p className="text-[13px] font-semibold text-zinc-800 mb-1">Job 元信息</p>
+        <p className="text-[13px] font-semibold text-zinc-800 mb-1">基础信息</p>
         <p className="text-[11px] text-zinc-400 mb-3">
-          Job 在平台中的唯一标识与基本描述，导出后对应 JobSpec 的 metadata 部分。
+          填写这个自动化流程在平台里的名称、编码和说明。
         </p>
         <div className="space-y-3">
           <div>
             <label className="text-[10px] text-zinc-700 font-medium block mb-0.5">
-              名称 <span className="font-mono text-zinc-400 font-normal">metadata.name</span>
+              名称
             </label>
             <p className="text-[10px] text-zinc-400 mb-1">展示在控制台和审批页</p>
             <Input
               value={techJobMeta.name}
               onChange={(e) => handleNameChange(e.target.value)}
-              placeholder="GSDS 入库 Job"
+              placeholder="填写流程名称"
               className="text-[12px]"
             />
           </div>
           <div>
             <label className="text-[10px] text-zinc-700 font-medium block mb-0.5">
-              唯一编码 <span className="font-mono text-zinc-400 font-normal">metadata.code</span>
+              唯一编码
             </label>
             <div className="flex items-center gap-1.5 mb-1">
               {isCodeLinked ? (
@@ -226,18 +225,18 @@ export default function BindingGlobalSection() {
             <Input
               value={techJobMeta.code}
               onChange={(e) => handleCodeChange(e.target.value)}
-              placeholder="gsds-ingest-job"
+              placeholder="填写平台唯一编码"
               className={`font-mono text-[12px] ${isCodeLinked ? "bg-zinc-50 text-zinc-600" : ""}`}
             />
           </div>
           <div>
             <label className="text-[10px] text-zinc-700 font-medium block mb-0.5">
-              业务说明 <span className="font-mono text-zinc-400 font-normal">metadata.description</span>
+              业务说明
             </label>
             <Textarea
               value={techJobMeta.description}
               onChange={(e) => setTechJobMeta({ description: e.target.value })}
-              placeholder="用一两句话描述这个 Job 做什么…"
+              placeholder="用一两句话描述这个流程做什么…"
               rows={3}
               className="text-[12px] resize-none"
             />
@@ -248,13 +247,13 @@ export default function BindingGlobalSection() {
       <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
         <p className="text-[13px] font-semibold text-zinc-800 mb-1">触发条件</p>
         <p className="text-[11px] text-zinc-400 mb-3">
-          什么情况下会启动这个 Job？从平台已注册的触发器中填写对应编码，一行一项。
+          什么情况下会启动这个流程？从平台已注册的触发器中选择对应编码。
         </p>
         <div className="space-y-2">
           {triggers.map((code, i) => (
             <div key={i} className="flex gap-2 items-center">
               <Select
-                value={code || undefined}
+                value={code ?? ""}
                 onValueChange={(v) => updateTrigger(i, v ?? "")}
               >
                 <SelectTrigger className="text-[12px] w-full min-w-0">
@@ -300,12 +299,12 @@ export default function BindingGlobalSection() {
       <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
         <p className="text-[13px] font-semibold text-zinc-800 mb-1">全局配置</p>
         <p className="text-[11px] text-zinc-400 mb-3">
-          对应 JobSpec 的 <span className="font-mono">globalConfig</span> 部分。
+          影响整个流程运行的通用配置。
         </p>
         <div className="grid grid-cols-1 gap-3">
           <div>
             <label className="text-[10px] text-zinc-700 font-medium block mb-0.5">
-              时区 <span className="font-mono text-zinc-400 font-normal">globalConfig.timezone</span>
+              时区
             </label>
             <Input
               value={g.timezone ?? ""}

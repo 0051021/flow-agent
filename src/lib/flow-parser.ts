@@ -28,7 +28,10 @@ interface LLMNode {
     detail: string;
     source: "ai_inferred" | "user_confirmed";
   }[];
+  workUnitKind?: FlowNodeData["workUnitKind"];
   operationSteps?: string[];
+  judgmentSpec?: FlowNodeData["judgmentSpec"];
+  agenticSpec?: FlowNodeData["agenticSpec"];
   requiredCheckFields?: string[];
   doneCriteria?: string;
   isCondition?: boolean;
@@ -157,7 +160,10 @@ export function parseLLMResponse(data: LLMFlowData): {
         detail: r.detail,
         source: r.source || "ai_inferred",
       })),
+      workUnitKind: n.workUnitKind,
       operationSteps: Array.isArray(n.operationSteps) ? n.operationSteps : [],
+      judgmentSpec: n.judgmentSpec,
+      agenticSpec: n.agenticSpec,
       requiredCheckFields: Array.isArray(n.requiredCheckFields) ? n.requiredCheckFields : [],
       doneCriteria: typeof n.doneCriteria === "string" ? n.doneCriteria : "",
       errorHandling: [

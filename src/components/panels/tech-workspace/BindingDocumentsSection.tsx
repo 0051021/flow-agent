@@ -34,11 +34,11 @@ function DocCard({
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
         <div>
-          <label className="text-[10px] text-zinc-500 block mb-0.5">数据源标识</label>
+          <label className="text-[10px] text-zinc-500 block mb-0.5">数据源编码</label>
           <Input
             value={binding.contextSourceCode ?? ""}
             onChange={(e) => onChange({ contextSourceCode: e.target.value })}
-            placeholder="ContextSource code"
+            placeholder="填写已注册的数据源编码"
             className="font-mono text-[11px] h-8"
           />
         </div>
@@ -54,10 +54,10 @@ function DocCard({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="manual">manual</SelectItem>
-              <SelectItem value="static">static</SelectItem>
-              <SelectItem value="http">http</SelectItem>
-              <SelectItem value="object_storage">object_storage</SelectItem>
+              <SelectItem value="manual">人工上传</SelectItem>
+              <SelectItem value="static">固定文件</SelectItem>
+              <SelectItem value="http">接口获取</SelectItem>
+              <SelectItem value="object_storage">对象存储</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -73,9 +73,9 @@ function DocCard({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="public">public</SelectItem>
-              <SelectItem value="internal">internal</SelectItem>
-              <SelectItem value="confidential">confidential</SelectItem>
+              <SelectItem value="public">公开</SelectItem>
+              <SelectItem value="internal">内部</SelectItem>
+              <SelectItem value="confidential">机密</SelectItem>
             </SelectContent>
           </Select>
         </div>

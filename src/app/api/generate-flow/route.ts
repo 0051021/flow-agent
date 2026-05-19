@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callLLM, streamViaCursorSDK, type StreamEvent, type CallLLMOptions } from "@/lib/llm";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 
 export const maxDuration = 300;
 
@@ -15,6 +17,7 @@ const FLOW_BIZ_SCHEMA = `{
       "label": "节点名称（2-6个字）",
       "icon": "图标名（从以下选择：BarChart3, Target, PenTool, ShieldCheck, Clock, Activity, RefreshCw, Search, FileText, Mail, Database, Zap, Eye, Settings, Upload, Download, Users, Globe, Lock, Bell）",
       "description": "用一句话描述这个节点做什么（20-40字）",
+      "workUnitKind": "manual_operation 或 business_judgment 或 document_check 或 handoff_wait 或 rework_update",
       "executionMode": "pending 或 ai_auto 或 human_confirm 或 human_manual",
       "estimatedTime": "预计耗时（如：约2分钟、约30秒、持续运行）",
       "inputs": [
@@ -34,6 +37,16 @@ const FLOW_BIZ_SCHEMA = `{
           "description": "简短说明"
         }
       ],
+      "operationSteps": ["人工业务动作1", "人工业务动作2"],
+      "judgmentSpec": {
+        "decisionSubject": "如果是业务判断/文件检查节点，这里写原人工流程要判断什么",
+        "informationUsed": ["业务人员会看的信息、材料或上下文"],
+        "judgmentRules": ["原人工流程遵循的判断口径或规则"],
+        "judgmentOutputs": ["判断完成后形成的业务结果"],
+        "escalationConditions": ["原人工流程里升级、交接或找主管/专岗处理的条件"],
+        "riskBoundaries": ["业务人员不能越过的边界"]
+      },
+      "doneCriteria": "这一步做到什么程度算完成",
       "isCondition": false,
       "conditionBranches": null
     }
@@ -268,36 +281,65 @@ ${FLOW_JSON_SCHEMA}`;
 // ============================================================
 
 // ============================================================
-// Prompt: Classify（判断任务类型）— 保留向后兼容
+// Prompt: Readiness Check（业务方案准入判断）
 // ============================================================
 
-const CLASSIFY_SYSTEM = `你是一个企业级 AI 产品架构师。你需要判断用户描述的业务场景属于哪种任务类型。
+const READINESS_CHECK_SYSTEM = `你是业务方案准入判断器。你的任务不是生成流程图，也不是判断 workflow / agentic，而是判断当前 Job 信息是否足够先生成一版业务方案草稿。
 
-**两种任务类型**：
+业务方案可以是固定流程、策略判断、持续运营、复盘沉淀或混合型工作。业务方不需要感知这些分类，统一按“业务方案/业务流程图”处理。
 
-1. **workflow（工作流）**：
-   - 有明确的、固定的步骤顺序，每一步的输入输出是确定的
-   - 流程可以画成流程图，重点是"准确执行每一步"
-   - 典型场景：财务报销、合同审批、进出口报关、IT 工单处理
+**你只做三件事**：
+1. 判断用户是不是在描述一件业务工作或希望整理业务材料。
+2. 判断当前信息是否足够先生成第一版草稿。
+3. 如果不够，最多问 5 个准入问题；默认 1-3 个，只有缺口很多才问到 4-5 个。
 
-2. **agentic（智能体）**：
-   - 有业务目标但执行路径不固定，需要 AI 自主规划和决策
-   - 可能包含部分确定性步骤，但整体以目标驱动
-   - 典型场景：账号运营涨粉、竞品分析、营销活动策划、内容营销、数据报告
+**低门槛准入原则**：
+- 只有“业务目标 + 材料名称”不够生成流程草稿。必须至少满足下面任一条件：
+  1) 用户自然语言里描述了 2 个以上连续业务动作或关键处理关系，例如“收到邮件 → 查找 GSDS → 填写大表 → 上传系统”。
+  2) 用户真实上传了流程方案/SOP/流程图文件，且材料摘要里能看到流程线索。
+  3) 用户明确给出了起点和最终结果，并描述了中间至少一个处理动作。
+- 不要因为缺少角色、系统、规则、异常处理、完整步骤就阻止生成。
+- 如果用户只是说“我要申请 IMI 证书，手上有邮件、GSDS 文件和 Excel 表，想整理一下”，这只有主题和材料，没有流程动作，必须 canDraft=false。
+- 如果用户只是口头提到“我手上有某些文件”，但没有真实上传文件，不要当作材料已可用。
+- 如果用户只说“帮我看看这个”，或只列材料名/文件名，且看不出处理链路，必须 canDraft=false。
+- 例外：如果用户明确说“先按你的理解生成草稿”或“先生成草稿”，说明用户接受不完整草稿，可以 canDraft=true。
 
-**判断标准**：
-- 全是流程（有步骤、有顺序、每步确定性高）→ workflow
-- 有目标驱动的部分（即使也有固定流程）→ agentic
-- 不确定 → agentic
+**准入问题优先级**：
+1. 业务目标：希望整理哪件业务工作？
+2. 处理对象：这件事主要处理什么材料、请求、客户、订单、表单或内容？
+3. 起点：通常从什么事件开始？
+4. 最终结果：最后要产出什么？
+5. 关键判断或规则：中间有没有必须遵守的判断条件？
 
 请输出 JSON：
 {
-  "taskType": "workflow 或 agentic",
-  "reason": "一句话解释为什么是这个类型",
-  "confidence": 0.0-1.0
+  "isBusinessPlanRequest": true,
+  "canDraft": true,
+  "confidence": "high 或 medium 或 low",
+  "known": {
+    "businessGoal": "已知业务目标；未知则为 null",
+    "object": "已知处理对象；未知则为 null",
+    "start": "已知起点；未知则为 null",
+    "end": "已知最终结果；未知则为 null",
+    "keyRules": ["已知关键规则"]
+  },
+  "missing": ["仍缺的信息"],
+  "nextAction": "generate_business_plan 或 ask_readiness_questions",
+  "questions": [
+    {
+      "id": "q1",
+      "question": "给业务方看的自然语言问题",
+      "examples": ["示例A", "示例B", "示例C"]
+    }
+  ],
+  "reason": "一句话说明判断原因"
 }
 
-规则：直接输出合法 JSON，不要用 markdown 代码块包裹。`;
+规则：
+- questions 最多 5 个。
+- canDraft=true 时 questions 必须为空数组。
+- canDraft=false 时 nextAction 必须为 ask_readiness_questions。
+- 直接输出合法 JSON，不要用 markdown 代码块包裹。`;
 
 // ============================================================
 // Prompt: Draft Agentic（生成 Agentic 任务配置草稿）
@@ -320,7 +362,9 @@ const AGENTIC_JSON_SCHEMA = `{
         "name": "阶段名称（动作+目标，专业简洁，如：账号冷启动与基线建立、内容策略验证与优化）",
         "dayRange": [1, 7],
         "status": "pending",
-        "actions": ["具体行动1", "具体行动2"],
+        "responsibility": "模块职责：说明这个模块在持续业务里负责哪类判断、生成或运营事项",
+        "actions": ["业务动作1", "业务动作2"],
+        "focusSignals": ["关注信号：运行中需要关注的业务变化、反馈、机会、风险或策略失效迹象"],
         "successCriteria": {
           "good": "表现好的标准（如：播放>1000）",
           "warning": "需关注的标准（如：播放500-1000）",
@@ -337,7 +381,7 @@ const AGENTIC_JSON_SCHEMA = `{
             "options": ["选项A", "选项B"]
           }
         ],
-        "requiredCapabilities": ["业务侧需要说明的资料、规则文件、表格、模板或时效口径（如：国家补偿规则表、订单号/邮箱/付款截图、首响≤10秒）"]
+        "requiredCapabilities": ["业务侧需要说明的资料、规则文件、表格、模板、素材库、时效口径或结果要求（如：选题库、素材库、账号清单、日报模板、输出脚本/标题/发布时间建议）"]
       }
     ],
     "constraints": [
@@ -535,19 +579,41 @@ ${FLOW_TECH_SCHEMA}`;
 // Prompt: Workflow Draft（专属 workflow 生成）
 // ============================================================
 
-const WORKFLOW_DRAFT_SYSTEM = `你是一个业务流程分析师。用户会描述一个业务场景，可能附带文件（Excel、PDF 等）。
+const WORKFLOW_DRAFT_SYSTEM = `你是业务翻译平台的业务流程生成 Agent。用户会描述一个原本由业务人员人工完成的业务过程，可能附带文件（Excel、PDF 等）。
 
-**你的任务**：把用户描述（或文件内容）忠实地翻译成一个流程图 JSON。
+**你的任务**：把用户描述和当前 Job 文件整理成一份“业务流程澄清稿”的流程图 JSON。
+
+这份产物只用于帮助业务方把原人工业务流程讲清楚，不是最终技术方案，不是可执行 JobSpec，也不是自动化蓝图。
 
 **核心原则**：
-- 有文件时：文件就是真相。文件里有几个步骤就生成几个节点，名称和内容照搬原文，不要多加也不要省略
-- 没文件时：根据用户描述，用你的专业判断生成合理的流程（4-8个节点）
+- 先还原原人工业务，不预设 AI 或系统后续怎么做。
+- 先澄清业务事实，不判断技术可行性，不判断哪些节点应该自动化。
+- 有流程方案文件时：流程方案是强流程证据。文件里有几个明确业务步骤，就优先按这些步骤生成节点。
+- 没有流程方案文件时：根据用户描述生成合理的业务流程澄清稿（通常 4-8 个节点）。
 - 专有名词原样保留（系统名、文件名、公司名、表格名等）
 - inputs/outputs 尽量标明格式（如"IMI申请大表（Excel）"）
 
-**executionMode 规则**：
-- workflow 草稿阶段统一填 "pending"
-- 执行方式由技术评审阶段人工选择，不在业务草稿阶段判断
+**工作单元性质 workUnitKind**：
+- manual_operation：人工操作型节点。业务人员实际做某个动作，例如查找文件、填写表格、上传资料、发送邮件。
+- business_judgment：业务判断型节点。业务人员根据材料、规则或经验作判断，例如判断问题类型、判断是否升级。
+- document_check：文件检查型节点。业务人员对照文件/表格/证书检查字段或一致性。
+- handoff_wait：交接等待型节点。业务人员把材料交给他人/外部机构/系统后等待结果。
+- rework_update：返修回填型节点。业务人员发现错误后返修，或收到结果后回填、归档。
+
+**节点字段规则**：
+- 所有节点 executionMode 统一填 "pending"。执行方式由后续技术评审阶段判断。
+- manual_operation / rework_update 节点必须填写 operationSteps。
+- business_judgment / document_check 节点必须填写 judgmentSpec，表达“原本业务人员怎么判断/检查”，不要写成 AI 推荐。
+- handoff_wait 节点要写清楚交给谁、等待什么结果、多久后跟进。
+- 不适用的字段可以为空数组或 null。
+
+**材料锚定规则（非常重要）**：
+- 如果 JobMaterialBrief 中存在「流程方案」材料，并且其中有 processHints，流程节点必须优先逐条来自 processHints。
+- 不要因为业务名称像“证书申请/审批/评审”就自行补充官方审批节点。
+- 禁止新增未在用户描述或流程方案材料中出现的节点，例如“形式审查”“实质评审”“专家评审”“现场核查”“受理通知书”等。
+- 如果你认为流程缺少一步，但材料里没有证据，不要把它生成成节点；请放到 nodeConfidence.questions 里作为待确认问题。
+- 文件模板只作为输入、输出或字段依据；不要把模板字段拆成流程步骤。
+- 业务规则和 Know-how 只作为节点说明、判断口径或追问依据；不要把规则本身拆成流程步骤。
 
 **输出 JSON 格式**：
 {
@@ -589,9 +655,11 @@ const AGENTIC_DRAFT_SYSTEM = `你是一个资深的 AI 产品架构师。用户�
 
 **阶段规划（phases）是核心，3-7 个阶段**：
 - 阶段名称用"动作+目标"格式（"账号冷启动与基线建立"而非"Phase 1"）
-- 每个阶段包含：actions、successCriteria（三档）、exitCondition
+- 每个阶段包含：responsibility、actions、focusSignals、requiredCapabilities、successCriteria（三档）、exitCondition
+- responsibility 写这个模块在持续业务里负责哪类判断、生成或运营事项
+- focusSignals 写业务运行中要关注的变化、反馈、机会、风险或策略失效迹象，避免写技术监控指标
 - 至少 1 个阶段 requiresApproval
-- requiredCapabilities 只写业务侧资料、规则文件、表格、模板或时效口径，不写技术能力或 Agent 执行动作
+- requiredCapabilities 只写业务侧资料、规则文件、表格、模板、素材库、时效口径或结果要求，不写技术能力或 Agent 执行动作
 
 **业务侧必填**：goalMetrics、executionRules、permissions、fallbacks、approvalPoints、globalSuccessCriteria
 **业务侧可选**：reporting（持续运行、指标追踪、异常通知场景才生成）、executionOverview（仅作导出或技术交接摘要，不作为业务主界面板块）
@@ -765,7 +833,427 @@ const ENRICH_NODE_DETAILS_SYSTEM = `你是业务流程分析助手。你会收�
 - requiredCheckFields 3-8 项，只写字段名/校对项，短语即可。
 - 不得臆造流程外的系统名或文件；若不确定，使用通用业务表述。`;
 
+// ============================================================
+// Prompt: Enrich Node Context（节点材料依据 + 规则依据 + 置信度 + 追问）
+// ============================================================
+
+const NODE_CONTEXT_ENRICH_SYSTEM = `你是节点上下文分析助手。你会收到：
+1) 用户原始业务描述
+2) 当前已经生成的流程图 JSON
+3) 当前业务方案的材料理解层 JobMaterialBrief
+
+你的任务：不要修改流程结构，只给每个节点补充“材料依据、规则依据、置信度和追问”。
+
+严格输出 JSON：
+{
+  "nodePatches": [
+    {
+      "nodeId": "node-1",
+      "attachedMaterials": [
+        {
+          "fileName": "文件名",
+          "category": "workflow_plan 或 business_rule_knowhow 或 file_template 或 uncategorized",
+          "reason": "为什么这份材料和该节点相关"
+        }
+      ],
+      "relatedRules": [
+        {
+          "title": "规则或口径标题",
+          "reason": "为什么这条规则影响该节点"
+        }
+      ],
+      "confidence": "high 或 medium 或 low",
+      "reason": "一句话说明置信度依据",
+      "questions": [
+        {
+          "id": "node-1-material-q1",
+          "question": "需要业务方确认的具体问题",
+          "context": "为什么要问",
+          "defaultSuggestion": "如果没有特别要求，建议怎么处理",
+          "options": ["选项A", "选项B"]
+        }
+      ]
+    }
+  ]
+}
+
+规则：
+- 只返回 nodePatches，不要返回完整流程。
+- 不要新增、删除、重排节点。
+- attachedMaterials 只放确实与节点相关的材料，每个节点最多 3 个。
+- relatedRules 只放影响该节点判断口径的规则，每个节点最多 3 条。
+- 文件模板主要用于 inputs/outputs 或字段依据，不要把字段当成流程步骤。
+- 业务规则和 Know-how 主要用于置信度和追问，不要直接当成流程节点。
+- 如果材料能回答的问题，不要再问用户。
+- 每个节点最多 1 个问题；只问会影响流程理解、文件使用、字段核对或责任边界的问题。
+- 问题必须绑定具体节点，避免“这个流程有什么特殊要求吗”这类泛泛问题。
+- 如果没有上传材料，nodePatches 可以为空数组。
+- 直接输出合法 JSON，不要 markdown 包裹。`;
+
+// ============================================================
+// Prompt: Clarification Questions（基于已生成流程图生成追问）
+// ============================================================
+
+const CLARIFICATION_QUESTIONS_SYSTEM = `你是业务流程澄清助手。你会收到：
+1) 业务方原始描述
+2) 当前已经生成的业务流程澄清稿 JSON
+3) 当前 Job 的材料理解层 JobMaterialBrief
+4) 已经问过或已经确认过的信息
+
+你的任务：只生成业务方容易回答、且能明显提升流程图准确性的追问。不要修改流程图，不要生成 Review，不要判断技术可行性。
+
+严格输出 JSON：
+{
+  "artifactType": "business_flow_clarification_questions",
+  "summary": "一句话说明为什么需要这些问题；如果没有问题，说明当前暂时没有高价值追问",
+  "questions": [
+    {
+      "id": "clarify-node-1-q1",
+      "nodeId": "node-1",
+      "nodeLabel": "节点名称",
+      "priority": "high 或 medium 或 low",
+      "question": "问业务方的问题",
+      "reason": "为什么这个问题会影响流程理解",
+      "options": ["选项A", "选项B", "选项C"],
+      "answerType": "single_choice 或 multi_choice 或 free_text"
+    }
+  ]
+}
+
+提问原则：
+1. 最多 5 个问题，默认只问 1-3 个真正高价值的问题。
+2. 每个问题必须绑定一个具体 nodeId；除非是流程起点/终点这种全局缺口，才允许 nodeId 为空字符串。
+3. 优先问会影响节点顺序、输入输出、判断规则、返修路径、文件使用依据的问题。
+4. 如果问题可以从已上传材料中读到，不要再问业务方。
+5. 如果只是字段文案不够漂亮，不要提问。
+6. 问题必须用业务语言，不要出现 workflow、agentic、schema、executionMode、Skill、JobSpec 等技术词。
+7. 每个问题尽量提供 2-3 个可点击选项；无法列选项时 answerType 用 free_text，options 为空数组。
+8. 不要要求业务方一次性补完整方案；只问当前最影响准确性的内容。
+
+直接输出合法 JSON，不要 markdown 包裹。`;
+
 // callLLM is imported from @/lib/llm (supports Cursor SDK + raw API)
+
+type JobMaterialCategory = "workflow_plan" | "business_rule_knowhow" | "file_template" | "uncategorized";
+
+interface RequestFileContext {
+  path: string;
+  originalName?: string;
+  ext?: string;
+  type?: string;
+  jobMaterialCategory?: JobMaterialCategory;
+}
+
+interface JobMaterialBrief {
+  sourceId: string;
+  fileName: string;
+  category: JobMaterialCategory;
+  fileType: string;
+  summary: string;
+  processHints: string[];
+  ruleHints: string[];
+  templateFields: string[];
+  sampleRows: string[];
+  parseStatus: "ok" | "partial" | "failed";
+}
+
+const JOB_MATERIAL_CATEGORY_LABEL: Record<JobMaterialCategory, string> = {
+  workflow_plan: "流程方案",
+  business_rule_knowhow: "业务规则和 Know-how",
+  file_template: "文件模板",
+  uncategorized: "未分类/待识别",
+};
+
+function isJobMaterialCategory(value: unknown): value is JobMaterialCategory {
+  return value === "workflow_plan"
+    || value === "business_rule_knowhow"
+    || value === "file_template"
+    || value === "uncategorized";
+}
+
+function normalizeRequestFiles(files: unknown, filePaths: unknown): RequestFileContext[] {
+  if (Array.isArray(files)) {
+    return files
+      .filter((file): file is Record<string, unknown> => !!file && typeof file === "object")
+      .map((file) => ({
+        path: typeof file.path === "string" ? file.path : "",
+        originalName: typeof file.originalName === "string" ? file.originalName : undefined,
+        ext: typeof file.ext === "string" ? file.ext : undefined,
+        type: typeof file.type === "string" ? file.type : undefined,
+        jobMaterialCategory: isJobMaterialCategory(file.jobMaterialCategory) ? file.jobMaterialCategory : "uncategorized",
+      }))
+      .filter((file) => file.path);
+  }
+
+  if (Array.isArray(filePaths)) {
+    return filePaths
+      .filter((path): path is string => typeof path === "string" && path.length > 0)
+      .map((path) => ({ path, jobMaterialCategory: "uncategorized" }));
+  }
+
+  return [];
+}
+
+function truncateText(value: string, maxLength: number) {
+  const clean = value.replace(/\s+/g, " ").trim();
+  return clean.length > maxLength ? `${clean.slice(0, maxLength)}...` : clean;
+}
+
+function getFileDisplayName(file: RequestFileContext, index = 0) {
+  return file.originalName || file.path.split("/").pop() || `文件${index + 1}`;
+}
+
+function pickMeaningfulLines(text: string, maxItems: number) {
+  return text
+    .split(/\r?\n|[。；;]/)
+    .map((line) => line.replace(/^\s*[-*•\d一二三四五六七八九十]+[.)、，:：\s-]*/u, "").trim())
+    .filter((line) => line.length >= 4)
+    .slice(0, maxItems);
+}
+
+function buildTextMaterialBrief(file: RequestFileContext, text: string, parseStatus: JobMaterialBrief["parseStatus"] = "ok"): JobMaterialBrief {
+  const ext = (file.ext || path.extname(file.path)).toLowerCase();
+  const category = file.jobMaterialCategory ?? "uncategorized";
+  const lines = pickMeaningfulLines(text, 10);
+  const isWorkflow = category === "workflow_plan";
+  const isRule = category === "business_rule_knowhow";
+
+  return {
+    sourceId: file.path,
+    fileName: getFileDisplayName(file),
+    category,
+    fileType: ext || file.type || "unknown",
+    summary: truncateText(text, 1200),
+    processHints: isWorkflow || category === "uncategorized" ? lines.slice(0, 8) : [],
+    ruleHints: isRule ? lines.slice(0, 8) : [],
+    templateFields: [],
+    sampleRows: [],
+    parseStatus,
+  };
+}
+
+async function buildJobMaterialBrief(file: RequestFileContext): Promise<JobMaterialBrief> {
+  const ext = (file.ext || path.extname(file.path)).toLowerCase();
+  const category = file.jobMaterialCategory ?? "uncategorized";
+  const fileName = getFileDisplayName(file);
+
+  try {
+    if (ext === ".xlsx" || ext === ".xls") {
+      const XLSX = await import("xlsx");
+      const buf = await readFile(file.path);
+      const wb = XLSX.read(buf, { type: "buffer" });
+      const templateFields: string[] = [];
+      const sampleRows: string[] = [];
+      const processHints: string[] = [];
+      const sheetBriefs = wb.SheetNames.slice(0, 5).map((sheetName) => {
+        const ws = wb.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: "", blankrows: false });
+        const nonEmptyRows = rows
+          .map((row, rowIndex) => ({
+            rowNumber: rowIndex + 1,
+            values: row.map((cell) => String(cell || "").trim()),
+          }))
+          .filter((row) => row.values.some(Boolean));
+        const headers = nonEmptyRows[0]?.values.filter(Boolean).slice(0, 18) || [];
+        const samples = nonEmptyRows.slice(1, 4).map((row) => row.values.slice(0, 8).join(" | "));
+        templateFields.push(...headers);
+        sampleRows.push(...samples);
+        if (category === "workflow_plan" || category === "uncategorized") {
+          processHints.push(
+            ...nonEmptyRows
+              .slice(0, 12)
+              .map((row) => {
+                const text = row.values.slice(0, 6).filter(Boolean).join(" ");
+                return text ? `${sheetName} 第${row.rowNumber}行：${text}` : "";
+              })
+              .filter(Boolean)
+          );
+        }
+        return [
+          `Sheet「${sheetName}」`,
+          headers.length > 0 ? `列头：${headers.join("、")}` : "列头：未识别",
+          samples.length > 0 ? `样例行：${samples.join("；")}` : "",
+        ].filter(Boolean).join("；");
+      });
+      return {
+        sourceId: file.path,
+        fileName,
+        category,
+        fileType: ext,
+        summary: sheetBriefs.join("\n   "),
+        processHints: category === "workflow_plan" ? processHints.slice(0, 8) : [],
+        ruleHints: category === "business_rule_knowhow" ? processHints.slice(0, 8) : [],
+        templateFields: Array.from(new Set(templateFields.filter(Boolean))).slice(0, 30),
+        sampleRows: sampleRows.slice(0, 8),
+        parseStatus: "ok",
+      };
+    }
+
+    if (ext === ".csv" || ext === ".tsv") {
+      const content = await readFile(file.path, "utf-8");
+      const rows = content.split(/\r?\n/).filter(Boolean).slice(0, 5);
+      const delimiter = ext === ".tsv" ? "\t" : ",";
+      const headers = rows[0]?.split(delimiter).map((item) => item.trim()).filter(Boolean) || [];
+      const textBrief = buildTextMaterialBrief(file, rows.join("\n"));
+      return {
+        ...textBrief,
+        templateFields: headers.slice(0, 30),
+        sampleRows: rows.slice(1, 5),
+      };
+    }
+
+    if (ext === ".txt" || ext === ".md" || ext === ".json") {
+      const content = await readFile(file.path, "utf-8");
+      return buildTextMaterialBrief(file, content);
+    }
+
+    if (ext === ".pdf") {
+      const { PDFParse } = await import("pdf-parse");
+      const buf = await readFile(file.path);
+      const parser = new PDFParse({ data: buf });
+      const pdf = await parser.getText();
+      await parser.destroy();
+      return buildTextMaterialBrief(file, pdf.text);
+    }
+
+    if (ext === ".docx" || ext === ".doc") {
+      return {
+        sourceId: file.path,
+        fileName,
+        category,
+        fileType: ext,
+        summary: "Word 文档已上传；当前 quick brief 暂不解析正文，会作为文件材料交给后续模型读取。",
+        processHints: [],
+        ruleHints: [],
+        templateFields: [],
+        sampleRows: [],
+        parseStatus: "partial",
+      };
+    }
+
+    if ([".png", ".jpg", ".jpeg"].includes(ext)) {
+      return {
+        sourceId: file.path,
+        fileName,
+        category,
+        fileType: ext,
+        summary: "图片已上传；当前 quick brief 暂不做 OCR，请根据文件名和用户描述判断用途。",
+        processHints: [],
+        ruleHints: [],
+        templateFields: [],
+        sampleRows: [],
+        parseStatus: "partial",
+      };
+    }
+
+    return {
+      sourceId: file.path,
+      fileName,
+      category,
+      fileType: ext || file.type || "unknown",
+      summary: "已上传，暂未生成内容摘要。",
+      processHints: [],
+      ruleHints: [],
+      templateFields: [],
+      sampleRows: [],
+      parseStatus: "partial",
+    };
+  } catch (err) {
+    return {
+      sourceId: file.path,
+      fileName,
+      category,
+      fileType: ext || file.type || "unknown",
+      summary: `quick brief 解析失败：${(err as Error).message}`,
+      processHints: [],
+      ruleHints: [],
+      templateFields: [],
+      sampleRows: [],
+      parseStatus: "failed",
+    };
+  }
+}
+
+async function buildFileContextBlock(files: RequestFileContext[]) {
+  if (files.length === 0) return "";
+
+  const materialBriefs = await Promise.all(files.slice(0, 8).map((file) => buildJobMaterialBrief(file)));
+
+  const lines = materialBriefs.map((brief, index) => {
+    const detailLines = [
+      `${index + 1}. ${brief.fileName}`,
+      `   - 材料分类：${JOB_MATERIAL_CATEGORY_LABEL[brief.category]}`,
+      `   - 文件类型：${brief.fileType}`,
+      `   - 解析状态：${brief.parseStatus}`,
+      `   - 摘要：${brief.summary || "未生成摘要"}`,
+      brief.processHints.length > 0 ? `   - 可作为流程线索：${brief.processHints.join("；")}` : "",
+      brief.ruleHints.length > 0 ? `   - 可作为业务规则/Know-how：${brief.ruleHints.join("；")}` : "",
+      brief.templateFields.length > 0 ? `   - 可作为模板字段：${brief.templateFields.join("、")}` : "",
+      brief.sampleRows.length > 0 ? `   - 样例行：${brief.sampleRows.join("；")}` : "",
+    ];
+    return detailLines.filter(Boolean).join("\n");
+  });
+
+  return `\n\n--- 当前业务方案的材料理解层 JobMaterialBrief ---\n${lines.join("\n")}\n\n材料使用规则：\n- 「流程方案」中的 processHints 优先用于抽取流程步骤、顺序、角色和分支。\n- 「业务规则和 Know-how」中的 ruleHints 用于理解判断口径、校验标准、注意事项，不要直接当成流程节点。\n- 「文件模板」中的 templateFields / sampleRows 用于理解输入输出、字段结构、表格/表单用途，不要把字段列表误当成流程步骤。\n- 「未分类/待识别」需要根据摘要和内容自行判断角色。\n- 如果用户描述与材料冲突，优先保留用户描述，并把冲突作为待确认点。`;
+}
+
+function buildReadinessGuard(prompt: string, files: RequestFileContext[]) {
+  if (files.length > 0) return null;
+
+  const text = prompt.replace(/\s+/g, "");
+  if (text.includes("先按你的理解生成草稿") || text.includes("先生成草稿")) return null;
+  const processMarkers = [
+    "首先", "然后", "接着", "再", "最后", "如果", "否则", "之后", "过", "收到", "提交",
+    "查找", "找到", "使用", "填写", "上传", "生成", "发送", "检查", "核对", "更新",
+    "导出", "导入", "审批", "确认", "回填", "补充", "归档", "流转", "转交",
+  ];
+  const weakMaterialOnly = /(手上有|有一些|有.*文件|相关材料|帮我看看|整理一下)/u.test(text);
+  const markerCount = processMarkers.reduce((count, marker) => count + (text.includes(marker) ? 1 : 0), 0);
+  const hasConnectorChain = /(首先|然后|接着|最后|如果|否则).*(然后|接着|最后|如果|否则|之后)/u.test(text);
+  const enoughProcessText = markerCount >= 3 || hasConnectorChain;
+
+  if (!enoughProcessText && (weakMaterialOnly || text.length < 60)) {
+    return {
+      isBusinessPlanRequest: true,
+      canDraft: false,
+      confidence: "high",
+      known: {
+        businessGoal: text.includes("IMI") ? "可能是 IMI 证书申请" : null,
+        object: "用户提到的业务材料",
+        start: null,
+        end: null,
+        keyRules: [],
+      },
+      missing: ["缺少业务动作链路", "缺少流程起点", "缺少最终产出或后续处理方式"],
+      nextAction: "ask_readiness_questions",
+      questions: [
+        {
+          id: "q1",
+          question: "这件事通常从什么事件开始？",
+          examples: ["收到领导邮件", "客户提交申请", "系统生成工单"],
+        },
+        {
+          id: "q2",
+          question: "拿到这些材料后，你会先做哪一步？",
+          examples: ["按 BBN/Part 查找 GSDS", "核对申请表字段", "先确认目的港要求"],
+        },
+        {
+          id: "q3",
+          question: "中间有哪些必须完成的业务动作？",
+          examples: ["填写申请大表", "上传中外运系统", "发送申请资料给海关"],
+        },
+        {
+          id: "q4",
+          question: "最后希望得到什么结果，收到结果后还要做什么？",
+          examples: ["生成申请资料", "收到 IMI 证书并检查", "回填证书编号和有效期"],
+        },
+      ],
+      reason: "当前只有业务主题和材料名称，没有足够的流程动作，直接生成会导致系统脑补步骤。",
+    };
+  }
+
+  return null;
+}
 
 // ============================================================
 // Few-shot examples for dynamic prompt injection
@@ -815,12 +1303,13 @@ const FEW_SHOT_EXAMPLES: FewShotExample[] = [
     keywords: ["运营", "内容", "发布", "涨粉", "营销", "推广", "账号", "社交", "小红书", "抖音", "矩阵", "批量"],
     category: "运营类",
     userInput: "小红书账号运营，分析竞品制定策略，生成内容并发布，监控数据调整",
-    keyTraits: `好的方案特征（Agentic类型，阶段驱动）：
+    keyTraits: `好的方案特征（Agentic类型，信号驱动）：
 - 目标明确：3个月涨粉5万，附推理依据（coreReasoning）
 - 阶段清晰：账号冷启动与基线建立（1-7天）→ 内容策略验证与优化（8-21天）→ 规模化内容产出（22-60天）→ 增长冲刺与目标达成（61-90天）
-- 每个阶段有明确的 actions、successCriteria（三档）、exitCondition
+- 每个阶段有明确的 responsibility、actions、focusSignals、requiredCapabilities、successCriteria（三档）、exitCondition
+- focusSignals 写业务信号：内容表现、用户反馈、平台风险、机会信号、资源消耗、策略失效迹象
 - 至少1个阶段 requiresApproval（如策略调整阶段）
-- 每个阶段有 requiredCapabilities，但只放业务资料/规则文件/时效口径（如：内容规范文档、发布时间口径、数据表字段），不要写技术能力或 Agent 执行动作
+- 每个阶段有 requiredCapabilities，但只放业务资料/规则文件/时效口径/结果要求（如：内容规范文档、选题库、素材库、发布时间口径、数据表字段、脚本/标题输出标准），不要写技术能力或 Agent 执行动作
 - fallbacks：跨模块异常情况怎么处理，例如连续3天涨粉不足→策略复盘，合规连续失败→暂停发布
 - executionOverview：用通俗语言描述Agent每天的工作流程
 - contentPreview：2-3条像真实帖子的示例内容
@@ -867,8 +1356,11 @@ export async function POST(req: NextRequest) {
     } catch {
       return NextResponse.json({ error: "请求体格式错误" }, { status: 400 });
     }
-    const { prompt, action = "draft", currentFlow, currentConfig, feedback, nodeId, nodeLabel, answers, nodeAnswers, filePaths, strictTerminology } = body;
-    const fileOpts = Array.isArray(filePaths) && filePaths.length > 0 ? { filePaths: filePaths as string[] } : {};
+    const { prompt, action = "draft", currentFlow, currentConfig, feedback, nodeId, nodeLabel, answers, nodeAnswers, filePaths, files, strictTerminology, history, confirmedFacts, maxQuestions } = body;
+    const requestFiles = normalizeRequestFiles(files, filePaths);
+    const requestFilePaths = requestFiles.map((file) => file.path);
+    const fileContextBlock = await buildFileContextBlock(requestFiles);
+    const fileOpts = requestFilePaths.length > 0 ? { filePaths: requestFilePaths } : {};
 
     const hasCursor = !!process.env.CURSOR_API_KEY;
     const hasOpenAI = !!process.env.OPENAI_API_KEY;
@@ -877,7 +1369,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "LLM 配置缺失（需要 CURSOR_API_KEY，或 OPENAI_API_KEY，或 LLM_API_KEY + LLM_BASE_URL）" }, { status: 500 });
     }
 
-    // --- Action: unified_draft (SSE stream: classify → generate) ---
+    // --- Action: unified_draft (SSE stream: readiness → generate) ---
     if (action === "unified_draft") {
       if (!prompt?.trim()) {
         return NextResponse.json({ error: "请输入业务描述" }, { status: 400 });
@@ -890,40 +1382,79 @@ export async function POST(req: NextRequest) {
       const stream = new ReadableStream({
         async start(controller) {
           try {
-            // ── Step 1: 分类（走原始 API，快速短回复） ──
+            // ── Step 1: 准入判断（走原始 API，快速短回复） ──
             controller.enqueue(sse({ type: "stage", stage: "classify_start" }));
-            controller.enqueue(sse({ type: "progress", message: "正在分析任务类型..." }));
+            controller.enqueue(sse({ type: "progress", message: "正在理解业务场景..." }));
 
-            let taskType = "workflow";
-            let classifyReason = "";
+            let readiness = {
+              isBusinessPlanRequest: true,
+              canDraft: true,
+              confidence: "medium",
+              known: {},
+              missing: [] as string[],
+              nextAction: "generate_business_plan",
+              questions: [] as Array<{ id?: string; question?: string; examples?: string[] }>,
+              reason: "",
+            };
             try {
-              const classifyResult = await callLLM(CLASSIFY_SYSTEM, prompt, {
-                temperature: 0.1,
-                maxTokens: 200,
-                expectJson: true,
-                preferChannel: "raw",
-              });
-              taskType = classifyResult?.taskType ?? "workflow";
-              classifyReason = classifyResult?.reason ?? "";
-              if (taskType === "hybrid") taskType = "agentic";
-              console.log("[classify]", taskType, classifyReason);
+              const guardedReadiness = buildReadinessGuard(prompt, requestFiles);
+              if (guardedReadiness) {
+                readiness = guardedReadiness;
+              } else {
+                const readinessInput = fileContextBlock ? `${prompt}${fileContextBlock}` : prompt;
+                const readinessResult = await callLLM(READINESS_CHECK_SYSTEM, readinessInput, {
+                  temperature: 0.1,
+                  maxTokens: 1200,
+                  expectJson: true,
+                  preferChannel: "raw",
+                });
+                readiness = {
+                  ...readiness,
+                  ...readinessResult,
+                  canDraft: readinessResult?.canDraft !== false,
+                  questions: Array.isArray(readinessResult?.questions) ? readinessResult.questions.slice(0, 5) : [],
+                };
+              }
+              if (readiness.canDraft) {
+                readiness.questions = [];
+                readiness.nextAction = "generate_business_plan";
+              }
+              console.log("[readiness]", readiness.canDraft, readiness.reason);
             } catch (err) {
-              console.warn("[classify] failed:", (err as Error).message);
+              console.warn("[readiness] failed:", (err as Error).message);
             }
 
             controller.enqueue(sse({
-              type: "classify",
-              taskType,
-              classifyReason,
+              type: "readiness",
+              readiness,
             }));
             controller.enqueue(sse({ type: "stage", stage: "classify_done" }));
 
+            if (!readiness.canDraft) {
+              controller.enqueue(sse({
+                type: "done",
+                success: false,
+                action: "ask_readiness_questions",
+                taskType: "workflow",
+                readiness,
+                data: {
+                  questions: readiness.questions,
+                  missing: readiness.missing,
+                  known: readiness.known,
+                  reason: readiness.reason,
+                },
+              }));
+              return;
+            }
+
             // ── Step 2: 流式生成（走 Cursor Agent） ──
             controller.enqueue(sse({ type: "stage", stage: "draft_start" }));
-            const hasFiles = Array.isArray(filePaths) && filePaths.length > 0;
+            const hasFiles = requestFiles.length > 0;
             const fewShotHint = hasFiles ? "" : selectFewShotExample(prompt);
-            const enrichedPrompt = fewShotHint ? `${prompt}${fewShotHint}` : prompt;
-            const systemPrompt = taskType === "agentic" ? AGENTIC_DRAFT_SYSTEM : WORKFLOW_DRAFT_SYSTEM;
+            const enrichedPrompt = `${prompt}${fileContextBlock}${fewShotHint || ""}`;
+            const taskType = "workflow";
+            const classifyReason = readiness.reason || "";
+            const systemPrompt = WORKFLOW_DRAFT_SYSTEM;
 
             const provider = (process.env.LLM_PROVIDER || "").toLowerCase();
             const preferOpenAI = (provider === "codex" || provider === "openai") && !!process.env.OPENAI_API_KEY;
@@ -941,31 +1472,18 @@ export async function POST(req: NextRequest) {
                 } else if (event.type === "done") {
                   controller.enqueue(sse({ type: "stage", stage: "draft_done" }));
                   const result = event.result;
-                  if (taskType === "agentic") {
-                    const agConfig = result?.agenticConfig || result;
-                    const config = agConfig?.config || agConfig;
-                    controller.enqueue(sse({
-                      type: "done",
-                      success: true,
-                      taskType,
-                      classifyReason,
-                      data: config,
-                      projectName: agConfig?.projectName || result?.projectName || "",
-                    }));
-                  } else {
-                    const flow = result?.flow || result;
-                    if (!Array.isArray(flow?.edges)) {
-                      if (flow) flow.edges = [];
-                    }
-                    controller.enqueue(sse({
-                      type: "done",
-                      success: true,
-                      taskType,
-                      classifyReason,
-                      data: flow,
-                      nodeConfidence: result?.nodeConfidence || [],
-                    }));
+                  const flow = result?.flow || result;
+                  if (!Array.isArray(flow?.edges)) {
+                    if (flow) flow.edges = [];
                   }
+                  controller.enqueue(sse({
+                    type: "done",
+                    success: true,
+                    taskType,
+                    classifyReason,
+                    data: flow,
+                    nodeConfidence: result?.nodeConfidence || [],
+                  }));
                 } else if (event.type === "error") {
                   controller.enqueue(sse({ type: "error", error: event.message }));
                 }
@@ -977,31 +1495,18 @@ export async function POST(req: NextRequest) {
                 ...fileOpts,
               });
               controller.enqueue(sse({ type: "stage", stage: "draft_done" }));
-              if (taskType === "agentic") {
-                const agConfig = result?.agenticConfig || result;
-                const config = agConfig?.config || agConfig;
-                controller.enqueue(sse({
-                  type: "done",
-                  success: true,
-                  taskType,
-                  classifyReason,
-                  data: config,
-                  projectName: agConfig?.projectName || result?.projectName || "",
-                }));
-              } else {
-                const flow = result?.flow || result;
-                if (!Array.isArray(flow?.edges)) {
-                  if (flow) flow.edges = [];
-                }
-                controller.enqueue(sse({
-                  type: "done",
-                  success: true,
-                  taskType,
-                  classifyReason,
-                  data: flow,
-                  nodeConfidence: result?.nodeConfidence || [],
-                }));
+              const flow = result?.flow || result;
+              if (!Array.isArray(flow?.edges)) {
+                if (flow) flow.edges = [];
               }
+              controller.enqueue(sse({
+                type: "done",
+                success: true,
+                taskType,
+                classifyReason,
+                data: flow,
+                nodeConfidence: result?.nodeConfidence || [],
+              }));
             }
           } catch (err) {
             console.error("[unified_draft stream]", err);
@@ -1129,6 +1634,66 @@ export async function POST(req: NextRequest) {
         refined.edges = currentFlow.edges || [];
       }
       return NextResponse.json({ success: true, data: refined });
+    }
+
+    // --- Action: clarification_questions (ask only; do not mutate flow) ---
+    if (action === "clarification_questions") {
+      if (!currentFlow || !Array.isArray(currentFlow.nodes) || currentFlow.nodes.length === 0) {
+        return NextResponse.json({ error: "缺少当前流程图节点" }, { status: 400 });
+      }
+
+      const questionLimit = Math.max(1, Math.min(5, Number(maxQuestions) || 5));
+      const clarificationInput = [
+        `原始业务描述：${prompt || "未提供"}`,
+        `\n当前业务流程澄清稿：\n${JSON.stringify(currentFlow, null, 2)}`,
+        fileContextBlock || "\n当前业务方案未上传材料。",
+        `\n已经问过或已经回答过的信息：\n${JSON.stringify({ history: history || [], confirmedFacts: confirmedFacts || [] }, null, 2)}`,
+        `\n本次最多生成 ${questionLimit} 个追问。`,
+      ].join("\n");
+
+      const clarified = await callLLM(CLARIFICATION_QUESTIONS_SYSTEM, clarificationInput, {
+        temperature: 0.2,
+        expectJson: true,
+        preferChannel: "raw",
+      });
+
+      const questions = Array.isArray(clarified?.questions)
+        ? clarified.questions.slice(0, questionLimit)
+        : [];
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          artifactType: "business_flow_clarification_questions",
+          summary: typeof clarified?.summary === "string" ? clarified.summary : "",
+          questions,
+        },
+      });
+    }
+
+    // --- Action: enrich_node_context (material evidence/rules/confidence/questions) ---
+    if (action === "enrich_node_context") {
+      if (!currentFlow || !Array.isArray(currentFlow.nodes) || currentFlow.nodes.length === 0) {
+        return NextResponse.json({ error: "缺少流程图节点" }, { status: 400 });
+      }
+
+      const enrichInput = [
+        `原始需求：${prompt || "未提供"}`,
+        `\n当前流程图：\n${JSON.stringify(currentFlow, null, 2)}`,
+        fileContextBlock || "\n当前业务方案未上传材料。",
+      ].join("\n");
+
+      const enriched = await callLLM(NODE_CONTEXT_ENRICH_SYSTEM, enrichInput, {
+        temperature: 0.2,
+        expectJson: true,
+        preferChannel: "raw",
+      });
+
+      if (!enriched?.nodePatches || !Array.isArray(enriched.nodePatches)) {
+        return NextResponse.json({ error: "节点上下文增强结果格式异常" }, { status: 502 });
+      }
+
+      return NextResponse.json({ success: true, data: enriched });
     }
 
     // --- Action: enrich_node_details_batch (async enrich SOP/check fields/done criteria) ---

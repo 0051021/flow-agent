@@ -1,4 +1,4 @@
-import type { FlowNodeData } from "./types";
+import type { AgenticPhase, FlowNodeData, WorkUnitKind } from "./types";
 import type { AgenticTaskConfig } from "./types";
 import type { Node, Edge } from "@xyflow/react";
 import type { ChatMessage } from "./store";
@@ -32,6 +32,403 @@ const defaultErrorHandling = [
 
 const defaultTechConfig = { executionType: "deterministic" as const, feasibility: "pending" as const };
 const intelligentTechConfig = { executionType: "intelligent" as const, feasibility: "pending" as const };
+const demoEdgeStyle = { stroke: "#64748b", strokeWidth: 3 };
+
+function inferFlowIcon(name: string): string {
+  if (/发布|内容|脚本|选题/.test(name)) return "PenTool";
+  if (/数据|复盘|报告|分析/.test(name)) return "BarChart3";
+  if (/审核|确认|审批|Offer|录用/.test(name)) return "UserCheck";
+  if (/筛选|识别|分级|判断|评估/.test(name)) return "Search";
+  if (/客服|FAQ|咨询/.test(name)) return "MessageSquare";
+  if (/项目|任务|进度|跟进/.test(name)) return "Clock";
+  if (/合规|风险|质检/.test(name)) return "ShieldCheck";
+  return "Sparkles";
+}
+
+function inferWorkUnitKind(phase: AgenticPhase): WorkUnitKind {
+  const text = `${phase.name} ${phase.responsibility || ""} ${phase.actions.join(" ")}`;
+  if (/确认|审批|Offer|录用/.test(phase.name) && phase.requiresApproval) return "human_gate";
+  if (/复盘|报告|沉淀|反馈/.test(text)) return "agentic_feedback";
+  if (/生成|内容|脚本|文案|JD/.test(text)) return "agentic_generation";
+  if (/判断|识别|筛选|分级|评估|分析/.test(text)) return "agentic_judgment";
+  if (phase.requiresApproval) return "agentic_strategy";
+  return "workflow_step";
+}
+
+function phaseCheckRulesText(phase: AgenticPhase): string {
+  const criteria = [
+    `达标：${phase.successCriteria.good}`,
+    `需关注：${phase.successCriteria.warning}`,
+    `不通过：${phase.successCriteria.bad}`,
+  ];
+  if (phase.requiresApproval) {
+    criteria.push(`需确认：${phase.approvalDescription || "该阶段关键判断需要负责人确认"}`);
+  }
+  return criteria.join("；");
+}
+
+function agenticPhaseToFlowNode(
+  phase: AgenticPhase,
+  index: number,
+  total: number,
+  reviewId: string,
+  previousPhase?: AgenticPhase,
+): Node<FlowNodeData> {
+  const workUnitKind = inferWorkUnitKind(phase);
+  const capabilityInputs = (phase.requiredCapabilities || []).slice(0, 2).map((capability, inputIndex) => ({
+    id: `cap-${inputIndex + 1}`,
+    name: capability,
+    icon: "📎",
+    description: "本阶段需要参考或补充的业务资料",
+    required: false,
+    source: "default" as const,
+    dataType: "business_context",
+  }));
+
+  return {
+    id: `${reviewId}-flow-node-${index + 1}`,
+    type: "flowCard",
+    position: { x: 300, y: index * 360 },
+    data: {
+      label: phase.name,
+      icon: inferFlowIcon(phase.name),
+      description: phase.responsibility || phase.actions.slice(0, 2).join("；") || phase.exitCondition,
+      stepIndex: index + 1,
+      totalSteps: total,
+      executionMode: phase.requiresApproval ? "human_confirm" : "ai_auto",
+      estimatedTime: `D${phase.dayRange[0]}-D${phase.dayRange[1]}`,
+      workUnitKind,
+      agenticSpec: workUnitKind === "workflow_step" ? undefined : {
+        strategyActionType: workUnitKind,
+        decisionSubject: phase.responsibility || phase.name,
+        focusSignals: (phase.focusSignals?.length ? phase.focusSignals : phase.requiredCapabilities || []).slice(0, 5),
+        aiActions: phase.actions.slice(0, 5),
+        recommendationOutputs: [
+          phase.exitCondition,
+          ...phase.successCriteria.good.split(/[，；、]/).slice(0, 2),
+        ].filter(Boolean),
+        humanConfirmation: phase.requiresApproval ? [phase.approvalDescription || "需要负责人确认"] : [],
+        riskBoundaries: (phase.questions || []).map((question) => question.question).slice(0, 3),
+      },
+      inputs: [
+        index === 0
+          ? { id: "i-main", name: "业务目标与现有资料", icon: "📌", description: "业务老师提供的目标、规则、资料和边界", required: true, source: "user" as const, dataType: "business_context" }
+          : { id: "i-prev", name: previousPhase?.name || "上一步结果", icon: "➡️", description: "承接上一工作单元的结果", required: true, source: "previous_step" as const, sourceDetail: previousPhase ? `自动从「${previousPhase.name}」获取` : undefined, dataType: "business_result" },
+        ...capabilityInputs,
+      ],
+      outputs: [
+        { id: "o-main", name: `${phase.name}结果`, icon: "✅", description: phase.exitCondition, flowsTo: index < total - 1 ? [`${reviewId}-flow-node-${index + 2}`] : [], dataType: "business_result" },
+      ],
+      executionRules: [
+        { rule: phase.exitCondition, detail: "该节点完成后应达到的业务状态。", source: "user_confirmed" as const },
+        ...(phase.requiresApproval ? [{ rule: phase.approvalDescription || "需要负责人确认", detail: "该节点包含业务判断或关键动作，需保留人工确认边界。", source: "user_confirmed" as const }] : []),
+      ],
+      operationSteps: phase.actions,
+      checkRulesText: phaseCheckRulesText(phase),
+      doneCriteria: phase.exitCondition,
+      errorHandling: defaultErrorHandling,
+      techConfig: workUnitKind === "workflow_step" || workUnitKind === "human_gate" ? defaultTechConfig : intelligentTechConfig,
+    },
+  };
+}
+
+export function presentAgenticReviewAsWorkflow(review: MockReview): Pick<MockReview, "nodes" | "edges" | "chatMessages" | "nodeCount"> | null {
+  if (!review.agenticConfig?.phases?.length) return null;
+  const phases = review.agenticConfig.phases;
+  const nodes = phases.map((phase, index) =>
+    agenticPhaseToFlowNode(phase, index, phases.length, review.id, phases[index - 1])
+  );
+  const edges: Edge[] = phases.slice(0, -1).map((phase, index) => ({
+    id: `${review.id}-flow-edge-${index + 1}`,
+    source: `${review.id}-flow-node-${index + 1}`,
+    target: `${review.id}-flow-node-${index + 2}`,
+    type: "smoothstep",
+    animated: true,
+    style: demoEdgeStyle,
+  }));
+
+  return {
+    nodeCount: nodes.length,
+    nodes,
+    edges,
+    chatMessages: [
+      {
+        id: `${review.id}-flow-u1`,
+        role: "user",
+        content: review.prompt,
+        timestamp: "2026-05-18T05:00:00Z",
+      },
+      {
+        id: `${review.id}-flow-a1`,
+        role: "assistant",
+        content: `已把「${review.projectName}」整理成业务流程图。\n\n这份图不先区分任务类型，而是把业务工作拆成 ${nodes.length} 个工作单元：固定操作、业务判断、处理策略、人工确认和复盘沉淀都会放在同一张流程图里。`,
+        timestamp: "2026-05-18T05:00:05Z",
+      },
+      {
+        id: `${review.id}-flow-a2`,
+        role: "assistant",
+        content: `你可以逐个点击节点，补充本步说明、资料与产出、判断规则和完成标准。需要确认的地方会保留人工把关边界，后续再交给技术方翻译成实现方案。`,
+        timestamp: "2026-05-18T05:00:10Z",
+      },
+    ],
+  };
+}
+
+const afterSalesAssistedNodes: Node<FlowNodeData>[] = [
+  {
+    id: "r9-node-1",
+    type: "flowCard",
+    position: { x: 300, y: 0 },
+    data: {
+      label: "收到售后工单",
+      icon: "Mail",
+      description: "接收客户在聊天、邮件或平台工单中的售后诉求，并关联客户与订单线索。",
+      stepIndex: 1,
+      totalSteps: 7,
+      executionMode: "ai_auto",
+      estimatedTime: "实时",
+      workUnitKind: "workflow_step",
+      inputs: [
+        { id: "i1", name: "客户消息", icon: "💬", description: "客户原始售后诉求", required: true, source: "user", dataType: "text" },
+        { id: "i2", name: "渠道来源", icon: "🌐", description: "平台、邮件、在线客服或社媒私信", required: true, source: "user", dataType: "string" },
+      ],
+      outputs: [
+        { id: "o1", name: "售后工单", icon: "🎫", description: "带客户消息和渠道来源的待处理工单", flowsTo: ["r9-node-2"], dataType: "json" },
+      ],
+      executionRules: [
+        { rule: "所有售后咨询必须先生成工单", detail: "避免多渠道重复处理和客户重复说明。", source: "user_confirmed" },
+      ],
+      operationSteps: ["接收客户消息", "识别渠道来源", "关联客户与订单线索", "生成待处理售后工单"],
+      checkRulesText: "同一客户、同一订单的重复咨询需要合并到已有工单，避免重复处理。",
+      doneCriteria: "已形成售后工单，并保留客户原始诉求、渠道来源和可用于后续查询的线索。",
+      errorHandling: defaultErrorHandling,
+      techConfig: defaultTechConfig,
+    },
+  },
+  {
+    id: "r9-node-2",
+    type: "flowCard",
+    position: { x: 300, y: 240 },
+    data: {
+      label: "识别语言与问题类型",
+      icon: "Globe",
+      description: "识别客户语言、售后问题类型、情绪风险和是否缺少必要材料。",
+      stepIndex: 2,
+      totalSteps: 7,
+      executionMode: "ai_auto",
+      estimatedTime: "约 5 秒",
+      workUnitKind: "agentic_judgment",
+      agenticSpec: {
+        strategyActionType: "signal_watch + diagnosis",
+        decisionSubject: "判断客户使用语言、售后问题类型、缺失材料和情绪升级风险。",
+        focusSignals: ["客户语言", "问题类型", "情绪风险", "是否缺订单号/照片/付款截图"],
+        aiActions: ["识别语种", "归类退款/退货/物流延误/破损/支付失败", "判断是否需要先澄清材料"],
+        recommendationOutputs: ["问题类型", "所需补充材料", "情绪风险等级"],
+        humanConfirmation: ["无法识别语义或情绪极端时转人工"],
+        riskBoundaries: ["涉及退款承诺前必须先完成订单和政策判断"],
+      },
+      inputs: [
+        { id: "i1", name: "售后工单", icon: "🎫", description: "来自上一步", required: true, source: "previous_step", sourceDetail: "自动从「收到售后工单」获取", dataType: "json" },
+      ],
+      outputs: [
+        { id: "o1", name: "问题分类", icon: "🏷️", description: "语言、问题类型、情绪风险、缺失材料", flowsTo: ["r9-node-3"], dataType: "json" },
+      ],
+      executionRules: [
+        { rule: "按客户输入语言回复", detail: "退款金额、政策条款和拒绝原因必须使用标准话术。", source: "ai_inferred" },
+      ],
+      operationSteps: ["判断客户使用语言", "识别退款/退货/物流延误/破损/支付失败等问题类型", "判断是否缺少订单号、照片或付款截图", "识别客户情绪和升级风险"],
+      checkRulesText: "无法识别语义、客户情绪极端或诉求涉及投诉升级时，需要转人工澄清；涉及退款承诺前必须先完成订单和政策判断。",
+      doneCriteria: "输出语言、问题类型、缺失材料和情绪风险等级，能支撑下一步补齐材料。",
+      errorHandling: defaultErrorHandling,
+      techConfig: intelligentTechConfig,
+    },
+  },
+  {
+    id: "r9-node-3",
+    type: "flowCard",
+    position: { x: 300, y: 480 },
+    data: {
+      label: "补齐必要材料",
+      icon: "FileText",
+      description: "根据问题类型要求客户补充订单号、邮箱、付款截图或破损照片。",
+      stepIndex: 3,
+      totalSteps: 7,
+      executionMode: "human_confirm",
+      estimatedTime: "约 1 分钟",
+      workUnitKind: "workflow_step",
+      inputs: [
+        { id: "i1", name: "问题分类", icon: "🏷️", description: "识别出的售后类型和缺失材料", required: true, source: "previous_step", sourceDetail: "自动从「识别语言与问题类型」获取", dataType: "json" },
+      ],
+      outputs: [
+        { id: "o1", name: "完整处理材料", icon: "📎", description: "可用于查询和判断的客户材料", flowsTo: ["r9-node-4"], dataType: "json" },
+      ],
+      executionRules: [
+        { rule: "破损类问题必须有照片", detail: "照片用于判断破损程度和是否符合补发/退款规则。", source: "user_confirmed" },
+        { rule: "没有订单号时可用邮箱或付款截图辅助定位", detail: "展示和记录时需要脱敏。", source: "ai_inferred" },
+      ],
+      operationSteps: ["检查客户是否提供订单号", "缺订单号时要求补充邮箱或付款截图", "破损类问题要求补充照片", "材料齐全后进入订单/物流/支付查询"],
+      checkRulesText: "只收集处理当前售后所需的必要材料；涉及邮箱、付款截图等敏感信息时需要脱敏展示和记录。",
+      doneCriteria: "订单定位材料和问题证明材料已补齐，能进入系统查询。",
+      errorHandling: defaultErrorHandling,
+      techConfig: defaultTechConfig,
+    },
+  },
+  {
+    id: "r9-node-4",
+    type: "flowCard",
+    position: { x: 300, y: 720 },
+    data: {
+      label: "查询订单/物流/支付状态",
+      icon: "Search",
+      description: "查询订单、物流、支付和历史工单，形成可用于处理判断的上下文。",
+      stepIndex: 4,
+      totalSteps: 7,
+      executionMode: "ai_auto",
+      estimatedTime: "约 15 秒",
+      workUnitKind: "workflow_step",
+      inputs: [
+        { id: "i1", name: "完整处理材料", icon: "📎", description: "订单号、邮箱、照片或付款截图", required: true, source: "previous_step", sourceDetail: "自动从「补齐必要材料」获取", dataType: "json" },
+      ],
+      outputs: [
+        { id: "o1", name: "订单上下文", icon: "📦", description: "订单状态、物流轨迹、支付状态、历史售后记录", flowsTo: ["r9-node-5"], dataType: "json" },
+      ],
+      executionRules: [
+        { rule: "系统查询失败时不能承诺退款或补偿", detail: "只能说明当前可查状态，并进入异常工单或人工处理。", source: "user_confirmed" },
+      ],
+      operationSteps: ["查询订单状态", "查询物流轨迹和预计送达时间", "查询支付状态和历史售后记录", "汇总可用于判断的订单上下文"],
+      checkRulesText: "订单、物流、支付任一系统不可用时，不得给出确定处理结论；需要说明当前可查状态并转人工或异常工单。",
+      doneCriteria: "订单上下文包含订单状态、物流轨迹、支付状态和历史售后记录。",
+      errorHandling: defaultErrorHandling,
+      techConfig: defaultTechConfig,
+    },
+  },
+  {
+    id: "r9-node-5",
+    type: "flowCard",
+    position: { x: 300, y: 960 },
+    data: {
+      label: "推荐处理方案",
+      icon: "Sparkles",
+      description: "根据售后政策、订单状态和风险边界，判断退款、退货、补发、优惠券、拒绝或转主管。",
+      stepIndex: 5,
+      totalSteps: 7,
+      executionMode: "human_confirm",
+      estimatedTime: "约 20 秒",
+      workUnitKind: "agentic_strategy",
+      agenticSpec: {
+        strategyActionType: "strategy_select + recommendation",
+        decisionSubject: "判断客户应该走退款、退货、补发、优惠券、拒绝说明还是主管处理。",
+        focusSignals: ["退款金额", "售后期限", "物流延误天数", "客户历史投诉", "疑似欺诈/拒付风险"],
+        aiActions: ["匹配售后政策", "检索相似历史案例", "比较可选处理方案", "给出推荐理由和风险提示"],
+        recommendationOutputs: ["推荐处理方案", "推荐理由", "风险等级", "是否需要主管确认"],
+        humanConfirmation: ["超过50美元", "疑似欺诈", "政策外补偿", "客户投诉升级"],
+        riskBoundaries: ["不直接拒绝客户诉求", "不承诺政策外补偿", "资金动作必须留审计记录"],
+      },
+      inputs: [
+        { id: "i1", name: "订单上下文", icon: "📦", description: "订单、物流、支付和历史工单信息", required: true, source: "previous_step", sourceDetail: "自动从「查询订单/物流/支付状态」获取", dataType: "json" },
+        { id: "i2", name: "售后政策", icon: "📘", description: "退款、退货、补发、物流补偿和升级规则", required: true, source: "default", dataType: "policy" },
+      ],
+      outputs: [
+        { id: "o1", name: "处理建议", icon: "🧭", description: "推荐方案、理由、风险等级和确认要求", flowsTo: ["r9-node-6"], dataType: "json" },
+      ],
+      executionRules: [
+        { rule: "单笔≤50美元且符合政策可普通处理", detail: "超过50美元必须主管确认。", source: "user_confirmed" },
+        { rule: "物流延误先查承运商状态", detail: "确实超过预计送达时间后，再按国家和渠道判断优惠券、补发或退款。", source: "user_confirmed" },
+      ],
+      operationSteps: ["核对退款金额和售后期限", "判断是否符合店铺和平台售后政策", "按问题类型匹配退款、退货、补发、优惠券或拒绝方案", "判断是否需要主管确认或进入异常工单"],
+      checkRulesText: "≤50美元且符合政策的小额退款可普通处理；超过50美元、高风险退款、疑似欺诈、客户投诉升级和政策外补偿必须转主管或专岗客服确认。",
+      doneCriteria: "输出处理建议、推荐理由、风险等级，以及是否需要主管确认。",
+      isCondition: true,
+      conditionBranches: [
+        { label: "普通处理", icon: "✅", targetLabel: "确认并执行处理" },
+        { label: "转主管", icon: "⚠️", targetLabel: "确认并执行处理" },
+      ],
+      errorHandling: defaultErrorHandling,
+      techConfig: intelligentTechConfig,
+    },
+  },
+  {
+    id: "r9-node-6",
+    type: "flowCard",
+    position: { x: 300, y: 1200 },
+    data: {
+      label: "确认并执行处理",
+      icon: "UserCheck",
+      description: "根据处理建议执行普通售后，或由主管确认高风险/高金额/政策外方案。",
+      stepIndex: 6,
+      totalSteps: 7,
+      executionMode: "human_confirm",
+      estimatedTime: "约 1-3 分钟",
+      workUnitKind: "human_gate",
+      inputs: [
+        { id: "i1", name: "处理建议", icon: "🧭", description: "建议处理方式和风险说明", required: true, source: "previous_step", sourceDetail: "自动从「推荐处理方案」获取", dataType: "json" },
+      ],
+      outputs: [
+        { id: "o1", name: "处理结果", icon: "✅", description: "退款、退货标签、补发、优惠券、拒绝说明或异常工单", flowsTo: ["r9-node-7"], dataType: "json" },
+      ],
+      executionRules: [
+        { rule: "高风险与政策外动作必须人工确认", detail: "包括超额退款、疑似欺诈、拒付风险、客户投诉升级和政策外补偿。", source: "user_confirmed" },
+        { rule: "普通处理也必须记录依据", detail: "记录规则命中、订单状态和客户是否接受。", source: "ai_inferred" },
+      ],
+      operationSteps: ["核对处理建议和风险等级", "普通处理场景按规则执行", "高风险或政策外场景提交主管确认", "记录最终处理结果和确认依据"],
+      checkRulesText: "金额>50美元、疑似欺诈或拒付、客户连续两次不满意、政策外补偿必须主管确认。",
+      doneCriteria: "已形成可执行处理结果，并记录确认人、处理理由、客户反馈和审计信息。",
+      confirmStrategy: {
+        strategy: "rule_based",
+        rules: ["金额>50美元", "疑似欺诈/拒付", "政策外补偿", "客户连续两次不满意"],
+      },
+      errorHandling: defaultErrorHandling,
+      techConfig: defaultTechConfig,
+    },
+  },
+  {
+    id: "r9-node-7",
+    type: "flowCard",
+    position: { x: 300, y: 1440 },
+    data: {
+      label: "回写工单与复盘规则",
+      icon: "RefreshCw",
+      description: "沉淀处理结果、客户反馈和规则缺口，用于后续优化售后政策和标准话术。",
+      stepIndex: 7,
+      totalSteps: 7,
+      executionMode: "ai_auto",
+      estimatedTime: "每日复盘",
+      workUnitKind: "agentic_feedback",
+      agenticSpec: {
+        strategyActionType: "feedback_update",
+        decisionSubject: "判断哪些处理结果、重复咨询原因和规则缺口需要沉淀到后续售后策略里。",
+        focusSignals: ["客户是否接受", "重复咨询原因", "异常工单比例", "规则缺口", "CSAT变化"],
+        aiActions: ["生成工单摘要", "归类未解决原因", "发现高频规则缺口", "建议补充话术和政策"],
+        recommendationOutputs: ["每日复盘摘要", "规则补充建议", "高频问题清单"],
+        feedbackUpdate: ["人工最终选择的方案", "客户是否二次追问", "主管修正意见", "需要更新的政策/话术"],
+      },
+      inputs: [
+        { id: "i1", name: "处理结果", icon: "✅", description: "执行结果、客户反馈和审计记录", required: true, source: "previous_step", sourceDetail: "自动从「确认并执行处理」获取", dataType: "json" },
+      ],
+      outputs: [
+        { id: "o1", name: "复盘与规则建议", icon: "📊", description: "重复咨询原因、政策缺口、标准话术优化建议", flowsTo: ["r9-node-5"], dataType: "markdown" },
+      ],
+      executionRules: [
+        { rule: "每日复盘未解决问题和重复咨询原因", detail: "用于更新售后政策、材料要求和多语言话术。", source: "user_confirmed" },
+      ],
+      operationSteps: ["回写本次处理结果和客户是否接受", "记录重复咨询或未解决原因", "归类政策缺口和话术缺口", "生成每日复盘摘要和规则补充建议"],
+      checkRulesText: "同类问题连续多天被客户反复追问时，需要进入周复盘；涉及政策争议的案例要沉淀为规则补充建议。",
+      doneCriteria: "产出每日复盘摘要、规则补充建议和高频问题清单，并能反哺后续处理策略。",
+      errorHandling: defaultErrorHandling,
+      techConfig: intelligentTechConfig,
+    },
+  },
+];
+
+const afterSalesAssistedEdges: Edge[] = [
+  { id: "r9-e1", source: "r9-node-1", target: "r9-node-2", type: "smoothstep", animated: true, style: { stroke: "#64748b", strokeWidth: 3 } },
+  { id: "r9-e2", source: "r9-node-2", target: "r9-node-3", type: "smoothstep", animated: true, style: { stroke: "#64748b", strokeWidth: 3 } },
+  { id: "r9-e3", source: "r9-node-3", target: "r9-node-4", type: "smoothstep", animated: true, style: { stroke: "#64748b", strokeWidth: 3 } },
+  { id: "r9-e4", source: "r9-node-4", target: "r9-node-5", type: "smoothstep", animated: true, style: { stroke: "#64748b", strokeWidth: 3 } },
+  { id: "r9-e5", source: "r9-node-5", target: "r9-node-6", type: "smoothstep", animated: true, style: { stroke: "#64748b", strokeWidth: 3 } },
+  { id: "r9-e6", source: "r9-node-6", target: "r9-node-7", type: "smoothstep", animated: true, style: { stroke: "#64748b", strokeWidth: 3 } },
+  { id: "r9-e7-feedback", source: "r9-node-7", target: "r9-node-5", type: "smoothstep", animated: true, style: { stroke: "#f59e0b", strokeWidth: 3, strokeDasharray: "6 4" } },
+];
 
 export const MOCK_REVIEWS: MockReview[] = [
   // ============================================================
@@ -1254,19 +1651,179 @@ export const MOCK_REVIEWS: MockReview[] = [
   },
 
   // ============================================================
-  // review-9: 跨境电商售后处理 (Agentic — 事件驱动 + 业务规则)
+  // review-10: TikTok 内容矩阵运营（Agentic — 营销/运营/生成类新版）
+  // ============================================================
+  {
+    id: "review-10",
+    title: "TikTok 内容矩阵运营",
+    type: "agentic" as const,
+    submittedBy: "海外增长部 · 林经理",
+    submittedAt: "刚刚",
+    status: "pending",
+    description: "围绕多账号内容矩阵，持续生成选题脚本、观察表现信号、调整内容策略并沉淀模板",
+    nodeCount: 4,
+    prompt: "我们海外增长部要做 TikTok 内容矩阵运营，先运营 60 个账号，后续扩到 200 个。账号覆盖好物推荐、开箱测评、使用教程、场景种草四类内容。我们希望每天根据账号定位生成选题、脚本、标题、标签和发布时间建议；发布后持续看播放、完播、互动、涨粉、评论反馈和平台风险，判断哪些内容方向值得加大，哪些账号要降频或换方向。大方向调整、预算加投、内容方向新增需要运营负责人确认。目标是 8 周内筛出 10 个高潜账号，沉淀 20 个可复用内容模板，并把选题和复盘效率提升起来。",
+    projectName: "TikTok 内容矩阵运营",
+    agenticConfig: {
+      goal: "8周内用内容矩阵持续验证账号方向、沉淀爆款模板，并筛出10个高潜账号",
+      background: "海外增长部希望用多账号矩阵快速验证 TikTok 内容方向。当前团队能提供账号清单、素材库、品牌红线和部分爆款样例，但每天选题、脚本生成、数据复盘和策略调整靠人工会很重。这个任务更像持续运营伙伴：持续生成内容、观察业务信号、根据反馈调整策略，并把有效经验沉淀成模板。",
+      totalDays: 56,
+      globalSuccessCriteria: "8周内筛出10个高潜账号，沉淀20个可复用内容模板，内容复盘能稳定指导下一轮选题",
+      approvalPoints: ["新增内容方向需要运营负责人确认", "单账号加投预算超过50美元/天需要确认", "批量停更或转向超过10个账号需要确认"],
+      fallbacks: [
+        { trigger: "某类内容连续被判定为平台风险或合规不确定", action: "暂停该内容方向，整理风险样例给运营负责人确认", severity: "critical" as const },
+        { trigger: "账号连续7天播放和互动都低于基线", action: "标记为待调整账号，优先更换选题方向或发布频率", severity: "warning" as const },
+        { trigger: "评论区出现集中负面反馈或品牌争议", action: "停止复用相关模板，并整理评论样例进入复盘", severity: "critical" as const },
+      ],
+      phases: [
+        {
+          id: "phase-1",
+          name: "账号定位与内容资产准备",
+          dayRange: [1, 7] as [number, number],
+          status: "confirmed" as const,
+          responsibility: "维护账号矩阵的基础业务信息，让每个账号有清楚定位、内容方向、素材来源和合规边界。",
+          actions: ["整理账号清单、目标市场、语言和内容方向", "为账号分配好物推荐、开箱测评、使用教程或场景种草方向", "整理可用素材、禁用素材、品牌红线和竞品参考", "标记哪些账号需要运营负责人先确认方向"],
+          focusSignals: ["账号定位是否过于相似", "素材是否被过度复用", "是否缺少某个市场或语言的内容样例", "哪些账号方向一开始就存在合规疑虑"],
+          successCriteria: { good: "账号定位、素材和红线都清楚，能支撑后续批量生成", warning: "部分账号定位或素材来源不清，需要补充", bad: "账号方向高度重复或缺少合规边界，无法进入内容生成" },
+          exitCondition: "账号清单、内容方向和素材边界被业务确认",
+          requiresApproval: false,
+          questions: [
+            { id: "r10-p1-q1", question: "60个账号是否需要按目标市场分组？", context: "这会影响语言、发布时间、素材风格和复盘维度。", options: ["按美国/欧洲/东南亚分组", "先按内容方向分组", "账号数量少，先不分市场"] },
+          ],
+          requiredCapabilities: ["账号清单", "目标市场与语言", "素材库", "品牌红线", "竞品/爆款样例", "账号定位表"],
+        },
+        {
+          id: "phase-2",
+          name: "选题脚本与发布建议生成",
+          dayRange: [8, 21] as [number, number],
+          status: "reviewing" as const,
+          responsibility: "持续为不同账号生成选题、脚本、标题、标签和发布时间建议，让内容生产稳定供给。",
+          actions: ["根据账号定位生成每日选题池", "为选题生成短视频脚本、标题、标签和开头钩子", "匹配素材或标记需要补拍的素材", "把需要人工确认的内容方向集中交给运营负责人"],
+          focusSignals: ["哪些选题被反复采用但表现下降", "哪些标题或开头钩子更容易带来互动", "哪些素材经常不够用或不适配", "哪些内容方向需要人工确认后再继续生成"],
+          successCriteria: { good: "每天能稳定产出可用选题和脚本，人工只需审核少量方向问题", warning: "部分内容方向素材不足或标题风格不稳定", bad: "生成内容大量不可用，无法支撑发布节奏" },
+          exitCondition: "选题、脚本、标题和标签的输出格式被业务确认",
+          requiresApproval: true,
+          approvalDescription: "新增内容方向、品牌表达变化或高风险素材使用需要运营负责人确认",
+          questions: [
+            { id: "r10-p2-q1", question: "脚本输出需要精细到分镜吗？", context: "如果要给拍摄/剪辑使用，输出粒度需要更细。", options: ["只要选题+标题+脚本文案", "需要分镜+镜头节奏", "按内容类型区分输出粒度"] },
+          ],
+          requiredCapabilities: ["选题库", "脚本输出模板", "标题/标签规则", "素材匹配规则", "发布时间口径", "需人工确认的内容方向清单"],
+        },
+        {
+          id: "phase-3",
+          name: "表现反馈与策略调整",
+          dayRange: [22, 42] as [number, number],
+          status: "pending" as const,
+          responsibility: "根据内容表现和账号反馈，判断哪些账号、内容方向和模板值得加大，哪些需要降频、换方向或暂停。",
+          actions: ["汇总播放、完播、互动、涨粉和评论反馈", "识别高潜账号、低效账号和异常账号", "给出加大发布、降频、换题材或暂停的建议", "把预算加投和方向大改提交运营负责人确认"],
+          focusSignals: ["某类内容连续起量", "账号播放或完播突然下滑", "评论区出现新需求或负面反馈", "加投后获粉成本异常", "平台疑似限流或内容被拦截"],
+          successCriteria: { good: "能稳定识别高潜账号和有效内容方向，策略建议能被运营采纳", warning: "部分账号表现波动大，需要延长观察", bad: "策略建议无法解释业务原因，或经常错判高潜账号" },
+          exitCondition: "高潜账号标准、降频规则和加投确认方式被业务确认",
+          requiresApproval: true,
+          approvalDescription: "预算加投、批量降频、内容方向大改需要运营负责人确认",
+          questions: [
+            { id: "r10-p3-q1", question: "高潜账号优先看哪类指标？", context: "不同增长目标会影响账号分层逻辑。", options: ["涨粉优先", "互动率优先", "播放和完播综合判断", "按转化/引流表现判断"] },
+          ],
+          requiredCapabilities: ["账号数据表", "高潜账号判定口径", "预算加投规则", "降频/停更规则", "策略调整记录模板"],
+        },
+        {
+          id: "phase-4",
+          name: "内容复盘与模板沉淀",
+          dayRange: [43, 56] as [number, number],
+          status: "pending" as const,
+          responsibility: "把有效内容模式沉淀为可复用模板，把失败原因、风险样例和用户反馈转成下一轮选题依据。",
+          actions: ["复盘爆款内容和失败内容", "提炼标题、开头、脚本结构、素材风格和评论反馈规律", "更新可复用内容模板和禁用样例", "生成下一轮选题方向和账号调整建议"],
+          focusSignals: ["哪些模板持续有效", "哪些模板开始失效", "哪些评论反馈代表新选题机会", "哪些内容容易触发风险或品牌争议", "竞品是否出现新的起量内容形式"],
+          successCriteria: { good: "能沉淀20个可复用模板，并明确下一轮选题方向", warning: "模板有效但适用账号范围不清", bad: "复盘只停留在数据描述，无法指导下一轮内容" },
+          exitCondition: "内容模板库、失败案例库和下一轮选题方向完成",
+          requiresApproval: false,
+          questions: [],
+          requiredCapabilities: ["爆款案例库", "失败案例库", "评论反馈样例", "竞品内容样例", "模板沉淀格式", "下一轮选题建议输出标准"],
+        },
+      ],
+      executionOverview: "这个方案不是一次性流程，而是持续运营：围绕账号、内容、数据反馈和复盘模板不断循环，持续生成内容建议、识别业务信号、调整策略，并把有效经验沉淀成下一轮内容资产。",
+      constraints: [
+        { id: "r10-c1", type: "quality" as const, description: "内容方向", value: "好物推荐、开箱测评、使用教程、场景种草四类为主" },
+        { id: "r10-c2", type: "compliance" as const, description: "品牌与平台红线", value: "不搬运、不涉政、不虚假宣传，不使用未授权素材" },
+        { id: "r10-c3", type: "budget" as const, description: "加投确认", value: "单账号加投超过50美元/天需负责人确认" },
+        { id: "r10-c4", type: "time" as const, description: "验证周期", value: "8周内筛出10个高潜账号" },
+      ],
+      goalMetrics: {
+        core: "8周内筛出10个高潜账号，沉淀20个可复用内容模板",
+        coreReasoning: "内容矩阵的价值不只在批量发布，而在持续找到有效内容模式并反哺下一轮生成；高潜账号和模板沉淀比单条数据更适合作为业务验收点。",
+        process: ["每周完成一次账号分层", "每周复盘爆款与失败内容", "每轮更新选题库和模板库"],
+        baseline: ["平台风险内容必须暂停复用", "新增内容方向必须负责人确认", "预算加投必须有账号表现依据"],
+        benchmarks: ["短视频矩阵通常需要连续多轮选题试错", "账号表现要结合播放、互动、涨粉和评论反馈综合判断"],
+      },
+      executionRules: [
+        { category: "内容方向", rules: ["好物推荐、开箱测评、使用教程、场景种草四类为主", "新增方向需要运营负责人确认"], source: "user_confirmed" as const },
+        { category: "账号分层", rules: ["高潜账号需要结合播放、完播、互动、涨粉和评论反馈判断", "低效账号先换选题方向，再考虑降频或停更"], source: "ai_inferred" as const },
+        { category: "内容复盘", rules: ["爆款模板需要记录适用账号、素材类型、开头钩子和评论反馈", "失败内容需要记录失败原因和是否可复用"], source: "ai_inferred" as const },
+      ],
+      permissions: {
+        autonomous: [
+          { action: "生成选题、脚本、标题和标签建议", reason: "属于内容草案，不直接改变业务结果" },
+          { action: "汇总账号和内容表现，标记高潜/低效/异常信号", reason: "基于业务数据做运营辅助判断" },
+          { action: "沉淀爆款模板和失败案例", reason: "用于下轮选题参考，不直接发布" },
+        ],
+        needApproval: [
+          { trigger: "新增内容方向", description: "超出既定四类内容方向", risk: "medium" as const, consequence: "可能偏离品牌定位或平台风险边界" },
+          { trigger: "单账号加投超过50美元/天", description: "涉及预算使用", risk: "high" as const, consequence: "可能造成投放成本失控" },
+          { trigger: "批量降频或停更超过10个账号", description: "影响矩阵规模和实验覆盖", risk: "medium" as const, consequence: "可能过早放弃后续有潜力账号" },
+        ],
+        safeguards: ["合规不确定内容不进入发布建议", "预算加投必须附带数据依据", "争议评论和负面反馈进入复盘，不直接扩大复用"],
+      },
+      reporting: {
+        daily: { enabled: true, auto: true, sampleContent: "每日记录：各账号发布内容、选题方向、素材来源、播放/完播/互动/涨粉、评论反馈、是否出现平台风险、是否需要负责人确认。" },
+        weekly: { enabled: true, content: "每周复盘高潜账号、起量选题、失效模板、评论反馈机会、平台风险样例、下一轮选题方向和素材缺口。", sampleContent: "本周复盘：开箱测评类内容在美国账号表现最好，前3秒强视觉冲击的脚本完播更高；场景种草类评论里频繁出现价格和购买链接问题，需要补充购买路径说明；2个账号疑似因素材复用过高被限流，下周减少同素材变体分发。" },
+        alerts: { triggers: [
+          { condition: "账号连续7天播放和互动都低于基线", severity: "warning" as const },
+          { condition: "内容被平台风险拦截或评论出现集中争议", severity: "critical" as const },
+          { condition: "某类内容连续起量，需要评估是否加大", severity: "info" as const },
+          { condition: "素材库不足以支撑下一周内容生产", severity: "warning" as const },
+        ] },
+        milestones: ["完成账号定位和素材边界确认", "完成首轮选题脚本输出验收", "确认高潜账号判定口径", "沉淀第一批可复用内容模板"],
+        channel: "运营周会文档 + 飞书增长群；重大方向调整单独通知运营负责人",
+      },
+      contentPreview: {
+        samples: [
+          { title: "开箱测评脚本", summary: "为高潜账号生成 30 秒开箱脚本、标题、标签和前三秒钩子", type: "内容草案", tags: ["开箱测评", "脚本"], expectedMetrics: "提高完播和互动" },
+          { title: "账号分层建议", summary: "根据近7天表现把账号标记为高潜、观察、低效，并说明原因", type: "运营建议", tags: ["账号分层"], expectedMetrics: "提升资源分配效率" },
+          { title: "模板沉淀", summary: "把表现好的脚本结构沉淀为可复用模板，并标注适用账号类型", type: "复盘资产", tags: ["模板库"], expectedMetrics: "提升下轮选题效率" },
+        ],
+        generationLogic: "基于账号定位、素材库、品牌红线、历史内容表现、评论反馈和竞品样例生成内容建议，并根据表现信号持续调整。",
+      },
+      estimatedDuration: "8周首轮验证，之后持续运营",
+      estimatedEfficiency: "把选题、脚本、数据复盘和模板沉淀从人工分散处理，变成每周可持续迭代的运营闭环",
+      skills: [],
+      evaluators: [],
+      executionStrategy: "adaptive" as const,
+      maxIterations: 8,
+      humanCheckpoints: ["新增内容方向需确认", "预算加投需确认", "批量停更或转向需确认"],
+    },
+    chatMessages: [
+      { id: "r10-u1", role: "user", content: "我们海外增长部要做 TikTok 内容矩阵运营，先运营 60 个账号，后续扩到 200 个。账号覆盖好物推荐、开箱测评、使用教程、场景种草四类内容。希望每天生成选题、脚本、标题、标签和发布时间建议，发布后看数据和评论反馈，持续调整策略。大方向调整、预算加投、内容方向新增需要负责人确认。", timestamp: "2026-05-12T08:20:00Z" },
+      { id: "r10-a1", role: "assistant", content: "分析完成，判断为更典型的 Agentic 运营任务：它不是一次性流程，而是围绕账号、内容、反馈和复盘持续循环。", timestamp: "2026-05-12T08:20:04Z" },
+      { id: "r10-a2", role: "assistant", content: "已生成「TikTok 内容矩阵运营」方案：4 个运营模块，重点展示模块职责、业务动作、关注信号、资料与结果要求。", timestamp: "2026-05-12T08:20:12Z" },
+    ],
+  },
+
+  // ============================================================
+  // review-9: 跨境电商售后处理（策略型流程：Workflow with Strategy Nodes）
   // ============================================================
   {
     id: "review-9",
     title: "跨境电商售后处理",
-    type: "agentic" as const,
+    type: "workflow" as const,
     submittedBy: "客服体验部 · 周经理",
     submittedAt: "刚刚",
     status: "pending",
-    description: "多语言售后咨询、退款退货、物流争议和异常工单处理规则梳理",
-    nodeCount: 4,
+    description: "售后主流程固定，其中问题识别、方案推荐和复盘沉淀属于业务判断与处理策略",
+    nodeCount: 7,
     prompt: "我们做跨境电商，售后团队每天大概处理1200条咨询，主要是退款、退货、物流延误、商品破损和支付失败。现在客服会先看客户使用的语言，再确认客户的问题类型。如果客户没有提供订单号，会让客户补充订单号、邮箱或付款截图；商品破损还需要客户提供照片。拿到信息后，客服会去订单系统、物流系统和支付系统里查状态。我们的规则是：50美元以内、符合售后政策的小额退款，普通客服可以直接处理；超过50美元、高风险退款、疑似欺诈、客户投诉升级、政策外补偿，都需要转给主管或专门客服处理。物流延误类问题会先查承运商状态，如果确实超过预计送达时间，再根据国家和物流渠道判断是否给优惠券、补发或退款。现在多语言沟通、查订单和判断规则占用大量客服时间，我们希望平均解决时间从10分钟降到2分钟，重复咨询率降低20%，但不能降低客户满意度。",
     projectName: "跨境电商售后处理",
+    nodes: afterSalesAssistedNodes,
+    edges: afterSalesAssistedEdges,
     agenticConfig: {
       goal: "梳理跨境电商退款、退货、物流争议和支付失败咨询的处理规则，将平均解决时间从10分钟降到2分钟，同时保持客户满意度不下降",
       background: "当前售后团队每天约1200条咨询，覆盖英语、西语、法语和中文。问题类型高度重复，但涉及退款、物流和客诉升级，需要把材料要求、判断规则、处理时效和异常处理边界讲清楚。",
@@ -1450,8 +2007,8 @@ export const MOCK_REVIEWS: MockReview[] = [
     },
     chatMessages: [
       { id: "r9-u1", role: "user", content: "我们做跨境电商，售后团队每天大概处理1200条咨询，主要是退款、退货、物流延误、商品破损和支付失败。现在客服会先看客户使用的语言，再确认客户的问题类型。如果客户没有提供订单号，会让客户补充订单号、邮箱或付款截图；商品破损还需要客户提供照片。拿到信息后，客服会去订单系统、物流系统和支付系统里查状态。我们的规则是：50美元以内、符合售后政策的小额退款，普通客服可以直接处理；超过50美元、高风险退款、疑似欺诈、客户投诉升级、政策外补偿，都需要转给主管或专门客服处理。物流延误类问题会先查承运商状态，如果确实超过预计送达时间，再根据国家和物流渠道判断是否给优惠券、补发或退款。现在多语言沟通、查订单和判断规则占用大量客服时间，我们希望平均解决时间从10分钟降到2分钟，重复咨询率降低20%，但不能降低客户满意度。", timestamp: "2026-05-11T08:30:00Z" },
-      { id: "r9-a1", role: "assistant", content: "分析完成，判断为 **持续处理型业务**。\n\n这不是一条固定顺序的售后流程，而是每天持续进入的大量售后咨询：需要先接待客户、看懂客户问题、查询相关系统、按规则处理普通售后，并在风险、金额或客户体验触发条件出现时进入异常工单。", timestamp: "2026-05-11T08:30:05Z" },
-      { id: "r9-a2", role: "assistant", content: "已生成「跨境电商售后处理」业务规则草稿：\n\n**目标**：平均解决时间从10分钟降到2分钟，重复咨询率降低20%\n**业务内容**：多语言接待、订单/物流/支付查询、售后政策判断、普通售后处理、异常工单摘要\n**规则边界**：≤50美元小额退款按普通规则处理；高风险、政策外、客户不满和超额退款进入异常工单\n\n右侧方案中有 3 处需要业务确认，主要集中在订单查询权限、物流延误补偿标准和小额退款上限。", timestamp: "2026-05-11T08:30:15Z" },
+      { id: "r9-a1", role: "assistant", content: "分析完成，判断为 **策略型流程**。\n\n售后处理主线是固定业务流程，从接收工单、补齐材料、查询状态，到确认执行和回写复盘。但其中「识别问题类型」「推荐处理方案」「复盘规则缺口」不是简单步骤，而是业务人员需要依据政策、风险和客户状态做判断的策略节点。", timestamp: "2026-05-11T08:30:05Z" },
+      { id: "r9-a2", role: "assistant", content: "已生成「跨境电商售后处理」流程图：\n\n**主流程**：收到工单 → 识别语言与问题类型 → 补齐材料 → 查询订单/物流/支付 → 推荐处理方案 → 确认并执行 → 回写复盘\n\n**策略判断节点**：问题识别、处理方案推荐、规则复盘\n**确认边界**：超过50美元、疑似欺诈、投诉升级、政策外补偿。", timestamp: "2026-05-11T08:30:15Z" },
     ],
   },
 ];
