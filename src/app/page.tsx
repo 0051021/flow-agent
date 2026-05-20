@@ -272,7 +272,7 @@ export default function HomePage() {
                 ref={fileInputRef}
                 type="file"
                 className="hidden"
-                accept=".pdf,.xlsx,.xls,.docx,.txt,.csv,.md,.json,.png,.jpg,.jpeg"
+                accept=".pdf,.ppt,.pptx,.xlsx,.xls,.docx,.txt,.csv,.md,.json,.png,.jpg,.jpeg"
                 multiple
                 onChange={handleFileSelect}
               />

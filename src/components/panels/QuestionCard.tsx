@@ -89,6 +89,7 @@ function SingleNodeBlock({
             { label: q.defaultSuggestion, isDefault: true },
             ...(q.options || []).map((o) => ({ label: o, isDefault: false })),
           ];
+          const selectedIsCustom = !!selected && !allOptions.some((opt) => opt.label === selected);
 
           return (
             <div key={q.id}>
@@ -133,6 +134,22 @@ function SingleNodeBlock({
                     </button>
                   );
                 })}
+
+                {selectedIsCustom && !showCustom && (
+                  <button
+                    className="w-full flex items-start gap-2 px-2.5 py-1.5 rounded-lg border border-blue-300 bg-blue-50 ring-1 ring-blue-200 text-left"
+                    onClick={() => onToggleCustom(q.id)}
+                    disabled={disabled}
+                    title="点击修改自定义回答"
+                  >
+                    <Pencil className="mt-0.5 w-3 h-3 text-blue-500 shrink-0" />
+                    <span className="min-w-0 flex-1 text-[11px] leading-relaxed text-blue-700 font-medium">
+                      <span className="text-blue-500 text-[10px] mr-1">你的回答</span>
+                      {selected}
+                    </span>
+                    <CheckCircle2 className="mt-0.5 w-3 h-3 text-blue-500 shrink-0" />
+                  </button>
+                )}
 
                 {showCustom ? (
                   <div className="flex gap-1.5 mt-1">
@@ -303,7 +320,7 @@ export default function NodeQuestionPage({
       {/* Page header */}
       <div className="px-3 pt-2.5 pb-2 border-b border-zinc-100 flex items-center justify-between">
         <span className="text-[10px] text-zinc-400 font-medium">
-          {totalPages > 1 ? `第 ${pageIdx + 1}/${totalPages} 页` : `${pendingNodes.length} 个节点待确认`}
+          {totalPages > 1 ? `初稿澄清 · 第 ${pageIdx + 1}/${totalPages} 页` : `初稿澄清 · ${pendingNodes.length} 个节点待确认`}
         </span>
         <div className="flex items-center gap-2">
           {pendingNodes.length > 1 && (

@@ -5,7 +5,6 @@ import type {
   BindingCheckItem,
   BindingCompletionResult,
   EnvAssumptionEntry,
-  ExternalSystem,
   FlowNodeData,
   GlobalResourceBindings,
   NodeBindingEntry,
@@ -17,7 +16,6 @@ import type {
 } from "./types";
 
 export const DEFAULT_GLOBAL_BINDINGS: GlobalResourceBindings = {
-  timezone: "Asia/Shanghai",
 };
 
 /** Effective skill codes for a node binding (migrates legacy skillBindingCode). */
@@ -50,14 +48,14 @@ export function createDefaultAdaptiveConfig(): AdaptiveConfigState {
 }
 
 /**
- * Heuristic completion: Job metadata & triggers, each doc has code, each ext has tool/secret or skipped,
- * each node has taskType + runtime + skill when not human_review.
+ * Heuristic completion: Job metadata & triggers, and each node has taskType + runtime + skill/context when not human_review.
+ * Resource definitions such as Tool endpoint, Secret provider, Runtime retry, and ContextPolicy rules are checked by registry/readiness.
  */
 export function computeBindingCompletion(
   techBindings: TechBindingState,
   nodes: Node<FlowNodeData>[],
-  documents: TechDocumentsData | null,
-  externals: TechExternalsData | null,
+  _documents: TechDocumentsData | null,
+  _externals: TechExternalsData | null,
   opts?: {
     jobMeta?: { code: string; name: string };
     jobTriggerCodes?: string[];
@@ -79,41 +77,7 @@ export function computeBindingCompletion(
     hint: "至少填写一个 trigger code（已在 task-platform 注册）",
   });
 
-  const docs = documents?.documents ?? [];
-  if (docs.length === 0) {
-    checks.push({ ok: true, label: "无文档需绑定（AI 未生成文档契约）" });
-  } else {
-    let docOk = 0;
-    for (const d of docs) {
-      const b = techBindings.documentsById[d.id];
-      const ok = !!(b?.contextSourceCode?.trim());
-      if (ok) docOk++;
-    }
-    checks.push({
-      ok: docOk === docs.length,
-      label: `文档 ContextSource（${docOk}/${docs.length}）`,
-      hint: "为每个文档填写数据源标识",
-    });
-  }
-
-  const systems = externals?.externalSystems ?? [];
-  if (systems.length === 0) {
-    checks.push({ ok: true, label: "无外部系统需绑定" });
-  } else {
-    let extOk = 0;
-    for (const s of systems) {
-      const b = techBindings.externalsById[s.id];
-      const ok = externalBindingSatisfied(s, b);
-      if (ok) extOk++;
-    }
-    checks.push({
-      ok: extOk === systems.length,
-      label: `外部系统工具/凭证（${extOk}/${systems.length}）`,
-      hint: "填写 tool/secret 或标记跳过",
-    });
-  }
-
-  const sorted = [...nodes].sort(
+  const sorted = [...nodes].filter((node) => !node.data.isCondition).sort(
     (a, b) => (a.data.stepIndex ?? 0) - (b.data.stepIndex ?? 0)
   );
   if (sorted.length === 0) {
@@ -123,19 +87,19 @@ export function computeBindingCompletion(
     for (const n of sorted) {
       const b = techBindings.nodesById[n.id];
       const tt = b?.taskType ?? inferTaskTypeFromCanvas(n.data);
-      const needsSkill = tt !== "human_review";
+      const needsSkill = tt === "agentic";
       const skills = getEffectiveSkillCodes(b);
       const ok =
         !!tt &&
-        !!(b?.runtimeProfileCode?.trim()) &&
+        (tt === "human_review" || !!(b?.runtimeProfileCode?.trim())) &&
         (!needsSkill || skills.length > 0) &&
-        (!needsSkill || !!(b?.contextPolicyCode?.trim()));
+        (tt === "human_review" || !!(b?.contextPolicyCode?.trim()));
       if (ok) nodeOk++;
     }
     checks.push({
       ok: nodeOk === sorted.length,
       label: `节点绑定（${nodeOk}/${sorted.length}）`,
-      hint: "选择执行方式；非人工节点需绑定 Skill 和上下文策略",
+      hint: "选择 Task 类型；Agentic 节点需绑定 Skill，非人工节点需绑定上下文策略",
     });
   }
 
@@ -143,15 +107,6 @@ export function computeBindingCompletion(
   const percent = checks.length === 0 ? 0 : Math.round((passed / checks.length) * 100);
 
   return { percent, checks };
-}
-
-function externalBindingSatisfied(
-  s: ExternalSystem,
-  b: { toolCode?: string; secretCode?: string; skipped?: boolean } | undefined
-): boolean {
-  if (b?.skipped) return true;
-  if (s.integration.readiness === "not_available") return true;
-  return !!(b?.toolCode?.trim() && b?.secretCode?.trim());
 }
 
 function inferTaskTypeFromCanvas(data: FlowNodeData): PlatformTaskType {

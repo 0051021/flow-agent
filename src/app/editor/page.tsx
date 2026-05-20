@@ -15,7 +15,6 @@ import { useFlowAgentStore, type ChatAttachment } from "@/lib/store";
 import { MOCK_ANNOTATIONS } from "@/lib/mock-data";
 import { getReviewById, presentAgenticReviewAsWorkflow } from "@/lib/mock-reviews";
 import {
-  GSDS_ADAPTIVE_CONFIG,
   GSDS_CHAT_MESSAGES,
   GSDS_EDGES,
   GSDS_JOB_TRIGGER_CODES,
@@ -24,7 +23,7 @@ import {
   GSDS_TECH_CONFIG,
   GSDS_TECH_JOB_META,
 } from "@/lib/gsds-demo-seed";
-import type { Annotation, FlowNodeData } from "@/lib/types";
+import type { Annotation, FlowNodeData, JobGroup, ProjectStatus, TechJobSpecMeta, ViewMode } from "@/lib/types";
 import type { Node } from "@xyflow/react";
 
 const FlowCanvas = dynamic(() => import("@/components/flow/FlowCanvas"), { ssr: false });
@@ -87,6 +86,37 @@ function isGsdsReview(payload: { id: string; title?: string; projectName?: strin
   );
 }
 
+type ReviewStage =
+  | "business_flow_review"
+  | "business_flow_revision"
+  | "technical_plan_config"
+  | "technical_plan_review"
+  | "ready_to_publish"
+  | "published"
+  | "returned";
+
+function deriveStageFromLegacyStatus(status: string): ReviewStage {
+  if (status === "confirmed") return "published";
+  if (status === "reviewed") return "technical_plan_config";
+  return "business_flow_review";
+}
+
+function resolveProjectStatus(stage: ReviewStage, status: string, role: "business" | "tech"): ProjectStatus {
+  if (stage === "business_flow_review") return "pending_review";
+  if (stage === "business_flow_revision" || stage === "returned") return "needs_revision";
+  if (stage === "published" || stage === "ready_to_publish") return "confirmed";
+  if (stage === "technical_plan_config" || stage === "technical_plan_review") return "tech_reviewing";
+  if (role === "tech") return status === "confirmed" ? "confirmed" : "tech_reviewing";
+  return status as ProjectStatus;
+}
+
+function resolveViewMode(stage: ReviewStage, role: "business" | "tech"): ViewMode {
+  if (role === "tech" && (stage === "business_flow_review" || stage === "business_flow_revision")) {
+    return "business";
+  }
+  return role;
+}
+
 function extractAnnotationsFromTimeline(timeline: unknown[]): Annotation[] {
   return timeline.flatMap((event) => {
     if (!event || typeof event !== "object") return [];
@@ -125,6 +155,7 @@ function EditorContent() {
   const q = searchParams.get("q");
   const roleParam = searchParams.get("role");
   const reviewId = searchParams.get("reviewId");
+  const jobParam = searchParams.get("job");
   const demoId = searchParams.get("demoId");
   const timestamp = searchParams.get("t");
   const {
@@ -200,6 +231,7 @@ function EditorContent() {
       payload: {
         id: string;
         status: string;
+        stage?: ReviewStage;
         prompt: string;
         type: "workflow" | "agentic";
         projectName: string;
@@ -208,19 +240,19 @@ function EditorContent() {
         edges?: unknown[];
         agenticConfig?: unknown;
         timeline?: unknown[];
+        initialJobGroup?: JobGroup;
+        initialTechJobMeta?: TechJobSpecMeta;
+        initialJobTriggerCodes?: string[];
       },
-      source: "mock" | "server"
+      _source: "mock" | "server"
     ) => {
-      const statusMap = { pending: "tech_reviewing" as const, reviewed: "tech_reviewing" as const, confirmed: "confirmed" as const };
-      const useGsdsDemo = payload.type === "workflow" && resolvedRole === "tech" && isGsdsReview(payload);
-      const fallbackStatus =
-        resolvedRole === "tech"
-          ? (payload.status === "confirmed" ? "confirmed" as const : "tech_reviewing" as const)
-          : (payload.status as "draft" | "business_editing" | "ai_generating" | "pending_review" | "tech_reviewing" | "needs_revision" | "confirmed");
-      const resolvedStatus =
-        source === "mock"
-          ? statusMap[payload.status as keyof typeof statusMap] ?? "tech_reviewing"
-          : fallbackStatus;
+      const stage = payload.stage ?? deriveStageFromLegacyStatus(payload.status);
+      const useGsdsDemo =
+        payload.type === "workflow" &&
+        resolvedRole === "tech" &&
+        (isGsdsReview(payload) || jobParam === "gsds-pdf-ingest");
+      const resolvedStatus = resolveProjectStatus(stage, payload.status, resolvedRole);
+      const resolvedViewMode = resolveViewMode(stage, resolvedRole);
 
       useFlowAgentStore.getState().resetAll();
 
@@ -228,7 +260,7 @@ function EditorContent() {
         isReviewMode: true,
         currentReviewId: payload.id,
         currentRole: resolvedRole,
-        viewMode: resolvedRole,
+        viewMode: resolvedViewMode,
         originalPrompt: payload.prompt,
         taskType: payload.type,
         project: {
@@ -240,12 +272,22 @@ function EditorContent() {
         annotations: extractAnnotationsFromTimeline(payload.timeline ?? []),
       };
 
+      if (payload.initialJobGroup) {
+        patch.jobGroup = cloneStateValue(payload.initialJobGroup);
+      }
+      if (payload.initialTechJobMeta) {
+        patch.techJobMeta = cloneStateValue(payload.initialTechJobMeta);
+      }
+      if (payload.initialJobTriggerCodes) {
+        patch.jobTriggerCodes = [...payload.initialJobTriggerCodes];
+      }
+
       if (useGsdsDemo) {
         Object.assign(patch, {
           project: {
             ...useFlowAgentStore.getState().project,
             name: "GSDS 入库 Job",
-            description: "上传并查重（条件分支）→ PDF 解析（含校验）→ 人工比对 → 入库",
+            description: "SharePoint 文件触发 → 获取 PDF → 多模态解析 → 确定性校验 → 人工确认 → UPSERT 入库",
             status: resolvedStatus,
           },
           originalPrompt: "GSDS 入库流程",
@@ -254,7 +296,6 @@ function EditorContent() {
           chatMessages: cloneStateValue(GSDS_CHAT_MESSAGES),
           techConfig: cloneStateValue(GSDS_TECH_CONFIG),
           techBindings: cloneStateValue(GSDS_TECH_BINDINGS),
-          adaptiveConfig: cloneStateValue(GSDS_ADAPTIVE_CONFIG),
           techJobMeta: cloneStateValue(GSDS_TECH_JOB_META),
           jobTriggerCodes: [...GSDS_JOB_TRIGGER_CODES],
           chatPhase: "ready",
@@ -263,9 +304,9 @@ function EditorContent() {
         return;
       }
 
-      const localPayloadReview = source === "mock" ? getReviewById(payload.id) : undefined;
+      const localPayloadReview = _source === "mock" ? getReviewById(payload.id) : undefined;
       const businessWorkflowPresentation =
-        resolvedRole === "business" && localPayloadReview?.type === "agentic"
+        resolvedViewMode === "business" && localPayloadReview?.type === "agentic"
           ? presentAgenticReviewAsWorkflow(localPayloadReview)
           : null;
 
@@ -304,6 +345,7 @@ function EditorContent() {
             {
               id: result.item.id,
               status: result.item.status,
+              stage: result.item.stage,
               prompt: result.item.prompt,
               type: result.item.taskType,
               projectName: result.item.projectName,
@@ -326,7 +368,7 @@ function EditorContent() {
     return () => {
       cancelled = true;
     };
-  }, [demoId, reviewId, roleParam]);
+  }, [demoId, jobParam, reviewId, roleParam]);
 
   // Load from ?q= param (AI generation flow)
   useEffect(() => {
@@ -438,6 +480,9 @@ function EditorContent() {
   const [chatRailExpanded, setChatRailExpanded] = useState(true);
   /** Desktop: collapse tech workspace panel */
   const [techRailExpanded, setTechRailExpanded] = useState(true);
+  const isTechBusinessFlowReview =
+    currentRole === "tech" &&
+    (project.status === "pending_review" || project.status === "needs_revision");
 
   const stageOrder: Array<"classify_start" | "classify_done" | "draft_start" | "draft_done"> = [
     "classify_start",
@@ -568,7 +613,7 @@ function EditorContent() {
               <p className="text-xs text-zinc-400 text-center pt-2">{isEnriching ? "正在补全每个节点的操作清单与校对规则" : "通常需要 10-20 秒"}</p>
             </div>
           </div>
-        ) : currentRole === "tech" ? (
+        ) : currentRole === "tech" && !isTechBusinessFlowReview ? (
           <div className="flex-1 flex min-w-0 overflow-hidden">
             <div className="flex-1 min-w-0 min-h-0 overflow-hidden flex flex-col border-r border-zinc-200">
               <FlowCanvas />
@@ -626,7 +671,7 @@ function EditorContent() {
 
 function EditorPageInner() {
   const searchParams = useSearchParams();
-  const editorKey = `${searchParams.get("q") || ""}-${searchParams.get("reviewId") || ""}-${searchParams.get("demoId") || ""}-${searchParams.get("role") || ""}-${searchParams.get("t") || ""}`;
+  const editorKey = `${searchParams.get("q") || ""}-${searchParams.get("reviewId") || ""}-${searchParams.get("demoId") || ""}-${searchParams.get("role") || ""}-${searchParams.get("job") || ""}-${searchParams.get("t") || ""}`;
   return <EditorContent key={editorKey} />;
 }
 

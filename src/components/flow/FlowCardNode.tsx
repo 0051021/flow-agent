@@ -2,9 +2,13 @@
 
 import { memo, useState } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import type { FlowNodeData } from "@/lib/types";
+import type { FlowNodeData, PlatformTaskType } from "@/lib/types";
 import { useFlowAgentStore } from "@/lib/store";
 import { getEffectiveSkillCodes } from "@/lib/tech-binding-helpers";
+import {
+  labelForReviewPolicyCode,
+  labelForRuntimeProfileCode,
+} from "@/lib/registered-skills";
 import NodeAnnotationBubble from "@/components/flow/NodeAnnotationBubble";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -12,7 +16,7 @@ import {
   Activity, RefreshCw, UserCheck,
   MessageSquare, Search, FileText, Mail, Database,
   Zap, Eye, Settings, Upload, Download, Users, Globe, Lock, Bell,
-  ScrollText, Sparkles,
+  ScrollText, Sparkles, GitBranch,
 } from "lucide-react";
 
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -21,12 +25,20 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   Zap, Eye, Settings, Upload, Download, Users, Globe, Lock, Bell,
   UserCheck, ScrollText,
   Sparkles,
+  GitBranch,
 };
 
 const DEFAULT_TECH_CONFIG = {
   executionType: "deterministic" as const,
   feasibility: "pending" as const,
 };
+
+function inferTaskType(data: FlowNodeData): PlatformTaskType {
+  if (data.executionMode === "human_manual" || data.executionMode === "human_confirm") {
+    return "human_review";
+  }
+  return "agentic";
+}
 
 function FlowCardNode({ data, id }: NodeProps) {
   const nodeData = data as unknown as FlowNodeData;
@@ -40,9 +52,15 @@ function FlowCardNode({ data, id }: NodeProps) {
     allNodeConfidence,
     deferredNodeIds,
     techBindings,
+    jobSplitDraft,
+    toggleJobSplitNode,
   } = useFlowAgentStore();
   const nodeBinding = techBindings.nodesById[id];
+  const taskType = nodeBinding?.taskType ?? inferTaskType(nodeData);
   const boundSkillCodes = nodeBinding ? getEffectiveSkillCodes(nodeBinding) : [];
+  const boundToolCodes = nodeBinding?.toolCodes?.filter((code) => code.trim().length > 0) ?? [];
+  const runtimeProfileCode = nodeBinding?.runtimeProfileCode?.trim();
+  const reviewPolicyCode = nodeBinding?.reviewPolicyCode?.trim();
   const IconComponent = ICON_MAP[nodeData.icon] || BarChart3;
   const techConfig = nodeData.techConfig ?? DEFAULT_TECH_CONFIG;
   const nodeAnnotations = annotations.filter((a) => a.nodeId === id);
@@ -51,6 +69,8 @@ function FlowCardNode({ data, id }: NodeProps) {
   const nodeConf = allNodeConfidence.find((nc) => nc.nodeId === id);
   const isDeferred = deferredNodeIds.includes(id);
   const hasAnnotationContent = unresolvedCount > 0;
+  const isSplitMode = viewMode === "tech" && jobSplitDraft.active;
+  const isPickedForSplit = jobSplitDraft.selectedNodeIds.includes(id);
   const kindMeta = {
     workflow_step: { label: "固定流程", className: "border-zinc-200 bg-zinc-50 text-zinc-600" },
     agentic_judgment: { label: "业务判断", className: "border-blue-200 bg-blue-50 text-blue-700" },
@@ -67,19 +87,107 @@ function FlowCardNode({ data, id }: NodeProps) {
 
 
   const isFirstNode = nodeData.stepIndex === 1;
+  if (nodeData.isCondition) {
+    return (
+      <div
+        className="relative flex h-[210px] w-[260px] cursor-pointer items-center justify-center"
+        onClick={() => setSelectedNodeId(id)}
+      >
+        <Handle type="target" position={Position.Top} id="top-in" className="!h-3 !w-3 !border-2 !border-white !bg-amber-300 transition-all hover:!scale-125 hover:!bg-amber-400" />
+        <Handle type="source" position={Position.Bottom} id="bottom-out" className="!h-3 !w-3 !border-2 !border-white !bg-amber-300 transition-all hover:!scale-125 hover:!bg-amber-400" />
+        <Handle type="target" position={Position.Left} id="left-in" className="!h-3 !w-3 !border-2 !border-white !bg-amber-300 transition-all hover:!scale-125 hover:!bg-amber-400" />
+        <Handle type="source" position={Position.Left} id="left-out" className="!h-3 !w-3 !border-2 !border-white !bg-amber-300 transition-all hover:!scale-125 hover:!bg-amber-400" />
+        <Handle type="target" position={Position.Right} id="right-in" className="!h-3 !w-3 !border-2 !border-white !bg-amber-300 transition-all hover:!scale-125 hover:!bg-amber-400" />
+        <Handle type="source" position={Position.Right} id="right-out" className="!h-3 !w-3 !border-2 !border-white !bg-amber-300 transition-all hover:!scale-125 hover:!bg-amber-400" />
+
+        <div
+          className={`
+            absolute left-1/2 top-1/2 h-[150px] w-[150px] -translate-x-1/2 -translate-y-1/2 rotate-45
+            rounded-[18px] border-2 bg-amber-50 shadow-sm transition-all duration-200 hover:shadow-md
+            ${isSelected ? "border-amber-400 ring-2 ring-amber-100" : "border-amber-200"}
+          `}
+        />
+        <div className="relative z-10 flex h-[120px] w-[170px] flex-col items-center justify-center text-center">
+          <div className="mb-1 flex h-8 w-8 items-center justify-center rounded-lg bg-white text-amber-600 shadow-sm">
+            <GitBranch className="h-4 w-4" />
+          </div>
+          <h3 className="max-w-[140px] text-sm font-semibold leading-snug text-zinc-900">{nodeData.label}</h3>
+          <p className="mt-1 text-[10px] font-medium text-amber-700">路由节点 · 不运行</p>
+          <p className="mt-1 max-w-[150px] text-[10px] leading-snug text-zinc-500">
+            编译为 <span className="font-mono">flow.condition</span>
+          </p>
+        </div>
+
+        {nodeData.conditionBranches && nodeData.conditionBranches.length > 0 ? (
+          <div className="absolute -bottom-2 left-1/2 z-10 flex w-[250px] -translate-x-1/2 flex-wrap justify-center gap-1">
+            {nodeData.conditionBranches.slice(0, 3).map((branch, i) => (
+              <span
+                key={`${branch.label}-${i}`}
+                className="rounded-full border border-amber-100 bg-white px-2 py-0.5 text-[10px] text-zinc-600 shadow-sm"
+              >
+                {branch.icon} {branch.label}
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  const bindingMeta =
+    taskType === "agentic"
+      ? {
+          label: "Skill 绑定:",
+          values: boundSkillCodes,
+          empty: "待配置",
+        }
+      : taskType === "integration"
+        ? {
+            label: "Tool 绑定:",
+            values: boundToolCodes,
+            empty: "待配置",
+          }
+        : taskType === "human_review"
+          ? {
+              label: "审核策略:",
+              values: reviewPolicyCode ? [labelForReviewPolicyCode(reviewPolicyCode)] : [],
+              empty: "待配置",
+            }
+          : {
+              label: "执行器:",
+              values: runtimeProfileCode ? [labelForRuntimeProfileCode(runtimeProfileCode)] : [],
+              empty: "待配置",
+            };
 
   return (
     <div
       className={`
         relative w-[320px] bg-white rounded-xl border-2 shadow-sm cursor-pointer
         transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md
-        ${isSelected ? "border-blue-400 ring-2 ring-blue-100" : unresolvedCount > 0 ? "border-red-200" : "border-zinc-200"}
+        ${isPickedForSplit ? "border-purple-500 ring-4 ring-purple-100" : isSelected ? "border-blue-400 ring-2 ring-blue-100" : unresolvedCount > 0 ? "border-red-200" : "border-zinc-200"}
       `}
       onClick={() => {
+        if (isSplitMode) {
+          toggleJobSplitNode(id);
+          return;
+        }
         setSelectedNodeId(id);
       }}
       {...(isFirstNode ? { "data-onboarding": "flow-node" } : {})}
     >
+      {isSplitMode && (
+        <div className="absolute -right-2 -top-2 z-20">
+          <div
+            className={`flex h-7 min-w-7 items-center justify-center rounded-full border-2 px-2 text-[11px] font-semibold shadow-sm ${
+              isPickedForSplit
+                ? "border-purple-500 bg-purple-600 text-white"
+                : "border-purple-200 bg-white text-purple-500"
+            }`}
+          >
+            {isPickedForSplit ? "已选" : "选"}
+          </div>
+        </div>
+      )}
       {showBubble && (
         <div
           className="absolute top-0 left-full ml-4 z-50"
@@ -276,21 +384,25 @@ function FlowCardNode({ data, id }: NodeProps) {
       {viewMode === "tech" && (
         <div className="px-4 mt-2 pt-2 border-t border-dashed border-zinc-200">
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="text-zinc-400">执行类型:</span>
+            <span className="text-zinc-400">Task 类型:</span>
             <Badge variant="outline" className="text-[10px] h-5">
-              {techConfig.executionType === "deterministic" ? "🔧 确定性" : "🧠 智能规划"}
+              {taskType}
             </Badge>
-            <span className="text-zinc-400">Skill 绑定:</span>
-            {boundSkillCodes.length > 0 ? (
-              <Badge variant="outline" className="text-[10px] h-5 font-mono max-w-[180px] truncate" title={boundSkillCodes.join(", ")}>
-                {boundSkillCodes.length === 1 ? boundSkillCodes[0] : `${boundSkillCodes.length} 项`}
+            <span className="text-zinc-400">{bindingMeta.label}</span>
+            {bindingMeta.values.length > 0 ? (
+              <Badge
+                variant="outline"
+                className="text-[10px] h-5 font-mono max-w-[180px] truncate"
+                title={bindingMeta.values.join(", ")}
+              >
+                {bindingMeta.values.length === 1 ? bindingMeta.values[0] : `${bindingMeta.values.length} 项`}
               </Badge>
             ) : (
               <Badge variant="outline" className="text-[10px] h-5 border-amber-200 bg-amber-50 text-amber-800">
-                待配置
+                {bindingMeta.empty}
               </Badge>
             )}
-            {techConfig.boundSkill && boundSkillCodes.length === 0 && (
+            {taskType === "agentic" && techConfig.boundSkill && boundSkillCodes.length === 0 && (
               <>
                 <span className="text-zinc-400">草稿:</span>
                 <Badge variant="outline" className="text-[10px] h-5 font-mono opacity-70">

@@ -1,4 +1,4 @@
-import type { AgenticPhase, FlowNodeData, WorkUnitKind } from "./types";
+import type { AgenticPhase, FlowNodeData, JobGroup, TechJobSpecMeta, WorkUnitKind } from "./types";
 import type { AgenticTaskConfig } from "./types";
 import type { Node, Edge } from "@xyflow/react";
 import type { ChatMessage } from "./store";
@@ -10,13 +10,32 @@ export interface MockReview {
   submittedBy: string;
   submittedAt: string;
   status: "pending" | "reviewed" | "confirmed";
+  stage?:
+    | "business_flow_review"
+    | "business_flow_revision"
+    | "technical_plan_config"
+    | "technical_plan_review"
+    | "ready_to_publish"
+    | "published"
+    | "returned";
+  businessFlowStatus?: "draft" | "in_review" | "revision_requested" | "completed";
   description: string;
   nodeCount: number;
   prompt: string;
   projectName: string;
+  children?: {
+    id: string;
+    title: string;
+    description: string;
+    stage: NonNullable<MockReview["stage"]>;
+    nodeCount: number;
+  }[];
   // Workflow data
   nodes?: Node<FlowNodeData>[];
   edges?: Edge[];
+  initialJobGroup?: JobGroup;
+  initialTechJobMeta?: TechJobSpecMeta;
+  initialJobTriggerCodes?: string[];
   // Agentic data
   agenticConfig?: AgenticTaskConfig;
   // Chat history
@@ -430,7 +449,276 @@ const afterSalesAssistedEdges: Edge[] = [
   { id: "r9-e7-feedback", source: "r9-node-7", target: "r9-node-5", type: "smoothstep", animated: true, style: { stroke: "#f59e0b", strokeWidth: 3, strokeDasharray: "6 4" } },
 ];
 
+const imiNodes: Node<FlowNodeData>[] = [
+  {
+    id: "imi-node-1",
+    type: "flowCard",
+    position: { x: 300, y: 0 },
+    data: {
+      label: "接收 Leader 申请邮件",
+      icon: "Mail",
+      description: "收到 Leader 发起的 IMI 证书申请要求，提取 BBN、Part、目的港、客户和预计出货信息。",
+      stepIndex: 1,
+      totalSteps: 6,
+      executionMode: "ai_auto",
+      estimatedTime: "约 30 秒",
+      workUnitKind: "workflow_step",
+      inputs: [
+        { id: "i1", name: "Leader 邮件", icon: "📧", description: "包含 BBN、Part、目的港和申请说明", required: true, source: "user", dataType: "email" },
+      ],
+      outputs: [
+        { id: "o1", name: "申请基础信息", icon: "🧾", description: "结构化的 BBN、Part、目的港、客户、申请原因", flowsTo: ["imi-node-2"], dataType: "json" },
+      ],
+      operationSteps: ["读取邮件主题和正文", "识别 BBN 与 Part", "提取目的港和申请说明", "标记缺失信息"],
+      checkRulesText: "BBN、Part、目的港缺任一项时，需要回到 Leader 邮件或 IMI 大表补充。",
+      doneCriteria: "形成可用于查询 GSDS 和填写 IMI 申请大表的基础信息。",
+      errorHandling: defaultErrorHandling,
+      techConfig: defaultTechConfig,
+    },
+  },
+  {
+    id: "imi-node-2",
+    type: "flowCard",
+    position: { x: 300, y: 360 },
+    data: {
+      label: "查询并核对 GSDS",
+      icon: "Search",
+      description: "根据 BBN 和 Part 查找 GSDS，确认是否已有有效 GSDS 记录；缺失时暂停 IMI 申请并提醒上传 GSDS PDF，等待 GSDS 主库补齐后继续。",
+      stepIndex: 2,
+      totalSteps: 6,
+      executionMode: "human_confirm",
+      estimatedTime: "约 2 分钟",
+      workUnitKind: "document_check",
+      inputs: [
+        { id: "i1", name: "申请基础信息", icon: "🧾", description: "来自上一步", required: true, source: "previous_step", dataType: "json" },
+        { id: "i2", name: "GSDS 主库", icon: "📚", description: "按 BBN + Part 查询危险品资料", required: true, source: "default", dataType: "data_product" },
+      ],
+      outputs: [
+        { id: "o1", name: "GSDS 核对结果", icon: "✅", description: "是否命中、版本是否有效、是否需要入库", flowsTo: ["imi-node-3"], dataType: "json" },
+      ],
+      operationSteps: ["按 BBN + Part 查询 GSDS 主库", "核对危险品字段是否完整", "缺失或过期时暂停当前 IMI 申请", "提醒业务人员把 GSDS PDF 上传到指定文件夹"],
+      checkRulesText: "GSDS 缺失、版本过旧或关键危险品字段不完整时，不应继续填写 IMI 申请。",
+      doneCriteria: "确认当前申请可使用的 GSDS 记录，或明确需要先补齐 GSDS。",
+      errorHandling: defaultErrorHandling,
+      techConfig: intelligentTechConfig,
+    },
+  },
+  {
+    id: "imi-node-3",
+    type: "flowCard",
+    position: { x: 300, y: 720 },
+    data: {
+      label: "填写 IMI 申请大表",
+      icon: "FileSpreadsheet",
+      description: "把申请基础信息、GSDS 危险品字段和目的港要求填入 IMI 申请大表。",
+      stepIndex: 3,
+      totalSteps: 6,
+      executionMode: "ai_auto",
+      estimatedTime: "约 3 分钟",
+      workUnitKind: "workflow_step",
+      inputs: [
+        { id: "i1", name: "GSDS 核对结果", icon: "✅", description: "可用 GSDS 记录与危险品字段", required: true, source: "previous_step", dataType: "json" },
+        { id: "i2", name: "IMI 申请模板", icon: "📄", description: "业务使用的 IMI 申请大表模板", required: true, source: "default", dataType: "xlsx" },
+      ],
+      outputs: [
+        { id: "o1", name: "IMI 申请大表草稿", icon: "📋", description: "待业务核对的申请表", flowsTo: ["imi-node-4"], dataType: "xlsx" },
+      ],
+      operationSteps: ["映射 BBN、Part、目的港和危险品字段", "填写 IMI 大表", "标出自动填入和需人工确认字段"],
+      checkRulesText: "危险品分类、UN 编号、运输名称、目的港要求必须可追溯到 GSDS 或业务确认。",
+      doneCriteria: "生成可提交代理/海关前核对的 IMI 申请大表草稿。",
+      errorHandling: defaultErrorHandling,
+      techConfig: defaultTechConfig,
+    },
+  },
+  {
+    id: "imi-node-4",
+    type: "flowCard",
+    position: { x: 300, y: 1080 },
+    data: {
+      label: "业务核对申请资料",
+      icon: "UserCheck",
+      description: "业务人员对照邮件、GSDS 和申请大表核对关键字段，确认是否可以提交。",
+      stepIndex: 4,
+      totalSteps: 6,
+      executionMode: "human_confirm",
+      estimatedTime: "约 10 分钟",
+      workUnitKind: "human_gate",
+      inputs: [
+        { id: "i1", name: "IMI 申请大表草稿", icon: "📋", description: "来自上一步", required: true, source: "previous_step", dataType: "xlsx" },
+      ],
+      outputs: [
+        { id: "o1", name: "已确认申请资料", icon: "✅", description: "通过/驳回/需补充字段", flowsTo: ["imi-node-5"], dataType: "json" },
+      ],
+      operationSteps: ["核对 BBN、Part、目的港", "核对危险品字段", "确认提交或退回修正"],
+      checkRulesText: "业务核对不通过时，必须记录错误字段和修正原因。",
+      doneCriteria: "业务确认申请资料可以提交，或给出明确退回修改项。",
+      errorHandling: defaultErrorHandling,
+      techConfig: defaultTechConfig,
+    },
+  },
+  {
+    id: "imi-node-5",
+    type: "flowCard",
+    position: { x: 300, y: 1440 },
+    data: {
+      label: "提交代理并等待出证",
+      icon: "Send",
+      description: "把确认后的申请资料发给代理/海关，等待 IMI 证书返回。",
+      stepIndex: 5,
+      totalSteps: 6,
+      executionMode: "human_manual",
+      estimatedTime: "1-3 天",
+      workUnitKind: "handoff_wait",
+      inputs: [
+        { id: "i1", name: "已确认申请资料", icon: "✅", description: "业务确认后的申请包", required: true, source: "previous_step", dataType: "json" },
+      ],
+      outputs: [
+        { id: "o1", name: "代理回传证书", icon: "📜", description: "IMI 证书文件或补充意见", flowsTo: ["imi-node-6"], dataType: "file" },
+      ],
+      operationSteps: ["发送申请资料", "记录提交时间和收件人", "等待代理/海关回传证书或补充意见"],
+      checkRulesText: "提交后只记录状态，不自动修改证书内容。",
+      doneCriteria: "收到代理/海关回传的 IMI 证书或明确补充要求。",
+      errorHandling: defaultErrorHandling,
+      techConfig: defaultTechConfig,
+    },
+  },
+  {
+    id: "imi-node-6",
+    type: "flowCard",
+    position: { x: 300, y: 1800 },
+    data: {
+      label: "校对证书并归档",
+      icon: "Archive",
+      description: "对照申请资料校对 IMI 证书；无误后回填证书编号和有效期，并归档 IMI 大表与 IMI List。",
+      stepIndex: 6,
+      totalSteps: 6,
+      executionMode: "human_confirm",
+      estimatedTime: "约 8 分钟",
+      workUnitKind: "document_check",
+      inputs: [
+        { id: "i1", name: "代理回传证书", icon: "📜", description: "待校对 IMI 证书", required: true, source: "previous_step", dataType: "file" },
+      ],
+      outputs: [
+        { id: "o1", name: "归档结果", icon: "🗂️", description: "证书编号、有效期、归档位置、错误反馈记录", flowsTo: [], dataType: "json" },
+      ],
+      operationSteps: ["校对证书编号、有效期和危险品字段", "证书无误则回填 IMI 大表和 IMI List", "证书有误则反馈错误字段等待重出证"],
+      checkRulesText: "证书字段与申请资料不一致时，不允许归档为完成状态。",
+      doneCriteria: "证书无误并完成回填归档；或记录错误字段并进入重出证等待。",
+      errorHandling: defaultErrorHandling,
+      techConfig: defaultTechConfig,
+    },
+  },
+];
+
+const imiEdges: Edge[] = [
+  { id: "imi-e1", source: "imi-node-1", target: "imi-node-2", type: "smoothstep", animated: true, style: demoEdgeStyle },
+  { id: "imi-e2", source: "imi-node-2", target: "imi-node-3", type: "smoothstep", animated: true, style: demoEdgeStyle },
+  { id: "imi-e3", source: "imi-node-3", target: "imi-node-4", type: "smoothstep", animated: true, style: demoEdgeStyle },
+  { id: "imi-e4", source: "imi-node-4", target: "imi-node-5", type: "smoothstep", animated: true, style: demoEdgeStyle },
+  { id: "imi-e5", source: "imi-node-5", target: "imi-node-6", type: "smoothstep", animated: true, style: demoEdgeStyle },
+];
+
+const imiJobGroup: JobGroup = {
+  id: "jg-imi-tech-plan",
+  name: "IMI 证书申请 Job Group",
+  sourceSchemaId: "review-imi",
+  createdAt: "2026-05-14T19:20:00+08:00",
+  jobs: [
+    {
+      schemaId: "imi-certificate-application",
+      name: "IMI 证书申请主流程",
+      nodeStepRange: [1, 6],
+      triggerConfig: { type: "manual", params: { entry: "业务确认后手动启动" } },
+    },
+    {
+      schemaId: "gsds-pdf-ingest",
+      name: "GSDS PDF 自动入库 Job",
+      nodeStepRange: [2, 2],
+      triggerConfig: { type: "event", params: { when: "SharePoint 指定文件夹新增 GSDS PDF" } },
+    },
+  ],
+  sharedResources: ["GSDS 主库", "BBN + Part 唯一键", "SharePoint 文件池"],
+  relatedJobs: [
+    {
+      from: "gsds-pdf-ingest",
+      to: "imi-certificate-application",
+      relation: "upstream_producer",
+      sharedResource: "GSDS 主库",
+      description: "GSDS 入库 Job 由文件到达触发并维护 GSDS 主库；IMI 主 Job 只消费该数据资产，缺失时暂停等待补齐。",
+    },
+  ],
+};
+
 export const MOCK_REVIEWS: MockReview[] = [
+  {
+    id: "review-imi",
+    title: "IMI 证书申请流程",
+    type: "workflow",
+    submittedBy: "关务团队 · 蒋伊慧",
+    submittedAt: "2026-05-14T19:10:00+08:00",
+    status: "reviewed",
+    stage: "technical_plan_config",
+    businessFlowStatus: "completed",
+    description: "业务流程评审已完成，进入技术方案配置；该业务方案已拆成 IMI 证书申请主 Job 和 GSDS PDF 自动入库 Job。",
+    nodeCount: 6,
+    prompt: "我要申请 IMI 证书，收到 Leader 邮件后会根据 BBN 和 Part 查 GSDS，再填写申请大表，提交代理/海关，拿到证书后校对并归档。",
+    projectName: "IMI 证书申请流程",
+    nodes: imiNodes,
+    edges: imiEdges,
+    initialJobGroup: imiJobGroup,
+    initialTechJobMeta: {
+      code: "imi-certificate-application",
+      name: "IMI 证书申请主流程",
+      description: "从 Leader 邮件提取申请信息，核对 GSDS，填写 IMI 大表，提交代理并完成证书校对归档。",
+      inputSchemaJson: JSON.stringify({
+        type: "object",
+        required: ["leader_email_id", "bbn", "part_no", "destination_port"],
+        properties: {
+          leader_email_id: { type: "string" },
+          bbn: { type: "string" },
+          part_no: { type: "string" },
+          destination_port: { type: "string" },
+        },
+      }, null, 2),
+      defaultRuntimeProfileCode: "openclaw-default",
+      defaultReviewPolicyCode: "customs-business-review",
+    },
+    initialJobTriggerCodes: ["imi-application-requested"],
+    children: [
+      {
+        id: "sample-gsds-20260508",
+        title: "GSDS PDF 自动入库流程",
+        description: "同属 IMI 证书申请 Job Group：GSDS 缺失或过期时由路由触发入库。",
+        stage: "technical_plan_config",
+        nodeCount: 3,
+      },
+    ],
+    chatMessages: [
+      { id: "imi-u1", role: "user", content: "我要申请 IMI 证书，收到 Leader 邮件后会根据 BBN 和 Part 查 GSDS，再填写申请大表，提交代理/海关，拿到证书后校对并归档。", timestamp: "2026-05-14T18:40:00+08:00" },
+      { id: "imi-a1", role: "assistant", content: "业务流程草案已确认：Leader 邮件 → GSDS 核对 → 填写 IMI 申请大表 → 业务核对 → 提交代理 → 证书校对归档。当前进入技术方案配置阶段。", timestamp: "2026-05-14T19:10:00+08:00" },
+      { id: "imi-a2", role: "assistant", content: "技术侧建议把这个业务方案拆成一个 Job Group：IMI 证书申请主 Job 负责申请链路；GSDS PDF 自动入库 Job 由指定文件夹新增 PDF 触发并维护 GSDS 主库。IMI 主 Job 只声明数据依赖，缺失时暂停并提醒上传 GSDS PDF，待主库补齐后恢复。", timestamp: "2026-05-14T19:12:00+08:00" },
+    ],
+  },
+  {
+    id: "sample-gsds-20260508",
+    title: "GSDS PDF 自动入库流程",
+    type: "workflow",
+    submittedBy: "关务团队 · 蒋伊慧",
+    submittedAt: "2026-05-14T19:12:00+08:00",
+    status: "reviewed",
+    stage: "technical_plan_config",
+    businessFlowStatus: "completed",
+    description: "IMI 证书申请 Job Group 中的 GSDS 入库 Job：SharePoint 上传 GSDS PDF 后解析并按 BBN + PART 写入主库。",
+    nodeCount: 3,
+    prompt: "用户在 SharePoint 上传 GSDS PDF，系统自动解析字段，然后按 BBN+PART 在 GSDS 主数据库中 UPSERT。",
+    projectName: "GSDS PDF 自动入库流程",
+    nodes: [],
+    edges: [],
+    chatMessages: [
+      { id: "gsds-u1", role: "user", content: "我们需要做一个 GSDS 入库流程：用户在 SharePoint 上传 GSDS PDF 文件，系统自动解析 PDF 得到 BBN、PART、颜色、状态、UN编号、各项危害类别、密度、成分列表等字段，然后按 BBN+PART 在数据库中做唯一性判断。", timestamp: "2026-05-14T19:12:00+08:00" },
+      { id: "gsds-a1", role: "assistant", content: "GSDS 入库已作为 IMI 证书申请 Job Group 中的独立 Job，进入技术方案配置。", timestamp: "2026-05-14T19:12:05+08:00" },
+    ],
+  },
   // ============================================================
   // review-1: 小红书账号运营 (Agentic)
   // ============================================================

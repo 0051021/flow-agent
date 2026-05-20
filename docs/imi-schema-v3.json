@@ -250,7 +250,7 @@
         "icon": "Mail",
         "description": "从 Outlook 收到的 Leader 邮件正文中解析一条或多条申请（适用目的港、IMI证书编号、BBN、PART、中英文名称、运输方式、物料号）；为每条生成或更新 IMI 申请大表行，申请编号为当前最大编号+1（累加）。",
         "stepIndex": 1,
-        "totalSteps": 8,
+        "totalSteps": 9,
         "executionMode": "human_confirm",
         "estimatedTime": "10-20 分钟"
       },
@@ -350,7 +350,7 @@
         "icon": "FileSearch",
         "description": "在共享盘按 BBN → BBN_PART 目录查找该组合下最新版本 GSDS PDF；抽取图中列及成分｜含量｜CAS、密度；将密度保留两位小数写入 SDS密度列；其余字段写入 IMI 申请大表。",
         "stepIndex": 2,
-        "totalSteps": 8,
+        "totalSteps": 9,
         "executionMode": "ai_auto",
         "estimatedTime": "5-15 分钟"
       },
@@ -450,7 +450,7 @@
         "icon": "UserCheck",
         "description": "业务人员核对 IMI 申请大表中 Leader 与 GSDS 补全内容是否正确，确认后进入中外运上传环节。",
         "stepIndex": 3,
-        "totalSteps": 8,
+        "totalSteps": 9,
         "executionMode": "human_confirm",
         "estimatedTime": "15-45 分钟"
       },
@@ -529,7 +529,7 @@
         "icon": "Upload",
         "description": "登录中外运网页门户，上传确认后的 IMI 申请大表 Excel；无 API，纯手动操作。",
         "stepIndex": 4,
-        "totalSteps": 8,
+        "totalSteps": 9,
         "executionMode": "human_manual",
         "estimatedTime": "10-20 分钟"
       },
@@ -612,7 +612,7 @@
         "icon": "Send",
         "description": "通过 Outlook 将中外运下载的 IMI 证书申报材料作为附件（或约定形式）发送给海关；补正时重复本步骤。",
         "stepIndex": 5,
-        "totalSteps": 8,
+        "totalSteps": 9,
         "executionMode": "ai_auto",
         "estimatedTime": "5-10 分钟"
       },
@@ -703,7 +703,7 @@
         "icon": "Clock",
         "description": "等待约两周；在 Outlook 中接收海关返回的 IMI 证书 PDF（文件名通常为 申请编号+证书编号）；解析基础字段供核验。",
         "stepIndex": 6,
-        "totalSteps": 8,
+        "totalSteps": 9,
         "executionMode": "human_confirm",
         "estimatedTime": "约2周+30分钟处理"
       },
@@ -788,9 +788,9 @@
       "identity": {
         "label": "全字段核验证书 vs 申请大表",
         "icon": "ShieldCheck",
-        "description": "将 IMI 证书中与大表已填写部分进行全字段比对（中英文名、UN、危类、组分、GHS 相关列等）。若有偏差：截图问题点并附原申报材料通过 Outlook 重发海关（回到发送环节）。若无偏差：输出通过标记供回填。",
+        "description": "将 IMI 证书与申请资料、IMI 申请大表逐项核对，只输出核对结果；一致才进入回填归档，不一致则进入错误反馈与重新出证分支。",
         "stepIndex": 7,
-        "totalSteps": 8,
+        "totalSteps": 9,
         "executionMode": "human_confirm",
         "estimatedTime": "20-60 分钟"
       },
@@ -834,7 +834,7 @@
                 "screenshotBundleRef": { "type": "string", "description": "补正用截图包引用（若有）" }
               }
             },
-            "flowsTo": ["node-8", "node-5"]
+            "flowsTo": ["node-9", "node-8"]
           }
         ]
       },
@@ -849,14 +849,7 @@
         {
           "stepIndex": 2,
           "type": "conditional",
-          "description": "有偏差：整理截图与申报材料重发海关；无偏差：进入回填"
-        },
-        {
-          "stepIndex": 3,
-          "type": "send_message",
-          "description": "仅在未通过路径：将问题截图与材料再次邮件海关",
-          "target": { "externalRef": "sys-customs" },
-          "onError": "human_fallback"
+          "description": "核对一致：进入证书字段回填和归档；核对不一致：整理错误字段和正确值，进入代理/海关反馈分支"
         }
       ],
       "taskType": "agentic",
@@ -878,17 +871,17 @@
       },
       "edges": [
         {
-          "targetNodeId": "node-8",
+          "targetNodeId": "node-9",
           "condition": { "field": "verificationPassed", "operator": "eq", "value": true },
           "dataFlow": [
-            { "sourceOutput": "out-7-1", "targetInput": "in-8-1", "description": "核验通过进入回填与归档" }
+            { "sourceOutput": "out-7-1", "targetInput": "in-9-1", "description": "核验通过进入回填与归档" }
           ]
         },
         {
-          "targetNodeId": "node-5",
+          "targetNodeId": "node-8",
           "condition": { "field": "verificationPassed", "operator": "eq", "value": false },
           "dataFlow": [
-            { "sourceOutput": "out-7-1", "targetInput": "in-5-3", "description": "未通过则重发材料（与初发共用邮件节点）" }
+            { "sourceOutput": "out-7-1", "targetInput": "in-8-1", "description": "核验不一致，进入错误反馈与重新出证分支" }
           ]
         }
       ]
@@ -896,19 +889,19 @@
     {
       "id": "node-8",
       "identity": {
-        "label": "回填证书字段并归档 IMI List",
-        "icon": "Archive",
-        "description": "将证书中的恒创编号、签发日、有效期及四项目录/IMDG/TDG 分类字段写入 IMI 申请大表；按运输方式将整行复制到 IMI List 对应 sheet（海运/空运/陆运）。",
+        "label": "反馈证书错误并等待重出证",
+        "icon": "Mail",
+        "description": "仅在证书核对不一致时执行：把错误字段、正确值和必要截图邮件反馈给代理/海关，等待对方重新生成并返回更新后的 IMI 证书。",
         "stepIndex": 8,
-        "totalSteps": 8,
-        "executionMode": "ai_auto",
-        "estimatedTime": "10-20 分钟"
+        "totalSteps": 9,
+        "executionMode": "human_manual",
+        "estimatedTime": "约2周+10分钟处理"
       },
       "dataContract": {
         "inputs": [
           {
             "id": "in-8-1",
-            "name": "核验通过结果",
+            "name": "核验不一致结果",
             "docRef": null,
             "source": "previous_step",
             "sourceNodeId": "node-7",
@@ -918,6 +911,105 @@
           },
           {
             "id": "in-8-2",
+            "name": "错误字段与正确值说明",
+            "docRef": null,
+            "source": "previous_step",
+            "sourceNodeId": "node-7",
+            "required": true,
+            "kind": "structured",
+            "sourceType": "inline"
+          },
+          {
+            "id": "in-8-3",
+            "name": "原申报材料与证书截图",
+            "docRef": "doc-imi-certificate",
+            "source": "previous_step",
+            "sourceNodeId": "node-7",
+            "required": true,
+            "kind": "document",
+            "sourceType": "file_path",
+            "mediaType": "application/pdf"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "out-8-1",
+            "name": "错误反馈邮件回执",
+            "docRef": null,
+            "kind": "structured",
+            "intent": "已将证书错误字段、正确值和截图反馈给代理/海关，等待重新出证",
+            "flowsTo": ["node-6"]
+          }
+        ]
+      },
+      "businessIntent": [
+        {
+          "stepIndex": 1,
+          "type": "send_message",
+          "description": "将证书错误字段、正确值和截图邮件反馈给代理/海关",
+          "target": { "externalRef": "sys-customs" }
+        },
+        {
+          "stepIndex": 2,
+          "type": "wait",
+          "description": "等待代理/海关重新生成并返回更新后的 IMI 证书",
+          "target": { "externalRef": "sys-customs" }
+        }
+      ],
+      "taskType": "manual_operation",
+      "qualityHint": {
+        "acceptanceCriteria": [
+          {
+            "id": "ac-node8-feedback",
+            "title": "错误反馈已发送",
+            "description": "邮件中包含错误字段、正确值、证书截图和原申报材料引用",
+            "checkType": ["human_check"],
+            "blocking": true
+          }
+        ],
+        "onFailure": { "strategy": "human_fallback", "notifyRoles": ["business"] }
+      },
+      "errorStrategy": {
+        "strategy": "human_fallback",
+        "timeout": { "totalSeconds": 1209600, "onExternalTimeout": "fail" },
+        "notifyRoles": ["business"],
+        "fallbackDescription": "超时未收到重出证结果时人工跟进代理/海关"
+      },
+      "edges": [
+        {
+          "targetNodeId": "node-6",
+          "condition": { "field": "feedbackSent", "operator": "eq", "value": true },
+          "dataFlow": [
+            { "sourceOutput": "out-8-1", "targetInput": "in-6-1", "description": "反馈后等待更新版证书，并回到证书接收/核验闭环" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "node-9",
+      "identity": {
+        "label": "回填证书字段并归档 IMI List",
+        "icon": "Archive",
+        "description": "仅在证书核对一致后执行：将证书中的恒创编号、签发日、有效期及四项目录/IMDG/TDG 分类字段写入 IMI 申请大表；按运输方式将整行复制到 IMI List 对应 sheet（海运/空运/陆运）。",
+        "stepIndex": 9,
+        "totalSteps": 9,
+        "executionMode": "ai_auto",
+        "estimatedTime": "10-20 分钟"
+      },
+      "dataContract": {
+        "inputs": [
+          {
+            "id": "in-9-1",
+            "name": "核验通过结果",
+            "docRef": null,
+            "source": "previous_step",
+            "sourceNodeId": "node-7",
+            "required": true,
+            "kind": "structured",
+            "sourceType": "inline"
+          },
+          {
+            "id": "in-9-2",
             "name": "IMI 申请大表",
             "docRef": "doc-imi-master",
             "source": "previous_step",
@@ -928,7 +1020,7 @@
             "mediaType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
           },
           {
-            "id": "in-8-3",
+            "id": "in-9-3",
             "name": "海关证书 PDF",
             "docRef": "doc-imi-certificate",
             "source": "previous_step",
@@ -939,7 +1031,7 @@
             "mediaType": "application/pdf"
           },
           {
-            "id": "in-8-4",
+            "id": "in-9-4",
             "name": "IMI List 归档表",
             "docRef": "doc-imi-list",
             "source": "default",
@@ -951,7 +1043,7 @@
         ],
         "outputs": [
           {
-            "id": "out-8-1",
+            "id": "out-9-1",
             "name": "更新后的 IMI 申请大表",
             "docRef": "doc-imi-master",
             "kind": "document",
@@ -959,7 +1051,7 @@
             "flowsTo": []
           },
           {
-            "id": "out-8-2",
+            "id": "out-9-2",
             "name": "更新后的 IMI List",
             "docRef": "doc-imi-list",
             "kind": "document",
@@ -998,7 +1090,7 @@
       "qualityHint": {
         "acceptanceCriteria": [
           {
-            "id": "ac-node8-archive",
+            "id": "ac-node9-archive",
             "title": "归档完成",
             "description": "大表已回填且 IMI List 对应 sheet 已追加行",
             "checkType": ["deterministic_rule"],

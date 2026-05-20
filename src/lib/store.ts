@@ -31,6 +31,7 @@ import type {
   TechBindingState,
   AdaptiveConfigState,
   JobGroup,
+  JobSplitDraft,
   GlobalResourceBindings,
   DocumentBindingEntry,
   ExternalSystemBindingEntry,
@@ -131,6 +132,7 @@ interface FlowAgentState {
   adaptiveConfig: AdaptiveConfigState;
   /** Confirmed Job split group; null if single-job flow */
   jobGroup: JobGroup | null;
+  jobSplitDraft: JobSplitDraft;
 
   /** JobSpec-level metadata (tech workspace) */
   techJobMeta: TechJobSpecMeta;
@@ -217,6 +219,9 @@ interface FlowAgentState {
   setNodeBinding: (nodeId: string, partial: Partial<NodeBindingEntry>) => void;
   setAdaptiveConfig: (partial: Partial<AdaptiveConfigState>) => void;
   setJobGroup: (group: JobGroup | null) => void;
+  setJobSplitDraft: (partial: Partial<JobSplitDraft>) => void;
+  toggleJobSplitNode: (nodeId: string) => void;
+  resetJobSplitDraft: () => void;
   resetTechBindings: () => void;
 
   setTechJobMeta: (partial: Partial<TechJobSpecMeta>) => void;
@@ -314,6 +319,11 @@ const initialState = {
   techBindings: createDefaultTechBindingState(),
   adaptiveConfig: createDefaultAdaptiveConfig(),
   jobGroup: null as JobGroup | null,
+  jobSplitDraft: {
+    active: false,
+    selectedNodeIds: [],
+    newJobName: "",
+  } as JobSplitDraft,
   techJobMeta: {
     code: "",
     name: "",
@@ -547,6 +557,7 @@ export const useFlowAgentStore = create<FlowAgentState>()(
           techBindings: createDefaultTechBindingState(),
           adaptiveConfig: createDefaultAdaptiveConfig(),
           jobGroup: null,
+          jobSplitDraft: { active: false, selectedNodeIds: [], newJobName: "" },
           techJobMeta: {
             code: "",
             name: "",
@@ -601,11 +612,32 @@ export const useFlowAgentStore = create<FlowAgentState>()(
           adaptiveConfig: { ...state.adaptiveConfig, ...partial },
         })),
       setJobGroup: (group) => set({ jobGroup: group }),
+      setJobSplitDraft: (partial) =>
+        set((state) => ({
+          jobSplitDraft: { ...state.jobSplitDraft, ...partial },
+        })),
+      toggleJobSplitNode: (nodeId) =>
+        set((state) => {
+          const selected = new Set(state.jobSplitDraft.selectedNodeIds);
+          if (selected.has(nodeId)) selected.delete(nodeId);
+          else selected.add(nodeId);
+          return {
+            jobSplitDraft: {
+              ...state.jobSplitDraft,
+              selectedNodeIds: [...selected],
+            },
+          };
+        }),
+      resetJobSplitDraft: () =>
+        set({
+          jobSplitDraft: { active: false, selectedNodeIds: [], newJobName: "" },
+        }),
       resetTechBindings: () =>
         set({
           techBindings: createDefaultTechBindingState(),
           adaptiveConfig: createDefaultAdaptiveConfig(),
           jobGroup: null,
+          jobSplitDraft: { active: false, selectedNodeIds: [], newJobName: "" },
           techJobMeta: {
             code: "",
             name: "",

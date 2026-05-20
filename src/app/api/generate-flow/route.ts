@@ -579,7 +579,7 @@ ${FLOW_TECH_SCHEMA}`;
 // Prompt: Workflow Draft（专属 workflow 生成）
 // ============================================================
 
-const WORKFLOW_DRAFT_SYSTEM = `你是业务翻译平台的业务流程生成 Agent。用户会描述一个原本由业务人员人工完成的业务过程，可能附带文件（Excel、PDF 等）。
+const WORKFLOW_DRAFT_SYSTEM = `你是业务翻译平台的业务流程生成 Agent。用户会描述一个原本由业务人员人工完成的业务过程，可能附带文件（PPT/PPTX、Excel、PDF、Word、图片等）。
 
 **你的任务**：把用户描述和当前 Job 文件整理成一份“业务流程澄清稿”的流程图 JSON。
 
@@ -593,7 +593,16 @@ const WORKFLOW_DRAFT_SYSTEM = `你是业务翻译平台的业务流程生成 Age
 - 专有名词原样保留（系统名、文件名、公司名、表格名等）
 - inputs/outputs 尽量标明格式（如"IMI申请大表（Excel）"）
 
+**Job 文件池读取规则**：
+- 用户上传的文件属于当前 Job 文件池，不只是 prompt 附件摘要。
+- 如果材料是 PPT/PPTX、Word、图片、流程图 PDF 等复杂文件，你必须把它当作原始业务材料读取，提取页面标题、正文、表格、箭头/图形关系、备注和流程线索。
+- 如果原文是英文，最终流程节点、说明、输入输出、判断规则和追问都要用中文表达。
+- quick brief 只是索引和路标，不能替代原文件内容；复杂文件必须基于原文件读取结果生成流程。
+- 如果文件里是流程图，优先还原流程图中的节点、顺序、分支、角色和产物，不要只按用户一句话猜。
+
 **工作单元性质 workUnitKind**：
+- 不要按整个 Job 判断 workflow/agentic；必须逐个节点判断 workUnitKind。一个固定流程里也可能包含业务判断节点，一个目标导向工作里也可能包含固定操作节点。
+- 业务侧不暴露 workflow / agentic 术语；业务侧只看到“固定操作、业务判断、文件检查、人工确认、交接等待、返修回填”等业务语义。
 - manual_operation：人工操作型节点。业务人员实际做某个动作，例如查找文件、填写表格、上传资料、发送邮件。
 - business_judgment：业务判断型节点。业务人员根据材料、规则或经验作判断，例如判断问题类型、判断是否升级。
 - document_check：文件检查型节点。业务人员对照文件/表格/证书检查字段或一致性。
@@ -604,8 +613,28 @@ const WORKFLOW_DRAFT_SYSTEM = `你是业务翻译平台的业务流程生成 Age
 - 所有节点 executionMode 统一填 "pending"。执行方式由后续技术评审阶段判断。
 - manual_operation / rework_update 节点必须填写 operationSteps。
 - business_judgment / document_check 节点必须填写 judgmentSpec，表达“原本业务人员怎么判断/检查”，不要写成 AI 推荐。
+- 判断型节点中：
+  - decisionSubject 写“这一步要决定什么”，例如“判断桶/袋泄漏最可能的根因类别”。
+  - informationUsed 写“用于判断的关键依据”，例如偏差记录、泄漏照片、批次、包装完整性、处理/仓储条件、历史相似案例；它不是规则本身。
+  - judgmentRules 写“如何根据依据做判断”，例如“若同批次多点渗漏且封口异常，优先怀疑包装完整性；若搬运后集中发生，优先检查 handling”。
+  - judgmentOutputs 写“判断完成后的结论字段”，例如 Top 3 probable RCA、推荐 CAPA、置信度、需补充数据。
+  - escalationConditions / humanConfirmation 写“原人工流程里需要人工处理的情况”，例如资料缺失要补材料、根因无法判断要找 RCA owner、CAPA 涉及供应商争议要质量负责人确认。
+  - doneCriteria 写“这一步何时可以停止并进入下一步”，例如已给出带证据链的 Top 3 根因和 CAPA，且需人审项已标记。
 - handoff_wait 节点要写清楚交给谁、等待什么结果、多久后跟进。
 - 不适用的字段可以为空数组或 null。
+
+**条件分支拆解规则（非常重要）**：
+- 当用户描述或文件中出现条件表达时，不要把条件压进单个节点 description。
+- 条件表达包括但不限于：“如果/若/如需/缺失则/没有则/否则/有错则/无错则/不一致则/不满足则/超过则/通过则/失败则/退回则/补齐后/收到后”。
+- 这类内容优先拆成：判断/检查节点 → 条件分支 edge → 对应处理节点 → 必要时回到主线。
+- 判断/检查节点的 workUnitKind 通常是 business_judgment 或 document_check。
+- 分支 edge 必须有业务标签，例如“已有 MSDS”“缺失 MSDS”“证书无误”“证书有错”“材料齐全”“材料缺失”。
+- 分支处理节点必须写成真实人工动作，例如“邮件联系品控补 MSDS”“重新发送错误字段给海关”“补齐订单号后再查询”。
+- 如果分支处理后会回到原主线，使用 loop 或 normal edge 连回后续节点，不要省略回流关系。
+- 判断/检查节点只能产出判断结果或差异清单；不要同时产出成功分支才会产生的归档、回填、提交结果。
+- 例如“校对 IMI 证书，有错就反馈，没错才回填归档”必须拆成“证书校对”→ 证书有错：“反馈错误并等待重出证”→ 回到接收/校对；证书无误：“回填证书字段并归档”。
+- 只有当条件只是节点内部很小的操作备注、不会影响流程走向时，才可以留在 operationSteps 中。
+- 示例：“从公盘取 MSDS 并打印盖章备用，缺失则邮件品控并取得”应拆为“查找 MSDS”→“判断 MSDS 是否存在”→ 已存在：“打印盖章 MSDS”；缺失：“邮件联系品控补 MSDS”→“打印盖章 MSDS”。
 
 **材料锚定规则（非常重要）**：
 - 如果 JobMaterialBrief 中存在「流程方案」材料，并且其中有 processHints，流程节点必须优先逐条来自 processHints。
@@ -691,9 +720,11 @@ const REFINE_BATCH_SYSTEM = `你是一个业务流程优化专家。你会收到
 3. 如果某个回答揭示了新的子步骤，可以将该节点拆分（新节点 id 接着最大 id 递增）
 4. 如果修改影响了相邻节点的 inputs/outputs 衔接，也要同步修改
 5. **不要动没有收到回答的节点**
-6. **不要生成 executionRules、executionType 字段**（这些由技术侧后续生成）
-7. 修改后的 JSON 格式必须和原来一致
-8. 直接输出合法 JSON，不要用 markdown 代码块包裹，不要有任何解释文字
+6. 如果回答包含“如果/缺失则/有错则/无错则/不一致则/退回则/补齐后”等条件或例外处理，优先拆成判断节点、分支 edge 和对应处理节点；不要只追加到 description。
+7. 分支 edge 必须有清楚标签；分支处理后回到主线时，要补回流 edge。
+8. **不要生成 executionRules、executionType 字段**（这些由技术侧后续生成）
+9. 修改后的 JSON 格式必须和原来一致
+10. 直接输出合法 JSON，不要用 markdown 代码块包裹，不要有任何解释文字
 
 质量要求：
 - label 必须具体（"比对证书编号与申请大表" 而非 "数据校验"）
@@ -737,7 +768,7 @@ const REFINE_BATCH_DELTA_SYSTEM = `你是一个业务流程优化专家。你会
 规则：
 1) 只允许更新用户回答涉及的节点；不要返回未回答节点。
 2) 不要新增/删除节点，不要修改 edges。
-3) 如果回答需要改流程结构（新增步骤、改分支、改连线），则返回：
+3) 如果回答需要改流程结构（新增步骤、改分支、改连线），或者回答里出现“如果/缺失则/有错则/无错则/不一致则/退回则/补齐后”等条件或例外处理，则返回：
    {
      "requiresFullRefine": true,
      "reason": "需要结构调整的原因",
@@ -791,14 +822,20 @@ const REFINE_BUSINESS_SYSTEM = `你是一个业务流程优化专家。你会收
 2. 如果需要新增节点，id 接着当前最大 id 递增
 3. 如果需要删除节点，同时删除相关的 edges
 4. 如果用户在画布上已经做了修改，尊重这些修改
-5. **不要生成 executionRules、executionType 字段**（这些由技术侧后续生成）
-6. 修改后的 JSON 格式必须和原来一致
-7. 直接输出合法 JSON，不要用 markdown 代码块包裹，不要有任何解释文字
+5. 如果用户反馈包含“如果/若/缺失则/没有则/否则/有错则/无错则/不一致则/不满足则/超过则/退回则/补齐后/收到后”等条件或例外处理，优先新增判断/检查节点、条件分支 edge 和处理节点；不要只把条件写进 description。
+6. 分支 edge 必须写清楚业务标签，例如“已有文件”“文件缺失”“核对无误”“发现错误”。
+7. 如果分支处理后会继续原流程，要补回流 edge。
+8. 判断/检查节点只能产出判断结果或差异清单；不要同时产出成功分支才会产生的归档、回填、提交结果。
+9. 例如“校对 IMI 证书，有错就反馈，没错才回填归档”必须拆成“证书校对”→ 证书有错：“反馈错误并等待重出证”→ 回到接收/校对；证书无误：“回填证书字段并归档”。
+10. **不要生成 executionRules、executionType 字段**（这些由技术侧后续生成）
+11. 修改后的 JSON 格式必须和原来一致
+12. 直接输出合法 JSON，不要用 markdown 代码块包裹，不要有任何解释文字
 
 质量要求：
 - label 必须具体（"比对证书编号与申请大表" 而非 "数据校验"）
 - description 禁止套话（禁止 "进行全面的XX"、"确保XX准确性"，只写动作+对象+产出）
 - inputs/outputs 必须带格式（"申请大表（Excel）" 而非 "处理结果（文本）"）
+- 不要出现“从公盘取 MSDS 并打印盖章备用，缺失则邮件品控并取得”这种把多个动作和条件塞在一个节点里的描述；应该拆成查找、判断、已有处理、缺失处理等节点。
 
 输出格式：
 ${FLOW_BIZ_SCHEMA}`;
@@ -924,11 +961,12 @@ const CLARIFICATION_QUESTIONS_SYSTEM = `你是业务流程澄清助手。你会�
 1. 最多 5 个问题，默认只问 1-3 个真正高价值的问题。
 2. 每个问题必须绑定一个具体 nodeId；除非是流程起点/终点这种全局缺口，才允许 nodeId 为空字符串。
 3. 优先问会影响节点顺序、输入输出、判断规则、返修路径、文件使用依据的问题。
-4. 如果问题可以从已上传材料中读到，不要再问业务方。
-5. 如果只是字段文案不够漂亮，不要提问。
-6. 问题必须用业务语言，不要出现 workflow、agentic、schema、executionMode、Skill、JobSpec 等技术词。
-7. 每个问题尽量提供 2-3 个可点击选项；无法列选项时 answerType 用 free_text，options 为空数组。
-8. 不要要求业务方一次性补完整方案；只问当前最影响准确性的内容。
+4. 如果某个节点 description 或 operationSteps 中出现“如果/缺失则/有错则/无错则/不一致则/退回则/补齐后”等条件，但流程图没有对应分支，优先追问这个条件应该怎么走。
+5. 如果问题可以从已上传材料中读到，不要再问业务方。
+6. 如果只是字段文案不够漂亮，不要提问。
+7. 问题必须用业务语言，不要出现 workflow、agentic、schema、executionMode、Skill、JobSpec 等技术词。
+8. 每个问题尽量提供 2-3 个可点击选项；无法列选项时 answerType 用 free_text，options 为空数组。
+9. 不要要求业务方一次性补完整方案；只问当前最影响准确性的内容。
 
 直接输出合法 JSON，不要 markdown 包裹。`;
 
@@ -963,6 +1001,24 @@ const JOB_MATERIAL_CATEGORY_LABEL: Record<JobMaterialCategory, string> = {
   file_template: "文件模板",
   uncategorized: "未分类/待识别",
 };
+
+const AGENT_READ_EXTENSIONS = new Set([
+  ".ppt",
+  ".pptx",
+  ".doc",
+  ".docx",
+  ".png",
+  ".jpg",
+  ".jpeg",
+]);
+
+function getRequestFileExt(file: RequestFileContext) {
+  return (file.ext || path.extname(file.path)).toLowerCase();
+}
+
+function requiresAgentFileReading(file: RequestFileContext) {
+  return AGENT_READ_EXTENSIONS.has(getRequestFileExt(file));
+}
 
 function isJobMaterialCategory(value: unknown): value is JobMaterialCategory {
   return value === "workflow_plan"
@@ -1033,7 +1089,7 @@ function buildTextMaterialBrief(file: RequestFileContext, text: string, parseSta
 }
 
 async function buildJobMaterialBrief(file: RequestFileContext): Promise<JobMaterialBrief> {
-  const ext = (file.ext || path.extname(file.path)).toLowerCase();
+  const ext = getRequestFileExt(file);
   const category = file.jobMaterialCategory ?? "uncategorized";
   const fileName = getFileDisplayName(file);
 
@@ -1116,15 +1172,38 @@ async function buildJobMaterialBrief(file: RequestFileContext): Promise<JobMater
       return buildTextMaterialBrief(file, pdf.text);
     }
 
+    if (ext === ".pptx" || ext === ".ppt") {
+      return {
+        sourceId: file.path,
+        fileName,
+        category,
+        fileType: ext,
+        summary: "演示文稿已进入 Job 文件池；流程生成阶段会交给具备工具能力的 Agent 读取原文件，提取页面文字、流程图结构、图形/箭头关系和备注，并整理为中文流程线索。",
+        processHints: category === "workflow_plan" || category === "uncategorized"
+          ? ["由 Agent 读取 PPT/PPTX 原文件后提取流程节点、顺序、分支、角色和产物"]
+          : [],
+        ruleHints: category === "business_rule_knowhow"
+          ? ["由 Agent 读取 PPT/PPTX 原文件后提取业务规则、判断口径和注意事项"]
+          : [],
+        templateFields: [],
+        sampleRows: [],
+        parseStatus: "partial",
+      };
+    }
+
     if (ext === ".docx" || ext === ".doc") {
       return {
         sourceId: file.path,
         fileName,
         category,
         fileType: ext,
-        summary: "Word 文档已上传；当前 quick brief 暂不解析正文，会作为文件材料交给后续模型读取。",
-        processHints: [],
-        ruleHints: [],
+        summary: "Word 文档已进入 Job 文件池；流程生成阶段会交给具备工具能力的 Agent 读取原文件正文、标题和表格，再提取业务流程线索。",
+        processHints: category === "workflow_plan" || category === "uncategorized"
+          ? ["由 Agent 读取 Word 原文件后提取流程节点、顺序、分支、角色和产物"]
+          : [],
+        ruleHints: category === "business_rule_knowhow"
+          ? ["由 Agent 读取 Word 原文件后提取业务规则、判断口径和注意事项"]
+          : [],
         templateFields: [],
         sampleRows: [],
         parseStatus: "partial",
@@ -1137,8 +1216,10 @@ async function buildJobMaterialBrief(file: RequestFileContext): Promise<JobMater
         fileName,
         category,
         fileType: ext,
-        summary: "图片已上传；当前 quick brief 暂不做 OCR，请根据文件名和用户描述判断用途。",
-        processHints: [],
+        summary: "图片已进入 Job 文件池；流程生成阶段会交给具备工具能力的 Agent 做视觉理解/OCR，提取流程图结构、文字和箭头关系。",
+        processHints: category === "workflow_plan" || category === "uncategorized"
+          ? ["由 Agent 读取图片后提取流程图节点、顺序、分支、角色和产物"]
+          : [],
         ruleHints: [],
         templateFields: [],
         sampleRows: [],
@@ -1178,6 +1259,7 @@ async function buildFileContextBlock(files: RequestFileContext[]) {
   if (files.length === 0) return "";
 
   const materialBriefs = await Promise.all(files.slice(0, 8).map((file) => buildJobMaterialBrief(file)));
+  const agentReadableFiles = files.filter(requiresAgentFileReading);
 
   const lines = materialBriefs.map((brief, index) => {
     const detailLines = [
@@ -1194,7 +1276,17 @@ async function buildFileContextBlock(files: RequestFileContext[]) {
     return detailLines.filter(Boolean).join("\n");
   });
 
-  return `\n\n--- 当前业务方案的材料理解层 JobMaterialBrief ---\n${lines.join("\n")}\n\n材料使用规则：\n- 「流程方案」中的 processHints 优先用于抽取流程步骤、顺序、角色和分支。\n- 「业务规则和 Know-how」中的 ruleHints 用于理解判断口径、校验标准、注意事项，不要直接当成流程节点。\n- 「文件模板」中的 templateFields / sampleRows 用于理解输入输出、字段结构、表格/表单用途，不要把字段列表误当成流程步骤。\n- 「未分类/待识别」需要根据摘要和内容自行判断角色。\n- 如果用户描述与材料冲突，优先保留用户描述，并把冲突作为待确认点。`;
+  const agentFilePoolBlock = agentReadableFiles.length > 0
+    ? `\n\n--- 需要 Agent 读取原文件的 Job 文件池 ---\n${agentReadableFiles.map((file, index) => [
+        `${index + 1}. ${getFileDisplayName(file)}`,
+        `   - 路径：${file.path}`,
+        `   - 分类：${JOB_MATERIAL_CATEGORY_LABEL[file.jobMaterialCategory ?? "uncategorized"]}`,
+        `   - 类型：${getRequestFileExt(file) || file.type || "unknown"}`,
+        "   - 处理方式：不要只依赖 quick brief；请由 Agent 读取原文件，提取文本、页面结构、图形/箭头关系和流程线索。",
+      ].join("\n")).join("\n")}`
+    : "";
+
+  return `\n\n--- 当前业务方案的材料理解层 JobMaterialBrief ---\n${lines.join("\n")}${agentFilePoolBlock}\n\n材料使用规则：\n- 「流程方案」中的 processHints 优先用于抽取流程步骤、顺序、角色和分支。\n- 「业务规则和 Know-how」中的 ruleHints 用于理解判断口径、校验标准、注意事项，不要直接当成流程节点。\n- 「文件模板」中的 templateFields / sampleRows 用于理解输入输出、字段结构、表格/表单用途，不要把字段列表误当成流程步骤。\n- 「未分类/待识别」需要根据摘要和内容自行判断角色。\n- PPT/PPTX、Word、图片、流程图 PDF 等复杂材料必须回到原文件读取；quick brief 只提供索引，不代表完整内容。\n- 如果材料是英文，输出给业务方的流程图和说明必须是中文。\n- 如果用户描述与材料冲突，优先保留用户描述，并把冲突作为待确认点。`;
 }
 
 function buildReadinessGuard(prompt: string, files: RequestFileContext[]) {
@@ -1361,6 +1453,7 @@ export async function POST(req: NextRequest) {
     const requestFilePaths = requestFiles.map((file) => file.path);
     const fileContextBlock = await buildFileContextBlock(requestFiles);
     const fileOpts = requestFilePaths.length > 0 ? { filePaths: requestFilePaths } : {};
+    const needsAgentFileReading = requestFiles.some(requiresAgentFileReading);
 
     const hasCursor = !!process.env.CURSOR_API_KEY;
     const hasOpenAI = !!process.env.OPENAI_API_KEY;
@@ -1459,10 +1552,21 @@ export async function POST(req: NextRequest) {
             const provider = (process.env.LLM_PROVIDER || "").toLowerCase();
             const preferOpenAI = (provider === "codex" || provider === "openai") && !!process.env.OPENAI_API_KEY;
             const hasCursorSDK = !!process.env.CURSOR_API_KEY;
+            const shouldUseCursorAgent = hasCursorSDK && (needsAgentFileReading || !preferOpenAI);
 
-            // 仅当明确不偏好 OpenAI/Codex 且存在 Cursor key 时走 Cursor 流式；
+            if (hasFiles) {
+              controller.enqueue(sse({
+                type: "progress",
+                message: needsAgentFileReading
+                  ? "文件已进入 Job 文件池，正在交给 Agent 读取原文件..."
+                  : "正在读取 Job 文件池材料...",
+              }));
+            }
+
+            // PPTX/Word/图片等复杂材料需要具备工具能力的 Agent 读取原文件；
+            // 其他场景仅当明确不偏好 OpenAI/Codex 且存在 Cursor key 时走 Cursor 流式；
             // 否则统一走 callLLM（按 provider 选路并自动兜底）
-            if (hasCursorSDK && !preferOpenAI) {
+            if (shouldUseCursorAgent) {
               const streamOpts: CallLLMOptions = { temperature: 0.3, ...fileOpts };
               for await (const event of streamViaCursorSDK(systemPrompt, enrichedPrompt, streamOpts)) {
                 if (event.type === "progress") {
@@ -1489,9 +1593,15 @@ export async function POST(req: NextRequest) {
                 }
               }
             } else {
-              controller.enqueue(sse({ type: "progress", message: "正在生成流程图..." }));
+              controller.enqueue(sse({
+                type: "progress",
+                message: needsAgentFileReading
+                  ? "未检测到 Cursor Agent，正在用可用模型读取文件索引并生成流程图..."
+                  : "正在生成流程图...",
+              }));
               const result = await callLLM(systemPrompt, enrichedPrompt, {
                 temperature: 0.3,
+                preferChannel: needsAgentFileReading && hasCursorSDK ? "cursor" : undefined,
                 ...fileOpts,
               });
               controller.enqueue(sse({ type: "stage", stage: "draft_done" }));

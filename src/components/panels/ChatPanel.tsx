@@ -26,7 +26,7 @@ import type { NodeConfidence } from "@/lib/store";
 import type { AgenticTaskConfig, AgenticConfirmItem } from "@/lib/types";
 
 function fileIcon(ext: string) {
-  if ([".pdf", ".doc", ".docx", ".txt", ".md"].includes(ext)) return <FileText className="w-3.5 h-3.5" />;
+  if ([".pdf", ".doc", ".docx", ".ppt", ".pptx", ".txt", ".md"].includes(ext)) return <FileText className="w-3.5 h-3.5" />;
   if ([".xlsx", ".xls", ".csv"].includes(ext)) return <FileSpreadsheet className="w-3.5 h-3.5" />;
   if ([".png", ".jpg", ".jpeg"].includes(ext)) return <ImageIcon className="w-3.5 h-3.5" />;
   return <FileIcon className="w-3.5 h-3.5" />;
@@ -213,13 +213,14 @@ export default function ChatPanel() {
     "classifying", "drafting", "refining_node", "refining",
     "drafting_agentic", "refining_agentic",
   ].includes(phase);
-  const hasPendingQuestions = pendingNodes.length > 0 && phase === "ready";
+  const hasPendingQuestions = pendingNodes.length > 0 && (phase === "questioning" || phase === "ready");
+  const isInitialClarification = pendingNodes.length > 0 && phase === "questioning" && taskType === "workflow";
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [chatMessages.length, isLoading, hasPendingQuestions, showCompletion, showNodeQuestions, showReadinessCard, readinessQuestions.length]);
+  }, [chatMessages.length, isLoading, hasPendingQuestions, isInitialClarification, showCompletion, showNodeQuestions, showReadinessCard, readinessQuestions.length]);
 
   useEffect(() => {
     const tryInit = () => {
@@ -501,6 +502,9 @@ export default function ChatPanel() {
         const nextPendingNodes = nextAllConfidence.filter((item) => item.confidence !== "high" && item.questions.length > 0);
         setAllNodeConfidence(nextAllConfidence);
         setPendingNodes(nextPendingNodes);
+        if (nextPendingNodes.length > 0) {
+          setPhase("questioning");
+        }
         useFlowAgentStore.setState({ currentNodeIdx: 0 });
       }
 
@@ -541,7 +545,7 @@ export default function ChatPanel() {
     } catch {
       // 节点材料依据是增强能力，失败不阻塞主流程
     }
-  }, [addChatMessage, setAllNodeConfidence, setPendingNodes]);
+  }, [addChatMessage, setAllNodeConfidence, setPendingNodes, setPhase]);
 
   const enrichWorkflowNodeDetails = useCallback(async (sourceFlow: Record<string, unknown>, originalReq: string) => {
     try {
@@ -827,7 +831,7 @@ export default function ChatPanel() {
         content: humanSummaryParts.join("\n"),
         timestamp: new Date().toISOString(),
       });
-      setPhase("ready");
+      setPhase(needConfirm.length > 0 ? "questioning" : "ready");
       enrichWorkflowNodeContext(data as Record<string, unknown>, useFlowAgentStore.getState().originalPrompt, labelMap);
       enrichWorkflowNodeDetails(data as Record<string, unknown>, useFlowAgentStore.getState().originalPrompt);
     }, streamDoneMs);
@@ -1587,7 +1591,7 @@ export default function ChatPanel() {
     idle: "描述你的业务场景...",
     classifying: "理解中，请稍候...",
     drafting: "生成中，请稍候...",
-    questioning: "也可以直接打字补充...",
+    questioning: "先确认上方问题，或直接补充说明...",
     refining_node: "优化中，请稍候...",
     ready: "告诉我哪里需要修改...",
     refining: "修改中，请稍候...",
@@ -1624,7 +1628,7 @@ export default function ChatPanel() {
     "总结当前节点的技术风险",
     "检查导出前还缺什么",
   ];
-  const shouldShowDraftAssistantIntro = !isBusinessReviewMode && !isTechReviewMode && (chatMessages.length > 0 || hasFlow || hasAgenticConfig || phase === "idle");
+  const shouldShowDraftAssistantIntro = !isInitialClarification && !isBusinessReviewMode && !isTechReviewMode && (chatMessages.length > 0 || hasFlow || hasAgenticConfig || phase === "idle");
 
   return (
     <div className="w-full border-r border-zinc-200 bg-white flex flex-col h-full flex-1 min-h-0" data-onboarding="chat-panel">
@@ -1789,6 +1793,14 @@ export default function ChatPanel() {
             })();
             return (
               <div className="ml-9">
+                {isInitialClarification && (
+                  <div className="mb-2 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2.5 text-xs leading-5 text-blue-900">
+                    <p className="font-semibold">第一版流程图已生成</p>
+                    <p className="mt-0.5 text-blue-700">
+                      还有 {prioritized.length} 个节点需要确认。确认后我会把这些信息合并进流程图；也可以全部跳过，后面再改。
+                    </p>
+                  </div>
+                )}
                 <NodeQuestionPage
                   pendingNodes={prioritized}
                   nodeLabelMap={nodeLabelMap}
@@ -1867,7 +1879,7 @@ export default function ChatPanel() {
             ref={fileInputRef}
             type="file"
             className="hidden"
-            accept=".pdf,.xlsx,.xls,.docx,.txt,.csv,.md,.json,.png,.jpg,.jpeg"
+            accept=".pdf,.ppt,.pptx,.xlsx,.xls,.docx,.txt,.csv,.md,.json,.png,.jpg,.jpeg"
             multiple
             onChange={handleFileSelect}
           />

@@ -14,11 +14,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { FlowNodeData, FlowNodeInput, FlowNodeOutput, NodeBindingEntry, PlatformTaskType, SubField } from "@/lib/types";
+import type {
+  FlowNodeData,
+  FlowNodeInput,
+  FlowNodeOutput,
+  NodeBindingEntry,
+  PlatformTaskType,
+  SubField,
+} from "@/lib/types";
 import {
   REGISTERED_SKILL_OPTIONS,
   isRegisteredSkillCode,
   REGISTERED_CONTEXT_POLICY_OPTIONS,
+  REGISTERED_RUNTIME_PROFILE_OPTIONS,
+  REGISTERED_REVIEW_POLICY_OPTIONS,
+  REGISTERED_TOOL_OPTIONS,
+  REGISTERED_SECRET_OPTIONS,
+  type RegisteredContextPolicyOption,
 } from "@/lib/registered-skills";
 
 function slugifyTaskCode(name: string): string {
@@ -34,25 +46,31 @@ function slugifyTaskCode(name: string): string {
 
 /** Select 占位：未选择具体 Skill（导出前会被过滤） */
 const SKILL_NONE = "__skill_none__";
+const TOOL_NONE = "__tool_none__";
+const SECRET_NONE = "__secret_none__";
 
-const EXECUTION_MODE_OPTIONS: {
-  value: string;
+const TASK_TYPE_OPTIONS: {
+  value: PlatformTaskType;
   label: string;
   desc: string;
-  taskType: PlatformTaskType;
-  runtimeProfileCode: string;
 }[] = [
-  { value: "agentic-default", label: "AI 自主执行", desc: "调用大模型进行理解、推理、解析", taskType: "agentic", runtimeProfileCode: "agentic-default" },
-  { value: "integration-default", label: "接口调用", desc: "调 HTTP / API，查数据库、发请求", taskType: "integration", runtimeProfileCode: "integration-default" },
-  { value: "script-fast", label: "脚本执行", desc: "纯规则校验、数据转换，不走大模型", taskType: "deterministic", runtimeProfileCode: "script-fast" },
-  { value: "human-bridge", label: "人工处理", desc: "推送给人完成，等待回调", taskType: "human_review", runtimeProfileCode: "human-bridge" },
+  { value: "agentic", label: "agentic", desc: "大模型理解、推理、解析、生成" },
+  { value: "integration", label: "integration", desc: "调用 Tool / HTTP Worker / 外部系统接口" },
+  { value: "deterministic", label: "deterministic", desc: "确定性规则、校验、转换、评分" },
+  { value: "human_review", label: "human_review", desc: "人工审核、确认、审批、补材料" },
 ];
 
-function inferExecutionMode(data: FlowNodeData): string {
+const DEFAULT_RUNTIME_PROFILE_BY_TASK: Partial<Record<PlatformTaskType, string>> = {
+  agentic: "agentic-default",
+  integration: "integration-default",
+  deterministic: "script-fast",
+};
+
+function inferTaskType(data: FlowNodeData): PlatformTaskType {
   if (data.executionMode === "human_manual" || data.executionMode === "human_confirm") {
-    return "human-bridge";
+    return "human_review";
   }
-  return "agentic-default";
+  return "agentic";
 }
 
 const COMPLEX_TYPES = new Set(["json", "object", "array", "map", "record"]);
@@ -291,6 +309,47 @@ function DataFieldList<T extends AnyField>({
   );
 }
 
+function ContextPolicySummary({ policy }: { policy: RegisteredContextPolicyOption | undefined }) {
+  if (!policy) {
+    return (
+      <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-[10px] text-amber-700">
+        当前 context_policy_code 未出现在资源注册清单中。发布前需要在资源注册平台补注册，或改选已有 ContextPolicy。
+      </div>
+    );
+  }
+
+  const items = [
+    { label: "Job 输入", value: policy.includesJobInput ? "包含" : "不包含" },
+    { label: "上游输出", value: policy.includesUpstreamOutputs ? "包含" : "不包含" },
+    { label: "ContextSource", value: policy.includeSources?.length ? policy.includeSources.join("、") : "无额外来源" },
+    { label: "必填字段", value: policy.requiredFields?.length ? policy.requiredFields.join("、") : "未声明" },
+    { label: "脱敏规则", value: policy.redactionPatterns?.length ? policy.redactionPatterns.join("、") : "默认平台脱敏" },
+    { label: "最大包大小", value: policy.maxPayloadKb ? `${policy.maxPayloadKb} KB` : "平台默认" },
+  ];
+
+  return (
+    <div className="rounded-lg border border-blue-100 bg-blue-50/50 px-3 py-2">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <p className="text-[10px] font-semibold text-blue-700">已注册 ContextPolicy 摘要</p>
+        <span className="rounded-full bg-white/80 px-2 py-0.5 text-[9px] text-blue-600">
+          {policy.status ?? "published"}
+        </span>
+      </div>
+      <div className="space-y-1">
+        {items.map((item) => (
+          <div key={item.label} className="grid grid-cols-[64px_1fr] gap-2 text-[10px] leading-snug">
+            <span className="text-blue-500">{item.label}</span>
+            <span className="text-slate-600">{item.value}</span>
+          </div>
+        ))}
+      </div>
+      <p className="mt-2 text-[9px] leading-snug text-slate-400">
+        摘要只读，来自资源注册平台；FlowAgent 只在 JobSpec Task 中写入 context_policy_code。
+      </p>
+    </div>
+  );
+}
+
 export default function TechNodePanel() {
   const selectedNodeId = useFlowAgentStore((s) => s.selectedNodeId);
   const nodes = useFlowAgentStore((s) => s.nodes);
@@ -306,10 +365,21 @@ export default function TechNodePanel() {
   const binding: NodeBindingEntry = node ? techBindings.nodesById[node.id] ?? {} : {};
   const data = node?.data as FlowNodeData | undefined;
 
-  const currentMode = binding.runtimeProfileCode ?? (data ? inferExecutionMode(data) : "agentic-default");
-  const modeEntry = EXECUTION_MODE_OPTIONS.find((o) => o.value === currentMode) ?? EXECUTION_MODE_OPTIONS[0];
-  const isHumanReview = modeEntry.taskType === "human_review";
-  const needsSkill = !isHumanReview;
+  const currentTaskType = binding.taskType ?? (data ? inferTaskType(data) : "agentic");
+  const isHumanReview = currentTaskType === "human_review";
+  const needsSkill = currentTaskType === "agentic";
+  const runtimeProfileOptions = REGISTERED_RUNTIME_PROFILE_OPTIONS.filter((option) =>
+    option.taskTypes.includes(currentTaskType)
+  );
+  const runtimeProfileCode =
+    binding.runtimeProfileCode ?? DEFAULT_RUNTIME_PROFILE_BY_TASK[currentTaskType] ?? "";
+  const selectedRuntimeMissing =
+    !isHumanReview &&
+    runtimeProfileCode.trim().length > 0 &&
+    !REGISTERED_RUNTIME_PROFILE_OPTIONS.some((option) => option.code === runtimeProfileCode);
+  const selectedContextPolicy = REGISTERED_CONTEXT_POLICY_OPTIONS.find(
+    (p) => p.code === binding.contextPolicyCode
+  );
 
   const [taskCodeOverride, setTaskCodeOverride] = useState(false);
   const derivedTaskCode = data ? slugifyTaskCode(data.label) : "";
@@ -335,10 +405,153 @@ export default function TechNodePanel() {
     return [...s];
   }, [skillRows]);
 
+  const orphanToolCodes = useMemo(() => {
+    const s = new Set<string>();
+    for (const c of binding.toolCodes ?? []) {
+      const t = c.trim();
+      if (t && !REGISTERED_TOOL_OPTIONS.some((tool) => tool.code === t)) s.add(t);
+    }
+    return [...s];
+  }, [binding.toolCodes]);
+
+  const orphanSecretRefs = useMemo(() => {
+    const s = new Set<string>();
+    for (const c of binding.secretRefs ?? []) {
+      const t = c.trim();
+      if (t && !REGISTERED_SECRET_OPTIONS.some((secret) => secret.code === t)) s.add(t);
+    }
+    return [...s];
+  }, [binding.secretRefs]);
+
   if (!node || !data) {
     return (
       <div className="flex-1 flex items-center justify-center text-[12px] text-zinc-400 p-4">
         未选中节点
+      </div>
+    );
+  }
+
+  if (data.isCondition) {
+    const branches = data.conditionBranches ?? [];
+    return (
+      <div className="flex-1 flex flex-col min-h-0 h-full bg-white overflow-hidden">
+        <div className="shrink-0 border-b border-zinc-200 bg-white px-4 pb-3 pt-4 lg:pt-11">
+          <p className="text-[10px] text-zinc-400 mb-2 leading-snug">
+            你已打开<strong className="font-medium text-zinc-600">路由节点</strong>；
+            它不是 Task，不会进入 JobSpec 的 <span className="font-mono">tasks[]</span>。
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            className="mb-3 h-10 w-full justify-start gap-2 border-zinc-200 bg-zinc-50/80 text-[13px] font-medium text-zinc-800 hover:bg-zinc-100"
+            onClick={() => setSelectedNodeId(null)}
+          >
+            <ChevronLeft className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
+            返回 Job 全局配置
+          </Button>
+          <Input
+            value={data.label}
+            onChange={(e) => updateNodeData(node.id, { label: e.target.value })}
+            className="text-sm font-semibold text-zinc-900 h-8 px-2 border-transparent hover:border-zinc-300 focus:border-zinc-400 bg-transparent"
+          />
+          <p className="mt-1 text-[10px] text-amber-600">Condition Gateway -&gt; JobSpec flow.condition</p>
+        </div>
+
+        <ScrollArea className="flex-1 min-h-0">
+          <div className="p-4 space-y-5 pb-8">
+            <section className="rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+              <p className="text-[12px] font-semibold text-amber-900">路由节点说明</p>
+              <p className="mt-1 text-[11px] leading-5 text-amber-800">
+                路由节点只承载 if / else 分支。它应该读取前一个可执行 Task 的输出字段，
+                然后把出边编译成 <span className="font-mono">flow.condition</span>。
+              </p>
+              <pre className="mt-3 overflow-x-auto rounded-lg bg-white/80 p-3 text-[10px] leading-relaxed text-zinc-700">
+{`flow:
+  - from: 上游-task-code
+    to: 下游-task-code
+    condition:
+      path: destination_region
+      equals: taiwan`}
+              </pre>
+            </section>
+
+            <section className="rounded-xl border border-zinc-200 bg-white p-3 space-y-3">
+              <div>
+                <label className="text-[10px] text-zinc-700 font-medium block mb-0.5">
+                  路由含义
+                </label>
+                <Textarea
+                  value={data.description || ""}
+                  onChange={(e) => updateNodeData(node.id, { description: e.target.value })}
+                  rows={3}
+                  className="text-[12px] text-zinc-600 leading-relaxed resize-none"
+                  placeholder="例如：根据识别出的目的港，把订单分流到台湾、香港或人工确认路径。"
+                />
+              </div>
+
+              <div>
+                <p className="text-[11px] font-semibold text-zinc-800 mb-1">分支规则</p>
+                <p className="text-[10px] text-zinc-400 mb-2">
+                  每一行对应一条出边条件。目标节点名称用于辅助理解，实际导出时会根据画布连线解析为下游 Task code。
+                </p>
+                <div className="space-y-2">
+                  {branches.map((branch, idx) => (
+                    <div key={idx} className="rounded-lg border border-zinc-200 bg-zinc-50/60 p-2 space-y-2">
+                      <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
+                        <Input
+                          value={branch.label}
+                          onChange={(e) => {
+                            const next = [...branches];
+                            next[idx] = { ...branch, label: e.target.value };
+                            updateNodeData(node.id, { conditionBranches: next });
+                          }}
+                          className="h-8 text-[11px]"
+                          placeholder='例如 destination_region = "taiwan"'
+                        />
+                        <Input
+                          value={branch.targetLabel}
+                          onChange={(e) => {
+                            const next = [...branches];
+                            next[idx] = { ...branch, targetLabel: e.target.value };
+                            updateNodeData(node.id, { conditionBranches: next });
+                          }}
+                          className="h-8 text-[11px]"
+                          placeholder="目标节点名称"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => updateNodeData(node.id, { conditionBranches: branches.filter((_, i) => i !== idx) })}
+                        >
+                          <Trash2 className="w-3 h-3 text-zinc-400" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="h-8 text-[11px]"
+                    onClick={() =>
+                      updateNodeData(node.id, {
+                        conditionBranches: [
+                          ...branches,
+                          { label: "", icon: "•", targetLabel: "" },
+                        ],
+                      })
+                    }
+                  >
+                    <Plus className="w-3 h-3 mr-1" />
+                    添加分支
+                  </Button>
+                </div>
+              </div>
+            </section>
+          </div>
+        </ScrollArea>
       </div>
     );
   }
@@ -348,6 +561,27 @@ export default function TechNodePanel() {
       skillBindingCodes: rows,
       skillBindingCode: undefined,
     });
+  };
+
+  const commitToolAt = (index: number, value: string) => {
+    const nextToolCodes = [...(binding.toolCodes ?? [])];
+    const picked = value === TOOL_NONE ? "" : value;
+    nextToolCodes[index] = picked;
+
+    const pickedTool = REGISTERED_TOOL_OPTIONS.find((tool) => tool.code === picked);
+    const requiredSecrets = pickedTool?.secretRefs ?? [];
+    const nextSecretRefs = Array.from(new Set([...(binding.secretRefs ?? []), ...requiredSecrets]));
+
+    setNodeBinding(node.id, {
+      toolCodes: nextToolCodes,
+      secretRefs: nextSecretRefs,
+    });
+  };
+
+  const commitSecretAt = (index: number, value: string) => {
+    const nextSecretRefs = [...(binding.secretRefs ?? [])];
+    nextSecretRefs[index] = value === SECRET_NONE ? "" : value;
+    setNodeBinding(node.id, { secretRefs: nextSecretRefs });
   };
 
   return (
@@ -436,13 +670,13 @@ export default function TechNodePanel() {
           </section>
 
           <section className="rounded-xl border border-zinc-200 bg-zinc-50/40 p-3 space-y-3">
-            <p className="text-[11px] font-semibold text-zinc-700">数据契约</p>
+            <p className="text-[11px] font-semibold text-zinc-700">Task 输入/输出 Schema</p>
             <p className="text-[10px] text-zinc-400 leading-snug mb-1">
-              AI 自动生成，可增删和修改字段。
+              定义当前 Task 的验收输入和输出，导出到 JobSpec 的 input_schema / output_schema；数据来源和工具实现由已注册资源决定。
             </p>
 
             <DataFieldList
-              title="需要提供（输入）"
+              title="输入字段 input_schema"
               fields={data.inputs}
               showSource
               onUpdate={(next) => updateNodeData(node.id, { inputs: next })}
@@ -462,7 +696,7 @@ export default function TechNodePanel() {
             />
 
             <DataFieldList
-              title="会产出（输出）"
+              title="输出字段 output_schema"
               fields={data.outputs}
               onUpdate={(next) => updateNodeData(node.id, { outputs: next })}
               onAdd={() => {
@@ -485,20 +719,33 @@ export default function TechNodePanel() {
             <div className="grid grid-cols-1 gap-3">
               <div>
                 <label className="text-[10px] text-zinc-700 font-medium block mb-0.5">
-                  执行方式
+                  Task 类型 <span className="font-mono text-zinc-400 font-normal">type</span>
                 </label>
                 <Select
-                  value={currentMode}
+                  value={currentTaskType}
                   onValueChange={(v) => {
-                    const picked = EXECUTION_MODE_OPTIONS.find((o) => o.value === v);
+                    const picked = TASK_TYPE_OPTIONS.find((o) => o.value === v);
                     if (!picked) return;
+                    const nextTaskType = picked.value;
                     const patch: Partial<NodeBindingEntry> = {
-                      taskType: picked.taskType,
-                      runtimeProfileCode: picked.runtimeProfileCode,
+                      taskType: nextTaskType,
                     };
-                    if (picked.taskType === "human_review") {
+                    if (nextTaskType === "human_review") {
+                      patch.runtimeProfileCode = undefined;
+                      patch.contextPolicyCode = undefined;
                       patch.skillBindingCodes = [];
                       patch.skillBindingCode = undefined;
+                      patch.toolCodes = [];
+                      patch.secretRefs = [];
+                      patch.reviewPolicyCode = binding.reviewPolicyCode || "gsds-data-steward-review";
+                    } else {
+                      patch.runtimeProfileCode =
+                        DEFAULT_RUNTIME_PROFILE_BY_TASK[nextTaskType] ?? binding.runtimeProfileCode;
+                      patch.reviewPolicyCode = "";
+                      if (nextTaskType !== "agentic") {
+                        patch.skillBindingCodes = [];
+                        patch.skillBindingCode = undefined;
+                      }
                     }
                     setNodeBinding(node.id, patch);
                   }}
@@ -507,84 +754,125 @@ export default function TechNodePanel() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {EXECUTION_MODE_OPTIONS.map((o) => (
+                    {TASK_TYPE_OPTIONS.map((o) => (
                       <SelectItem key={o.value} value={o.value}>
                         <span className="flex flex-col gap-0.5 text-left">
                           <span>{o.label}</span>
                           <span className="text-[10px] text-zinc-500">{o.desc}</span>
-                          <span className="font-mono text-[10px] text-zinc-400">taskType: {o.taskType} · runtime: {o.runtimeProfileCode}</span>
+                          <span className="font-mono text-[10px] text-zinc-400">type: {o.value}</span>
                         </span>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-              <div className={needsSkill ? "" : "hidden"}>
-                <label className="text-[10px] text-zinc-500 block mb-1">绑定 Skill</label>
-                <p className="text-[10px] text-zinc-400 mb-1.5">
-                  从平台已注册列表中选择；导出 JobSpec 时仍写入 <span className="font-mono">skill_codes</span>。
-                </p>
-                <div className="space-y-1.5">
-                  {skillRows.map((code, idx) => {
-                    const selectValue = code.trim() ? code.trim() : SKILL_NONE;
-                    return (
-                      <div key={idx} className="flex gap-1">
-                        <Select
-                          value={selectValue}
-                          onValueChange={(v) => {
-                            const picked = v ?? SKILL_NONE;
-                            const next = [...skillRows];
-                            next[idx] = picked === SKILL_NONE ? "" : picked;
-                            commitSkills(next);
-                          }}
-                          disabled={!needsSkill}
-                        >
-                          <SelectTrigger className="h-9 w-full min-w-0 text-[12px] *:data-[slot=select-value]:line-clamp-none *:data-[slot=select-value]:whitespace-normal">
-                            <SelectValue placeholder="选择已注册的 Skill" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value={SKILL_NONE}>
-                              <span className="text-zinc-400">未选择</span>
-                            </SelectItem>
-                            {REGISTERED_SKILL_OPTIONS.map((s) => (
-                              <SelectItem key={s.code} value={s.code}>
-                                <span className="flex flex-col gap-0.5 text-left">
-                                  <span>{s.title}</span>
-                                  <span className="font-mono text-[10px] text-zinc-400">{s.code}</span>
-                                  {s.summary ? (
-                                    <span className="text-[10px] text-zinc-500">{s.summary}</span>
-                                  ) : null}
-                                </span>
-                              </SelectItem>
-                            ))}
-                            {orphanSkillCodes.map((orphan) => (
-                              <SelectItem key={orphan} value={orphan}>
-                                <span className="flex flex-col gap-0.5 text-left">
-                                  <span className="text-amber-700">未出现在当前注册表</span>
-                                  <span className="font-mono text-[10px]">{orphan}</span>
-                                </span>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        {needsSkill && skillRows.length > 1 ? (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-9 shrink-0 px-2 text-[10px]"
-                            onClick={() => {
-                              const next = skillRows.filter((_, i) => i !== idx);
-                              commitSkills(next.length ? next : [""]);
+              {!isHumanReview ? (
+                <div>
+                  <label className="text-[10px] text-zinc-700 font-medium block mb-0.5">
+                    执行器配置 <span className="font-mono text-zinc-400 font-normal">runtime_profile_code</span>
+                  </label>
+                  <p className="text-[9px] text-zinc-400 mb-1.5">
+                    选择资源注册平台已发布的 RuntimeProfile code。
+                  </p>
+                  <Select
+                    value={runtimeProfileCode}
+                    onValueChange={(v) => setNodeBinding(node.id, { runtimeProfileCode: v || undefined })}
+                  >
+                    <SelectTrigger className="h-9 w-full min-w-0 text-[12px] *:data-[slot=select-value]:line-clamp-none *:data-[slot=select-value]:whitespace-normal">
+                      <SelectValue placeholder="选择 RuntimeProfile…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {runtimeProfileOptions.map((option) => (
+                        <SelectItem key={option.code} value={option.code}>
+                          <span className="flex flex-col gap-0.5 text-left">
+                            <span>{option.title}</span>
+                            <span className="font-mono text-[10px] text-zinc-400">{option.code}</span>
+                            {option.summary ? (
+                              <span className="text-[10px] text-zinc-500">{option.summary}</span>
+                            ) : null}
+                            {option.providerType ? (
+                              <span className="text-[10px] text-blue-500">provider: {option.providerType}</span>
+                            ) : null}
+                          </span>
+                        </SelectItem>
+                      ))}
+                      {selectedRuntimeMissing ? (
+                        <SelectItem value={runtimeProfileCode}>
+                          <span className="flex flex-col gap-0.5 text-left">
+                            <span className="text-amber-700">未出现在当前注册表</span>
+                            <span className="font-mono text-[10px]">{runtimeProfileCode}</span>
+                          </span>
+                        </SelectItem>
+                      ) : null}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
+              {needsSkill ? (
+                <div>
+                  <label className="text-[10px] text-zinc-500 block mb-1">绑定 Skill</label>
+                  <p className="text-[10px] text-zinc-400 mb-1.5">
+                    仅 Agentic Task 需要；导出 JobSpec 时写入 <span className="font-mono">skill_codes</span>。
+                  </p>
+                  <div className="space-y-1.5">
+                    {skillRows.map((code, idx) => {
+                      const selectValue = code.trim() ? code.trim() : SKILL_NONE;
+                      return (
+                        <div key={idx} className="flex gap-1">
+                          <Select
+                            value={selectValue}
+                            onValueChange={(v) => {
+                              const picked = v ?? SKILL_NONE;
+                              const next = [...skillRows];
+                              next[idx] = picked === SKILL_NONE ? "" : picked;
+                              commitSkills(next);
                             }}
                           >
-                            删
-                          </Button>
-                        ) : null}
-                      </div>
-                    );
-                  })}
-                  {needsSkill ? (
+                            <SelectTrigger className="h-9 w-full min-w-0 text-[12px] *:data-[slot=select-value]:line-clamp-none *:data-[slot=select-value]:whitespace-normal">
+                              <SelectValue placeholder="选择已注册的 Skill" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value={SKILL_NONE}>
+                                <span className="text-zinc-400">未选择</span>
+                              </SelectItem>
+                              {REGISTERED_SKILL_OPTIONS.map((s) => (
+                                <SelectItem key={s.code} value={s.code}>
+                                  <span className="flex flex-col gap-0.5 text-left">
+                                    <span>{s.title}</span>
+                                    <span className="font-mono text-[10px] text-zinc-400">{s.code}</span>
+                                    {s.summary ? (
+                                      <span className="text-[10px] text-zinc-500">{s.summary}</span>
+                                    ) : null}
+                                  </span>
+                                </SelectItem>
+                              ))}
+                              {orphanSkillCodes.map((orphan) => (
+                                <SelectItem key={orphan} value={orphan}>
+                                  <span className="flex flex-col gap-0.5 text-left">
+                                    <span className="text-amber-700">未出现在当前注册表</span>
+                                    <span className="font-mono text-[10px]">{orphan}</span>
+                                  </span>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {skillRows.length > 1 ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-9 shrink-0 px-2 text-[10px]"
+                              onClick={() => {
+                                const next = skillRows.filter((_, i) => i !== idx);
+                                commitSkills(next.length ? next : [""]);
+                              }}
+                            >
+                              删
+                            </Button>
+                          ) : null}
+                        </div>
+                      );
+                    })}
                     <Button
                       type="button"
                       variant="secondary"
@@ -594,9 +882,9 @@ export default function TechNodePanel() {
                     >
                       + 绑定更多 Skill
                     </Button>
-                  ) : null}
+                  </div>
                 </div>
-              </div>
+              ) : null}
               {/* context_policy_code — 非人工 Task 必填 */}
               {!isHumanReview && (
                 <div>
@@ -625,46 +913,62 @@ export default function TechNodePanel() {
                       ))}
                     </SelectContent>
                   </Select>
+                  <div className="mt-2">
+                    {binding.contextPolicyCode ? (
+                      <ContextPolicySummary policy={selectedContextPolicy} />
+                    ) : (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-[10px] text-amber-700">
+                        非人工 Task 发布前必须绑定已注册的 context_policy_code。
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
-              {/* review_policy_code */}
-              <div>
-                <label className="text-[10px] text-zinc-700 font-medium block mb-1">
-                  人工确认 <span className="font-mono text-zinc-400 font-normal">review_policy_code</span>
-                </label>
-                {isHumanReview && (
+              {/* review_policy_code — 仅 human_review Task 必填 */}
+              {isHumanReview && (
+                <div>
+                  <label className="text-[10px] text-zinc-700 font-medium block mb-1">
+                    人工审核策略 <span className="font-mono text-zinc-400 font-normal">review_policy_code</span>
+                  </label>
                   <p className="text-[9px] text-amber-600 mb-1.5">
-                    当前为「人工处理」模式，此字段必填
+                    当前为 human_review Task，此字段发布前必须绑定已注册 ReviewPolicy。
                   </p>
-                )}
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setNodeBinding(node.id, { reviewPolicyCode: "" })}
-                    className={`flex-1 rounded-lg border px-3 py-2.5 text-left transition-colors ${
-                      !binding.reviewPolicyCode
-                        ? "border-zinc-900 bg-zinc-900 text-white"
-                        : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50"
-                    }`}
+                  <Select
+                    value={binding.reviewPolicyCode ?? ""}
+                    onValueChange={(v) => setNodeBinding(node.id, { reviewPolicyCode: v || undefined })}
                   >
-                    <span className="block text-[12px] font-medium">自动通过</span>
-                    <span className="block text-[10px] mt-0.5 opacity-70">执行完直接进入下一步</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setNodeBinding(node.id, { reviewPolicyCode: "human-approve" })}
-                    className={`flex-1 rounded-lg border px-3 py-2.5 text-left transition-colors ${
-                      binding.reviewPolicyCode
-                        ? "border-zinc-900 bg-zinc-900 text-white"
-                        : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50"
-                    }`}
-                  >
-                    <span className="block text-[12px] font-medium">需要人工放行</span>
-                    <span className="block text-[10px] mt-0.5 opacity-70">等待确认后才继续</span>
-                  </button>
+                    <SelectTrigger className="h-9 w-full min-w-0 text-[12px] *:data-[slot=select-value]:line-clamp-none *:data-[slot=select-value]:whitespace-normal">
+                      <SelectValue placeholder="选择 ReviewPolicy…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {REGISTERED_REVIEW_POLICY_OPTIONS.map((policy) => (
+                        <SelectItem key={policy.code} value={policy.code}>
+                          <span className="flex flex-col gap-0.5 text-left">
+                            <span>{policy.title}</span>
+                            <span className="font-mono text-[10px] text-zinc-400">{policy.code}</span>
+                            {policy.summary ? (
+                              <span className="text-[10px] text-zinc-500">{policy.summary}</span>
+                            ) : null}
+                            {policy.slaHours ? (
+                              <span className="text-[10px] text-blue-500">SLA: {policy.slaHours} 小时</span>
+                            ) : null}
+                          </span>
+                        </SelectItem>
+                      ))}
+                      {binding.reviewPolicyCode &&
+                      !REGISTERED_REVIEW_POLICY_OPTIONS.some((policy) => policy.code === binding.reviewPolicyCode) ? (
+                        <SelectItem value={binding.reviewPolicyCode}>
+                          <span className="flex flex-col gap-0.5 text-left">
+                            <span className="text-amber-700">未出现在当前注册表</span>
+                            <span className="font-mono text-[10px]">{binding.reviewPolicyCode}</span>
+                          </span>
+                        </SelectItem>
+                      ) : null}
+                    </SelectContent>
+                  </Select>
                 </div>
-              </div>
+              )}
 
               {/* tool_codes — 非人工 Task 才显示 */}
               {!isHumanReview && (
@@ -673,20 +977,47 @@ export default function TechNodePanel() {
                     <label className="text-[10px] text-zinc-700 font-medium block mb-0.5">
                       工具绑定 <span className="font-mono text-zinc-400 font-normal">tool_codes</span>
                     </label>
-                    <p className="text-[9px] text-zinc-400 mb-1.5">Skill 执行时需要调用的平台工具（如文档抓取、邮件发送等）</p>
+                    <p className="text-[9px] text-zinc-400 mb-1.5">从资源注册平台选择当前 Task 允许调用的 Tool code</p>
                     <div className="space-y-1.5">
                       {(binding.toolCodes ?? []).map((code, i) => (
                         <div key={i} className="flex gap-1.5 items-center">
-                          <Input
-                            value={code}
-                            onChange={(e) => {
-                              const next = [...(binding.toolCodes ?? [])];
-                              next[i] = e.target.value;
-                              setNodeBinding(node.id, { toolCodes: next });
-                            }}
-                            placeholder="如 contract-doc-fetch"
-                            className="font-mono text-[11px] h-8 flex-1"
-                          />
+                          <Select
+                            value={code.trim() ? code.trim() : TOOL_NONE}
+                            onValueChange={(v) => commitToolAt(i, v ?? TOOL_NONE)}
+                          >
+                            <SelectTrigger className="h-8 flex-1 min-w-0 text-[11px] font-mono *:data-[slot=select-value]:line-clamp-none *:data-[slot=select-value]:whitespace-normal">
+                              <SelectValue placeholder="选择 Tool…" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value={TOOL_NONE}>
+                                <span className="text-zinc-400">未选择</span>
+                              </SelectItem>
+                              {REGISTERED_TOOL_OPTIONS.map((tool) => (
+                                <SelectItem key={tool.code} value={tool.code}>
+                                  <span className="flex flex-col gap-0.5 text-left">
+                                    <span>{tool.title}</span>
+                                    <span className="font-mono text-[10px] text-zinc-400">{tool.code}</span>
+                                    {tool.summary ? (
+                                      <span className="text-[10px] text-zinc-500">{tool.summary}</span>
+                                    ) : null}
+                                    {tool.secretRefs?.length ? (
+                                      <span className="font-mono text-[10px] text-blue-500">
+                                        secret_refs: {tool.secretRefs.join(", ")}
+                                      </span>
+                                    ) : null}
+                                  </span>
+                                </SelectItem>
+                              ))}
+                              {orphanToolCodes.map((orphan) => (
+                                <SelectItem key={orphan} value={orphan}>
+                                  <span className="flex flex-col gap-0.5 text-left">
+                                    <span className="text-amber-700">未出现在当前注册表</span>
+                                    <span className="font-mono text-[10px]">{orphan}</span>
+                                  </span>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                           <Button
                             type="button"
                             variant="ghost"
@@ -719,20 +1050,45 @@ export default function TechNodePanel() {
                     <label className="text-[10px] text-zinc-700 font-medium block mb-0.5">
                       凭证引用 <span className="font-mono text-zinc-400 font-normal">secret_refs</span>
                     </label>
-                    <p className="text-[9px] text-zinc-400 mb-1.5">Skill 连接外部系统时需要的密钥/凭证，由平台凭证管理器托管</p>
+                    <p className="text-[9px] text-zinc-400 mb-1.5">从资源注册平台选择 Secret code；选中 Tool 时会自动补齐其依赖 Secret</p>
                     <div className="space-y-1.5">
                       {(binding.secretRefs ?? []).map((ref, i) => (
                         <div key={i} className="flex gap-1.5 items-center">
-                          <Input
-                            value={ref}
-                            onChange={(e) => {
-                              const next = [...(binding.secretRefs ?? [])];
-                              next[i] = e.target.value;
-                              setNodeBinding(node.id, { secretRefs: next });
-                            }}
-                            placeholder="如 contract-system-api-key"
-                            className="font-mono text-[11px] h-8 flex-1"
-                          />
+                          <Select
+                            value={ref.trim() ? ref.trim() : SECRET_NONE}
+                            onValueChange={(v) => commitSecretAt(i, v ?? SECRET_NONE)}
+                          >
+                            <SelectTrigger className="h-8 flex-1 min-w-0 text-[11px] font-mono *:data-[slot=select-value]:line-clamp-none *:data-[slot=select-value]:whitespace-normal">
+                              <SelectValue placeholder="选择 Secret…" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value={SECRET_NONE}>
+                                <span className="text-zinc-400">未选择</span>
+                              </SelectItem>
+                              {REGISTERED_SECRET_OPTIONS.map((secret) => (
+                                <SelectItem key={secret.code} value={secret.code}>
+                                  <span className="flex flex-col gap-0.5 text-left">
+                                    <span>{secret.title}</span>
+                                    <span className="font-mono text-[10px] text-zinc-400">{secret.code}</span>
+                                    {secret.summary ? (
+                                      <span className="text-[10px] text-zinc-500">{secret.summary}</span>
+                                    ) : null}
+                                    {secret.status ? (
+                                      <span className="text-[10px] text-blue-500">status: {secret.status}</span>
+                                    ) : null}
+                                  </span>
+                                </SelectItem>
+                              ))}
+                              {orphanSecretRefs.map((orphan) => (
+                                <SelectItem key={orphan} value={orphan}>
+                                  <span className="flex flex-col gap-0.5 text-left">
+                                    <span className="text-amber-700">未出现在当前注册表</span>
+                                    <span className="font-mono text-[10px]">{orphan}</span>
+                                  </span>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                           <Button
                             type="button"
                             variant="ghost"

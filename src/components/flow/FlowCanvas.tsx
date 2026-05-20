@@ -95,11 +95,15 @@ export default function FlowCanvas() {
     setEdges: setStoreEdges,
     setSelectedNodeId,
     currentRole,
+    project,
     techCanvasView,
     techConfig,
   } = useFlowAgentStore();
 
-  const isTech = currentRole === "tech";
+  const isBusinessFlowReview =
+    currentRole === "tech" &&
+    (project.status === "pending_review" || project.status === "needs_revision");
+  const isTech = currentRole === "tech" && !isBusinessFlowReview;
   const showReactFlow = !isTech || techCanvasView === "flow";
   const sequenceDiagram = techConfig.overview?.sequenceDiagram;
 

@@ -4,7 +4,6 @@ import {
   GSDS_EDGES,
   GSDS_TECH_CONFIG,
   GSDS_TECH_BINDINGS,
-  GSDS_ADAPTIVE_CONFIG,
   GSDS_CHAT_MESSAGES,
   GSDS_TECH_JOB_META,
   GSDS_JOB_TRIGGER_CODES,
@@ -39,7 +38,6 @@ export function loadGsdsDemo() {
       chatMessages: GSDS_CHAT_MESSAGES,
       techConfig: GSDS_TECH_CONFIG,
       techBindings: GSDS_TECH_BINDINGS,
-      adaptiveConfig: GSDS_ADAPTIVE_CONFIG,
       techJobMeta: GSDS_TECH_JOB_META,
       jobTriggerCodes: [...GSDS_JOB_TRIGGER_CODES],
     });

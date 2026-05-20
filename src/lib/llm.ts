@@ -89,6 +89,15 @@ async function parseFileToText(filePath: string): Promise<string> {
     return `📎 文件：${name}\n${content}`;
   }
 
+  if (ext === ".pptx" || ext === ".ppt" || ext === ".docx" || ext === ".doc") {
+    return [
+      `📎 文件：${name}`,
+      `这是 ${ext.toUpperCase()} 原始业务材料，当前通用文本解析器不直接展开正文。`,
+      "请使用 Agent 可用的文件读取、办公文档解析、截图/OCR 或本地工具读取原文件后，再提取流程线索。",
+      `文件路径：${filePath}`,
+    ].join("\n");
+  }
+
   const content = await readFile(filePath, "utf-8");
   return `📎 文件：${name}\n${content}`;
 }
@@ -245,7 +254,7 @@ async function callViaOpenAIAPI(
         type: "function",
         function: {
           name: "read_file",
-          description: "读取某个上传文件并转为可分析文本（支持 pdf/xlsx/csv/txt/md/json）",
+          description: "读取某个上传文件并转为可分析文本；复杂办公文件会返回原文件路径和读取要求（支持 pdf/xlsx/csv/txt/md/json，pptx/docx 需作为原始文件进一步理解）",
           parameters: {
             type: "object",
             properties: {
@@ -267,6 +276,8 @@ async function callViaOpenAIAPI(
           "",
           "你可以使用工具读取用户上传的文件。",
           "必须先调用 list_files 查看可访问文件，然后对每个文件都调用 read_file(path) 读取内容后，才能给最终答案。",
+          "如果文件是 PPT/PPTX，请围绕页面标题、正文、表格、图形/箭头关系和备注提取业务流程线索；如果 read_file 只能返回路径和说明，需要基于文件名/分类说明提出待确认问题，不要臆造内容。",
+          "如果文件原文是英文，最终输出给业务方的流程节点和说明必须是中文。",
           "禁止臆造文件内容。只能基于工具返回内容输出结论。",
           options.expectJson === false
             ? "最终输出纯文本。"
@@ -402,6 +413,15 @@ async function callViaCursorSDK(
     ? `\n\n用户上传了以下文件，请先读取文件内容再进行分析：\n${filePaths.map((fp) => `- ${fp}`).join("\n")}`
     : "";
 
+  const agentFileInstruction = hasFiles
+    ? [
+        "\n\n【文件读取方式】",
+        "这些文件已经保存在当前 Job 文件池中。你是具备工具调用能力的 Agent，必须先读取原始文件，再生成结果。",
+        "如果文件是 PPT/PPTX，请读取每页文字、标题、备注、表格、流程箭头/图形关系；如果无法直接解析图形，请基于页面文字和可见结构提取流程线索，并标注需要确认的问题。",
+        "如果原文是英文，最终流程图节点、说明、输入输出和追问都要整理为中文。",
+      ].join("\n")
+    : "";
+
   const jsonRule = options.expectJson !== false
     ? "\n\n【输出规则】不要创建或修改任何文件。最终回复必须只包含一个合法 JSON 对象，直接以 { 开头，以 } 结尾。不要写任何解释、前言、总结或 markdown 代码块。"
     : "";
@@ -413,6 +433,7 @@ async function callViaCursorSDK(
     "",
     userContent,
     fileInstruction,
+    agentFileInstruction,
     jsonRule,
   ].join("\n");
 
@@ -592,6 +613,15 @@ export async function* streamViaCursorSDK(
     ? `\n\n用户上传了以下文件，请先读取文件内容再进行分析：\n${filePaths.map((fp) => `- ${fp}`).join("\n")}`
     : "";
 
+  const agentFileInstruction = hasFiles
+    ? [
+        "\n\n【文件读取方式】",
+        "这些文件已经保存在当前 Job 文件池中。你是具备工具调用能力的 Agent，必须先读取原始文件，再生成结果。",
+        "如果文件是 PPT/PPTX，请读取每页文字、标题、备注、表格、流程箭头/图形关系；如果无法直接解析图形，请基于页面文字和可见结构提取流程线索，并标注需要确认的问题。",
+        "如果原文是英文，最终流程图节点、说明、输入输出和追问都要整理为中文。",
+      ].join("\n")
+    : "";
+
   const jsonRule = options.expectJson !== false
     ? "\n\n【输出规则】不要创建或修改任何文件。最终回复必须只包含一个合法 JSON 对象，直接以 { 开头，以 } 结尾。不要写任何解释、前言、总结或 markdown 代码块。"
     : "";
@@ -603,6 +633,7 @@ export async function* streamViaCursorSDK(
     "",
     userContent,
     fileInstruction,
+    agentFileInstruction,
     jsonRule,
   ].join("\n");
 

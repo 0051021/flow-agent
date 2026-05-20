@@ -10,6 +10,8 @@ const ALLOWED_TYPES: Record<string, string[]> = {
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
   "application/vnd.ms-excel": [".xls"],
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation": [".pptx"],
+  "application/vnd.ms-powerpoint": [".ppt"],
   "text/plain": [".txt"],
   "text/csv": [".csv"],
   "text/markdown": [".md"],

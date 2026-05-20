@@ -159,10 +159,10 @@ function getWorkUnitCopy(kind: FlowNodeData["workUnitKind"]) {
       emptyHint: "例如：核对证书编号、有效期、品名、目的港是否与申请表一致。",
       stepPlaceholder: "填写业务人员实际检查的内容",
       rulesTitle: "检查规则",
-      rulesHint: "写清楚需要对照哪些文件、检查哪些字段、发现错误后怎么处理。",
-      rulesPlaceholder: "例如：证书编号和有效期必须回填到 IMI 申请大表；字段有误需整理错误值和正确值发回海关。",
+      rulesHint: "写清楚需要对照哪些文件、检查哪些字段，以及检查不通过时进入哪条后续分支。",
+      rulesPlaceholder: "例如：证书编号、有效期、品名和目的港需要与申请大表一致；字段不一致时输出差异清单。",
       doneTitle: "检查完成标准",
-      donePlaceholder: "例如：证书内容已核对，无误则回填；有误则形成返修说明。",
+      donePlaceholder: "例如：已形成“核对通过”或“字段差异清单”，后续由对应分支处理。",
       specTitle: "这一步怎么检查",
     },
     handoff_wait: {
@@ -184,11 +184,11 @@ function getWorkUnitCopy(kind: FlowNodeData["workUnitKind"]) {
       tabLabel: "🔁 返修回填",
       stepTitle: "返修/回填动作",
       addLabel: "添加动作",
-      emptyHint: "例如：证书有错时发送错误字段和正确值；无误时回填证书编号和有效期。",
+      emptyHint: "例如：证书有错时发送错误字段和正确值；或在证书无误后回填证书编号和有效期。",
       stepPlaceholder: "填写返修或回填动作",
       rulesTitle: "返修规则",
-      rulesHint: "写清楚什么情况下返修、什么情况下回填，以及回填到哪里。",
-      rulesPlaceholder: "例如：证书字段有误时发回海关；无误时把证书编号、有效期填写到 IMI 申请大表。",
+      rulesHint: "写清楚这个节点属于返修还是回填，以及进入这个节点的条件和处理去向。",
+      rulesPlaceholder: "例如：证书字段有误时发回海关并等待重出证；证书无误分支才回填证书编号、有效期。",
       doneTitle: "完成标准",
       donePlaceholder: "例如：错误已发回处理，或证书信息已回填归档。",
       specTitle: "这一步怎么返修/回填",
@@ -237,7 +237,7 @@ function useFileUpload(onUploaded: (file: FileAttachment) => void) {
 
   const FileInput = (
     <input ref={inputRef} type="file" className="hidden" multiple
-      accept=".pdf,.xlsx,.xls,.docx,.txt,.csv,.md,.json,.png,.jpg,.jpeg"
+      accept=".pdf,.ppt,.pptx,.xlsx,.xls,.docx,.txt,.csv,.md,.json,.png,.jpg,.jpeg"
       onChange={handleChange} />
   );
 
@@ -774,7 +774,7 @@ function StrategyBusinessFields({
       <div className="rounded-xl border border-violet-100 bg-violet-50/40 px-3 py-3">
         <p className="text-[11px] font-semibold text-violet-800">这一步的判断口径</p>
         <p className="mt-0.5 text-[10px] leading-4 text-violet-500">
-          按你平时做业务判断的方式填写：要决定什么、看什么、怎么判、输出什么、哪些必须人确认。
+          按你平时做业务判断的方式填写：要决定什么、看哪些关键依据、按什么规则判断、输出什么结论、哪些情况需要人工处理。
         </p>
       </div>
 
@@ -789,10 +789,10 @@ function StrategyBusinessFields({
       </div>
 
       <StrategyListField
-        title="判断依据"
-        hint="写业务人员会看的信息、资料、指标或上下文。"
+        title="关键判断依据"
+        hint="写业务人员做判断时必须看的信息、资料、指标或上下文；依据是“看什么”，规则是“怎么看”。"
         values={spec.focusSignals || []}
-        placeholder="例如：退款金额、售后期限、物流延误天数、客户历史投诉"
+        placeholder="例如：泄漏照片、偏差记录、批次、包装完整性、处理/仓储条件、历史相似案例"
         onChange={(values) => updateAgenticSpec({ focusSignals: values })}
       />
 
@@ -800,7 +800,7 @@ function StrategyBusinessFields({
         <div className="mb-1.5">
           <p className="text-[11px] font-medium text-zinc-600">判断规则</p>
           <p className="mt-0.5 text-[10px] leading-4 text-zinc-400">
-            用“如果……就……”写清楚怎么判断，什么情况走哪个处理方式。
+            用“如果……就……”写清楚如何根据依据做判断，什么情况输出哪个结论或进入哪个处理分支。
           </p>
         </div>
         <Textarea
@@ -814,17 +814,17 @@ function StrategyBusinessFields({
 
       <StrategyListField
         title="输出结果"
-        hint="写判断后可能产出的结论、分支或建议。"
+        hint="写判断后产出的结论字段、分支或建议；这是给下一步使用的业务结果。"
         values={spec.recommendationOutputs || []}
-        placeholder="例如：问题类型、所需补充材料、情绪风险等级、推荐处理方案"
+        placeholder="例如：Top 3 可能根因、推荐 CAPA、置信度、需补充数据、是否进入质量负责人确认"
         onChange={(values) => updateAgenticSpec({ recommendationOutputs: values })}
       />
 
       <StrategyListField
-        title="确认与边界"
-        hint="写哪些情况必须人确认，以及这一步不能越过的业务边界。"
+        title="需要人工处理的情况"
+        hint="写原人工工作里哪些情况要停下来、补材料、找主管/负责人确认、转给其他人，或暂时不能下结论。"
         values={boundaryValues}
-        placeholder="例如：超过50美元转主管；不得承诺政策外补偿；资金动作必须留审计记录"
+        placeholder="例如：资料缺失时请质量调查员补充；无法判断根因时找 RCA owner；CAPA 涉及供应商争议时由质量负责人确认"
         onChange={(values) => updateAgenticSpec({ humanConfirmation: values, riskBoundaries: [] })}
       />
 
@@ -834,7 +834,7 @@ function StrategyBusinessFields({
           value={typeof data.doneCriteria === "string" ? data.doneCriteria : ""}
           onChange={(e) => updateField("doneCriteria", e.target.value)}
           className="min-h-[64px] text-xs"
-          placeholder="例如：已输出处理建议、推荐理由、风险等级，以及是否需要主管确认。"
+          placeholder="例如：已输出带证据链的 Top 3 可能根因、推荐 CAPA、置信度和人审标记，可进入质量负责人确认。"
         />
       </div>
     </div>

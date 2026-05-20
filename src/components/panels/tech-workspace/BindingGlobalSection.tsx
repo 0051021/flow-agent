@@ -3,7 +3,6 @@
 import { useCallback, useMemo } from "react";
 import { Plus, Trash2, CheckCircle2, AlertTriangle, RotateCcw, Info } from "lucide-react";
 import { useFlowAgentStore } from "@/lib/store";
-import type { FlowNodeData } from "@/lib/types";
 import { computeBindingCompletion } from "@/lib/tech-binding-helpers";
 import { REGISTERED_TRIGGER_OPTIONS } from "@/lib/registered-skills";
 import { Input } from "@/components/ui/input";
@@ -38,55 +37,34 @@ function slugify(name: string): string {
   return tokens.join("-");
 }
 
-/** 从首节点 inputs 自动推导平台入参结构并展示只读预览 */
-function InputSchemaPreview() {
-  const nodes = useFlowAgentStore((s) => s.nodes);
+function stableStringify(value: unknown): string {
+  if (value == null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  const obj = value as Record<string, unknown>;
+  return `{${Object.keys(obj)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(obj[key])}`)
+    .join(",")}}`;
+}
 
-  const { schema, source } = useMemo(() => {
-    const sorted = [...nodes].sort((a, b) => {
-      const da = a.data as unknown as FlowNodeData;
-      const db = b.data as unknown as FlowNodeData;
-      return (da.stepIndex ?? 0) - (db.stepIndex ?? 0);
-    });
-    const first = sorted[0];
-    if (!first) return { schema: null, source: "" };
-    const data = first.data as unknown as FlowNodeData;
-    const userInputs = data.inputs.filter((i) => i.source === "user");
-    if (userInputs.length === 0) return { schema: null, source: data.label };
-
-    const properties: Record<string, Record<string, unknown>> = {};
-    const required: string[] = [];
-    for (const inp of userInputs) {
-      const key = inp.name.replace(/\s+/g, "_").toLowerCase();
-      const dt = inp.dataType || "string";
-      const prop: Record<string, unknown> = { type: dt, description: inp.description || inp.name };
-
-      if (inp.subFields && inp.subFields.length > 0) {
-        if (dt === "json" || dt === "object") {
-          const sub: Record<string, { type: string; description: string }> = {};
-          for (const sf of inp.subFields) {
-            if (sf.key.trim()) sub[sf.key] = { type: sf.type || "string", description: sf.desc };
-          }
-          prop.type = "object";
-          prop.properties = sub;
-        } else if (dt === "array") {
-          const items: Record<string, { type: string; description: string }> = {};
-          for (const sf of inp.subFields) {
-            if (sf.key.trim()) items[sf.key] = { type: sf.type || "string", description: sf.desc };
-          }
-          prop.type = "array";
-          prop.items = { type: "object", properties: items };
-        }
-      }
-
-      properties[key] = prop;
-      if (inp.required) required.push(key);
-    }
-    return {
-      schema: { type: "object" as const, properties, ...(required.length ? { required } : {}) },
-      source: data.label,
-    };
-  }, [nodes]);
+/** 从已注册 TriggerDefinition.input_schema 展示 JobSpec input_schema 预览 */
+function InputSchemaPreview({ triggerCodes }: { triggerCodes: string[] }) {
+  const selectedCodes = triggerCodes.map((code) => code.trim()).filter(Boolean);
+  const selectedTriggers = selectedCodes.map((code) =>
+    REGISTERED_TRIGGER_OPTIONS.find((trigger) => trigger.code === code)
+  );
+  const missingCodes = selectedCodes.filter((code, index) => !selectedTriggers[index]);
+  const schemas = selectedTriggers
+    .map((trigger) => trigger?.inputSchema)
+    .filter((schema): schema is Record<string, unknown> => Boolean(schema));
+  const schemaKeys = [...new Set(schemas.map(stableStringify))];
+  const hasIncompatibleSchemas = schemaKeys.length > 1;
+  const schema =
+    selectedCodes.length === 0
+      ? {}
+      : hasIncompatibleSchemas
+        ? schemas[0] ?? {}
+        : schemas[0] ?? {};
 
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
@@ -94,18 +72,38 @@ function InputSchemaPreview() {
       <div className="flex items-start gap-1.5 mb-3">
         <Info className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
         <p className="text-[11px] text-zinc-400 leading-snug">
-          自动从首节点「{source || "—"}」的用户输入推导，供平台启动任务时校验入参。无需手动编写。
+          只读预览，来自已注册 TriggerDefinition.input_schema；导出 JobSpec 时映射为 input_schema。
         </p>
       </div>
-      {schema ? (
-        <pre className="text-[10px] font-mono bg-zinc-900 text-zinc-100 rounded-lg p-3 overflow-x-auto max-h-48 leading-relaxed">
-          {JSON.stringify(schema, null, 2)}
-        </pre>
-      ) : (
-        <p className="text-[11px] text-zinc-400 bg-zinc-50 rounded-lg px-3 py-2">
-          首节点暂无用户输入项，导出时将省略此字段。
-        </p>
-      )}
+      {selectedCodes.length === 0 ? (
+        <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
+          当前未选择触发器，JobSpec input_schema 预览为空对象；发布前必须绑定已注册 Trigger。
+        </div>
+      ) : null}
+      {missingCodes.length > 0 ? (
+        <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
+          以下触发器不在当前资源注册清单中：{missingCodes.join("、")}。需要先注册或同步资源清单。
+        </div>
+      ) : null}
+      {hasIncompatibleSchemas ? (
+        <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
+          多个触发器的 input_schema 不一致。建议在资源注册平台合并为统一 Trigger，或补充 Trigger 到标准 Job 输入的映射后再发布。
+        </div>
+      ) : null}
+      {selectedTriggers.length > 0 ? (
+        <div className="mb-2 flex flex-wrap gap-1">
+          {selectedTriggers.map((trigger, index) =>
+            trigger ? (
+              <Badge key={`${trigger.code}-${index}`} variant="secondary" className="text-[10px]">
+                {trigger.title} · {trigger.code}
+              </Badge>
+            ) : null
+          )}
+        </div>
+      ) : null}
+      <pre className="max-h-48 overflow-x-auto rounded-lg bg-zinc-900 p-3 font-mono text-[10px] leading-relaxed text-zinc-100">
+        {JSON.stringify(schema, null, 2)}
+      </pre>
     </div>
   );
 }
@@ -118,7 +116,6 @@ export default function BindingGlobalSection() {
   const jobTriggerCodes = useFlowAgentStore((s) => s.jobTriggerCodes);
   const setTechJobMeta = useFlowAgentStore((s) => s.setTechJobMeta);
   const setJobTriggerCodes = useFlowAgentStore((s) => s.setJobTriggerCodes);
-  const setTechBindingsGlobal = useFlowAgentStore((s) => s.setTechBindingsGlobal);
 
   const completion = useMemo(
     () =>
@@ -134,8 +131,6 @@ export default function BindingGlobalSection() {
       ),
     [techBindings, nodes, techConfig.documents, techConfig.externals, techJobMeta, jobTriggerCodes]
   );
-
-  const g = techBindings.global;
 
   const isCodeLinked = !techJobMeta.codeManuallyEdited;
   const derivedCode = useMemo(() => slugify(techJobMeta.name), [techJobMeta.name]);
@@ -294,27 +289,7 @@ export default function BindingGlobalSection() {
         </div>
       </div>
 
-      <InputSchemaPreview />
-
-      <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
-        <p className="text-[13px] font-semibold text-zinc-800 mb-1">全局配置</p>
-        <p className="text-[11px] text-zinc-400 mb-3">
-          影响整个流程运行的通用配置。
-        </p>
-        <div className="grid grid-cols-1 gap-3">
-          <div>
-            <label className="text-[10px] text-zinc-700 font-medium block mb-0.5">
-              时区
-            </label>
-            <Input
-              value={g.timezone ?? ""}
-              onChange={(e) => setTechBindingsGlobal({ timezone: e.target.value })}
-              className="font-mono text-[12px]"
-              placeholder="Asia/Shanghai"
-            />
-          </div>
-        </div>
-      </div>
+      <InputSchemaPreview triggerCodes={jobTriggerCodes} />
 
       <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
         <div className="flex items-center justify-between mb-2">

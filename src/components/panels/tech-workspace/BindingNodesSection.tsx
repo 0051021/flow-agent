@@ -20,14 +20,13 @@ const TASK_OPTIONS: { value: PlatformTaskType; label: string }[] = [
   { value: "agentic", label: "agentic — AI 自主" },
   { value: "integration", label: "integration — 系统对接" },
   { value: "deterministic", label: "deterministic — 固定脚本" },
-  { value: "human_review", label: "human_review — 人工操作" },
+  { value: "human_review", label: "human_review — 人工审核" },
 ];
 
 const RUNTIME_OPTIONS = [
   "agentic-default",
   "integration-default",
   "script-fast",
-  "human-bridge",
 ];
 
 function inferTaskType(data: FlowNodeData): PlatformTaskType {
@@ -46,7 +45,7 @@ function recommendRuntime(tt: PlatformTaskType): string {
     case "deterministic":
       return "script-fast";
     case "human_review":
-      return "human-bridge";
+      return "";
     default:
       return "agentic-default";
   }
@@ -75,7 +74,8 @@ function NodeRow({
 }) {
   const data = node.data as FlowNodeData;
   const tt = binding.taskType ?? inferTaskType(data);
-  const needsSkill = tt !== "human_review";
+  const isHumanReview = tt === "human_review";
+  const needsSkill = tt === "agentic";
   const taskCode = binding.taskCode ?? slugifyTaskCode(data.label, `task-${data.stepIndex || node.id}`);
   const skillText = getEffectiveSkillCodes(binding).join(", ");
 
@@ -90,7 +90,7 @@ function NodeRow({
       </div>
       <div>
         <label className="text-[10px] text-zinc-500 block mb-0.5">
-          执行器指令 <span className="font-mono text-zinc-400">identity.description</span>
+          执行器指令 <span className="font-mono text-zinc-400">instruction</span>
         </label>
         <Textarea
           value={data.description}
@@ -102,7 +102,7 @@ function NodeRow({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div>
           <label className="text-[10px] text-zinc-500 block mb-0.5">
-            Task 编码 <span className="font-mono text-zinc-400">identity.code</span>
+            Task 编码 <span className="font-mono text-zinc-400">code</span>
           </label>
           <Input
             value={taskCode}
@@ -113,7 +113,7 @@ function NodeRow({
         </div>
         <div>
           <label className="text-[10px] text-zinc-500 block mb-0.5">
-            执行类型 <span className="font-mono text-zinc-400">taskType</span>
+            Task 类型 <span className="font-mono text-zinc-400">type</span>
           </label>
           <Select
             value={tt}
@@ -121,12 +121,22 @@ function NodeRow({
               const next = v as PlatformTaskType;
               const patch: Partial<NodeBindingEntry> = {
                 taskType: next,
-                runtimeProfileCode: recommendRuntime(next),
               };
               if (next === "human_review") {
+                patch.runtimeProfileCode = undefined;
                 patch.skillBindingCodes = [];
                 patch.skillBindingCode = undefined;
                 patch.contextPolicyCode = undefined;
+                patch.toolCodes = [];
+                patch.secretRefs = [];
+                patch.reviewPolicyCode = binding.reviewPolicyCode || "human-approve";
+              } else {
+                patch.runtimeProfileCode = recommendRuntime(next);
+                patch.reviewPolicyCode = "";
+                if (next !== "agentic") {
+                  patch.skillBindingCodes = [];
+                  patch.skillBindingCode = undefined;
+                }
               }
               setNodeBinding(node.id, patch);
             }}
@@ -143,49 +153,52 @@ function NodeRow({
             </SelectContent>
           </Select>
         </div>
-        <div>
-          <label className="text-[10px] text-zinc-500 block mb-0.5">
-            运行时环境 <span className="font-mono text-zinc-400">runtimeBinding.profileCode</span>
-          </label>
-          <Select
-            value={binding.runtimeProfileCode ?? recommendRuntime(tt)}
-            onValueChange={(v) =>
-              setNodeBinding(node.id, { runtimeProfileCode: v ?? undefined })
-            }
-          >
-            <SelectTrigger className="h-8 text-[11px] font-mono">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {RUNTIME_OPTIONS.map((r) => (
-                <SelectItem key={r} value={r}>
-                  {r}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className={needsSkill ? "" : "opacity-50 pointer-events-none"}>
-          <label className="text-[10px] text-zinc-500 block mb-0.5">
-            绑定技能 <span className="font-mono text-zinc-400">skillBinding.code</span>
-          </label>
-          <Input
-            value={skillText}
-            onChange={(e) =>
-              setNodeBinding(node.id, {
-                skillBindingCodes: e.target.value
-                  .split(",")
-                  .map((c) => c.trim())
-                  .filter(Boolean),
-                skillBindingCode: undefined,
-              })
-            }
-            placeholder={needsSkill ? "skill-a, skill-b" : "人工操作无需技能"}
-            disabled={!needsSkill}
-            className="font-mono text-[11px] h-8"
-          />
-        </div>
+        {!isHumanReview ? (
+          <div>
+            <label className="text-[10px] text-zinc-500 block mb-0.5">
+              执行器配置 <span className="font-mono text-zinc-400">runtime_profile_code</span>
+            </label>
+            <Select
+              value={binding.runtimeProfileCode ?? recommendRuntime(tt)}
+              onValueChange={(v) =>
+                setNodeBinding(node.id, { runtimeProfileCode: v ?? undefined })
+              }
+            >
+              <SelectTrigger className="h-8 text-[11px] font-mono">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {RUNTIME_OPTIONS.map((r) => (
+                  <SelectItem key={r} value={r}>
+                    {r}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
         {needsSkill ? (
+          <div>
+            <label className="text-[10px] text-zinc-500 block mb-0.5">
+              绑定技能 <span className="font-mono text-zinc-400">skill_codes</span>
+            </label>
+            <Input
+              value={skillText}
+              onChange={(e) =>
+                setNodeBinding(node.id, {
+                  skillBindingCodes: e.target.value
+                    .split(",")
+                    .map((c) => c.trim())
+                    .filter(Boolean),
+                  skillBindingCode: undefined,
+                })
+              }
+              placeholder="skill-a, skill-b"
+              className="font-mono text-[11px] h-8"
+            />
+          </div>
+        ) : null}
+        {!isHumanReview ? (
           <div>
             <label className="text-[10px] text-zinc-500 block mb-0.5">
               上下文策略 <span className="font-mono text-zinc-400">context_policy_code</span>
@@ -207,17 +220,19 @@ function NodeRow({
             </Select>
           </div>
         ) : null}
-        <div>
-          <label className="text-[10px] text-zinc-500 block mb-0.5">
-            审核策略 <span className="font-mono text-zinc-400">humanInteraction.reviewBinding.code</span>
-          </label>
-          <Input
-            value={binding.reviewPolicyCode ?? ""}
-            onChange={(e) => setNodeBinding(node.id, { reviewPolicyCode: e.target.value })}
-            placeholder="可选 reviewBinding.code"
-            className="font-mono text-[11px] h-8"
-          />
-        </div>
+        {isHumanReview ? (
+          <div>
+            <label className="text-[10px] text-zinc-500 block mb-0.5">
+              人工审核策略 <span className="font-mono text-zinc-400">review_policy_code</span>
+            </label>
+            <Input
+              value={binding.reviewPolicyCode ?? ""}
+              onChange={(e) => setNodeBinding(node.id, { reviewPolicyCode: e.target.value })}
+              placeholder="如 gsds-data-steward-review"
+              className="font-mono text-[11px] h-8"
+            />
+          </div>
+        ) : null}
       </div>
     </div>
   );
