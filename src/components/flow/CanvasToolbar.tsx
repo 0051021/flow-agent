@@ -2,29 +2,42 @@
 
 import { useCallback } from "react";
 import { useFlowAgentStore } from "@/lib/store";
-import { Trash2, Copy, Code2, SplitSquareHorizontal, X, Diamond, BriefcaseBusiness } from "lucide-react";
+import { Trash2, Copy, Code2, SplitSquareHorizontal, X, Diamond, BriefcaseBusiness, ListChecks, BrainCircuit } from "lucide-react";
 import type { FlowNodeData } from "@/lib/types";
 import type { Node } from "@xyflow/react";
 import JobSplitPanel from "@/components/panels/tech-workspace/JobSplitPanel";
 
 const NEW_NODE_Y_GAP = 360;
 
-function createDefaultNode(position: { x: number; y: number }): Node<FlowNodeData> {
+function createDefaultNode(
+  position: { x: number; y: number },
+  workUnitKind: FlowNodeData["workUnitKind"] = "sop_step"
+): Node<FlowNodeData> {
   const id = `node-${Date.now()}`;
+  const isStrategy = workUnitKind === "strategy_step";
+  const isTechTask = workUnitKind === "workflow_step";
   return {
     id,
     type: "flowCard",
     position,
     data: {
-      label: "新节点",
-      icon: "Zap",
-      description: "双击编辑这个节点的描述",
+      label: isStrategy ? "新策略节点" : isTechTask ? "新工作节点" : "新 SOP 步骤",
+      icon: isStrategy ? "Target" : "Zap",
+      description: isStrategy ? "描述这一步要判断什么、依据什么判断" : "描述这个业务步骤做什么",
       stepIndex: 0,
       totalSteps: 0,
-      executionMode: "ai_auto",
+      executionMode: isTechTask ? "ai_auto" : "pending",
       estimatedTime: "待定",
+      workUnitKind,
       inputs: [],
       outputs: [],
+      operationSteps: isStrategy ? [] : [""],
+      checkRulesText: "",
+      sopSpec: isStrategy ? undefined : { operationSteps: [""], businessRules: [] },
+      strategySpec: isStrategy ? { basis: [], judgmentProcess: [], escalationConditions: [] } : undefined,
+      judgmentSpec: isStrategy
+        ? { informationUsed: [], judgmentRules: [], escalationConditions: [] }
+        : undefined,
       errorHandling: [
         { strategy: "retry", enabled: true, config: { maxRetries: 3, retryInterval: 30 } },
         { strategy: "human_fallback", enabled: false },
@@ -63,8 +76,8 @@ function createConditionNode(position: { x: number; y: number }): Node<FlowNodeD
       },
       isCondition: true,
       conditionBranches: [
-        { label: "条件成立", icon: "✓", targetLabel: "选择目标节点" },
-        { label: "otherwise", icon: "↯", targetLabel: "兜底路径" },
+        { label: "", icon: "✓", targetLabel: "", conditionGroup: { logic: "all", conditions: [{}] } },
+        { label: "otherwise", icon: "↯", targetLabel: "" },
       ],
     },
   };
@@ -95,7 +108,15 @@ export default function CanvasToolbar() {
   }, [nodes]);
 
   const handleAddTaskNode = useCallback(() => {
-    addNode(createDefaultNode(getNextPosition()));
+    addNode(createDefaultNode(getNextPosition(), "workflow_step"));
+  }, [addNode, getNextPosition]);
+
+  const handleAddSopNode = useCallback(() => {
+    addNode(createDefaultNode(getNextPosition(), "sop_step"));
+  }, [addNode, getNextPosition]);
+
+  const handleAddStrategyNode = useCallback(() => {
+    addNode(createDefaultNode(getNextPosition(), "strategy_step"));
   }, [addNode, getNextPosition]);
 
   const handleAddConditionNode = useCallback(() => {
@@ -146,25 +167,50 @@ export default function CanvasToolbar() {
             <div className={`w-px h-5 ${dividerClass}`} />
           </>
         )}
-        <button
-          type="button"
-          onClick={handleAddTaskNode}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium ${btnClass} transition-colors`}
-          title="添加会进入 JobSpec tasks[] 的工作节点"
-        >
-          <BriefcaseBusiness className="w-3.5 h-3.5" />
-          工作节点
-        </button>
+        {isTech ? (
+          <button
+            type="button"
+            onClick={handleAddTaskNode}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium ${btnClass} transition-colors`}
+            title="添加会进入 JobSpec tasks[] 的工作节点"
+          >
+            <BriefcaseBusiness className="w-3.5 h-3.5" />
+            工作节点
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={handleAddSopNode}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium ${btnClass} transition-colors`}
+              title="添加 SOP 型业务步骤"
+            >
+              <ListChecks className="w-3.5 h-3.5" />
+              SOP 步骤
+            </button>
+            <button
+              type="button"
+              onClick={handleAddStrategyNode}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium ${btnClass} transition-colors`}
+              title="添加策略判断型业务步骤"
+            >
+              <BrainCircuit className="w-3.5 h-3.5" />
+              策略节点
+            </button>
+          </>
+        )}
 
-        <button
-          type="button"
-          onClick={handleAddConditionNode}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium ${btnClass} transition-colors`}
-          title="添加不运行的条件分支节点，导出为 flow.condition"
-        >
-          <Diamond className="w-3.5 h-3.5" />
-          路由节点
-        </button>
+        {isTech ? (
+          <button
+            type="button"
+            onClick={handleAddConditionNode}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium ${btnClass} transition-colors`}
+            title="添加不运行的条件分支节点，导出为 flow.condition"
+          >
+            <Diamond className="w-3.5 h-3.5" />
+            路由节点
+          </button>
+        ) : null}
 
         <div className={`w-px h-5 ${dividerClass}`} />
 

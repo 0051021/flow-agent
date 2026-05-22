@@ -35,7 +35,7 @@ interface LLMNode {
   requiredCheckFields?: string[];
   doneCriteria?: string;
   isCondition?: boolean;
-  conditionBranches?: { label: string; icon: string; targetLabel: string }[] | null;
+  conditionBranches?: FlowNodeData["conditionBranches"] | null;
   executionType?: "deterministic" | "intelligent";
 }
 

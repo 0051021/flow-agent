@@ -46,6 +46,8 @@ export interface SubField {
 
 export interface FlowNodeInput {
   id: string;
+  /** Agent schema alias; UI keeps id for ReactFlow compatibility */
+  inputId?: string;
   name: string;
   icon: string;
   description: string;
@@ -63,6 +65,8 @@ export interface FlowNodeInput {
 
 export interface FlowNodeOutput {
   id: string;
+  /** Agent schema alias; UI keeps id for ReactFlow compatibility */
+  outputId?: string;
   name: string;
   icon: string;
   description: string;
@@ -102,6 +106,8 @@ export interface ExecutionRule {
 }
 
 export type WorkUnitKind =
+  | "sop_step"
+  | "strategy_step"
   | "workflow_step"
   | "agentic_judgment"
   | "agentic_strategy"
@@ -141,6 +147,50 @@ export interface JudgmentSpec {
   riskBoundaries?: string[];
 }
 
+export interface SopSpec {
+  operationSteps: string[];
+  businessRules: string[];
+}
+
+export interface StrategySpec {
+  basis: string[];
+  judgmentProcess: string[];
+  escalationConditions: string[];
+}
+
+export type ConditionOperator =
+  | "eq"
+  | "neq"
+  | "gt"
+  | "gte"
+  | "lt"
+  | "lte"
+  | "contains"
+  | "not_contains";
+
+export interface ConditionRule {
+  sourceNodeId?: string;
+  sourceOutputId?: string;
+  sourceOutputPath?: string;
+  sourceOutputName?: string;
+  outputDataType?: string;
+  operator?: ConditionOperator;
+  compareValue?: string | number | boolean;
+}
+
+export interface ConditionGroup {
+  logic: "all" | "any";
+  conditions: ConditionRule[];
+}
+
+export interface ConditionBranch extends ConditionRule {
+  label: string;
+  icon: string;
+  targetLabel: string;
+  conditionGroup?: ConditionGroup;
+  targetNodeId?: string;
+}
+
 export interface FlowNodeData {
   [key: string]: unknown;
   label: string;
@@ -159,6 +209,10 @@ export interface FlowNodeData {
   agenticSpec?: AgenticNodeSpec;
   /** 业务侧：人工业务判断节点的补充字段，用于还原原人工流程 */
   judgmentSpec?: JudgmentSpec;
+  /** 业务侧 MVP：SOP 型节点第三个 tab 字段 */
+  sopSpec?: SopSpec;
+  /** 业务侧 MVP：策略型节点第三个 tab 字段 */
+  strategySpec?: StrategySpec;
   errorHandling: ErrorHandling[];
   techConfig: NodeTechConfig;
   confirmStrategy?: ConfirmStrategyConfig;
@@ -173,7 +227,7 @@ export interface FlowNodeData {
   /** 业务侧：结果输出标准 */
   doneCriteria?: string;
   isCondition?: boolean;
-  conditionBranches?: { label: string; icon: string; targetLabel: string }[];
+  conditionBranches?: ConditionBranch[];
 }
 
 export interface Annotation {

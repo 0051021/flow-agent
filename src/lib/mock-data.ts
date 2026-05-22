@@ -227,7 +227,7 @@ export function generateDemoFlow(): {
         description: "分析账号当前粉丝画像、内容表现和竞品情况",
         stepIndex: 1,
         totalSteps: 7,
-        executionMode: "ai_auto",
+        executionMode: "pending",
         estimatedTime: "约 2 分钟",
         inputs: [
           { id: "i1", name: "账号ID", icon: "📱", description: "小红书账号", required: true, source: "user" },
@@ -257,7 +257,7 @@ export function generateDemoFlow(): {
         description: "根据诊断结果制定未来一周的内容方向和发布计划",
         stepIndex: 2,
         totalSteps: 7,
-        executionMode: "ai_auto",
+        executionMode: "pending",
         estimatedTime: "约 3 分钟",
         inputs: [
           { id: "i1", name: "账号诊断报告", icon: "📄", description: "来自上一步", required: true, source: "previous_step", sourceDetail: "自动从「账号分析」获取" },
@@ -280,19 +280,19 @@ export function generateDemoFlow(): {
       type: "flowCard",
       position: { x: 300, y: 440 },
       data: {
-        label: "内容生成",
+        label: "内容撰写",
         icon: "PenTool",
-        description: "根据策略生成小红书图文内容（标题+正文+图片+标签）",
+        description: "根据策略撰写小红书图文内容（标题、正文、图片要求和标签）",
         stepIndex: 3,
         totalSteps: 7,
-        executionMode: "ai_auto",
+        executionMode: "pending",
         estimatedTime: "约 5 分钟/条",
         inputs: [
           { id: "i1", name: "内容排期表", icon: "📋", description: "来自上一步", required: true, source: "previous_step", sourceDetail: "自动从「制定策略」获取" },
           { id: "i2", name: "品牌调性", icon: "🎨", description: "内容风格要求", required: false, source: "user" },
         ],
         outputs: [
-          { id: "o1", name: "图文内容", icon: "📝", description: "标题+正文+图片+标签", flowsTo: ["node-4"], dataType: "json" },
+          { id: "o1", name: "图文内容", icon: "📝", description: "标题、正文、图片要求和标签", flowsTo: ["node-4"], dataType: "json" },
         ],
         errorHandling: [
           { strategy: "retry", enabled: true, config: { maxRetries: 3, retryInterval: 10 } },
@@ -313,10 +313,10 @@ export function generateDemoFlow(): {
         description: "检查内容是否符合平台规范和品牌合规要求",
         stepIndex: 4,
         totalSteps: 7,
-        executionMode: "ai_auto",
+        executionMode: "pending",
         estimatedTime: "约 30 秒",
         inputs: [
-          { id: "i1", name: "图文内容", icon: "📝", description: "待审查内容", required: true, source: "previous_step", sourceDetail: "自动从「内容生成」获取" },
+          { id: "i1", name: "图文内容", icon: "📝", description: "待审查内容", required: true, source: "previous_step", sourceDetail: "自动从「内容撰写」获取" },
         ],
         outputs: [
           { id: "o1", name: "审查结果", icon: "✅", description: "通过/不通过+原因", flowsTo: ["node-5"], dataType: "json" },
@@ -331,7 +331,7 @@ export function generateDemoFlow(): {
         isCondition: true,
         conditionBranches: [
           { label: "通过", icon: "✅", targetLabel: "定时发布" },
-          { label: "不通过", icon: "❌", targetLabel: "内容修改（回到内容生成）" },
+          { label: "不通过", icon: "❌", targetLabel: "内容修改（回到内容撰写）" },
         ],
       },
     },
@@ -342,11 +342,11 @@ export function generateDemoFlow(): {
       data: {
         label: "定时发布",
         icon: "Clock",
-        description: "按照排期表在最佳时间段自动发布内容",
+        description: "按照排期表在约定时间段发布内容",
         stepIndex: 5,
         totalSteps: 7,
-        executionMode: "human_confirm",
-        estimatedTime: "自动执行",
+        executionMode: "pending",
+        estimatedTime: "按排期执行",
         inputs: [
           { id: "i1", name: "审核通过的内容", icon: "📝", description: "已通过合规审查", required: true, source: "previous_step", sourceDetail: "自动从「合规审查」获取" },
           { id: "i2", name: "发布时间", icon: "⏰", description: "排期时间", required: true, source: "previous_step", sourceDetail: "自动从「内容排期表」获取" },
@@ -373,7 +373,7 @@ export function generateDemoFlow(): {
         description: "监控已发布内容的互动数据，生成日报",
         stepIndex: 6,
         totalSteps: 7,
-        executionMode: "ai_auto",
+        executionMode: "pending",
         estimatedTime: "持续运行",
         inputs: [
           { id: "i1", name: "发布记录", icon: "📤", description: "已发布的内容", required: true, source: "previous_step", sourceDetail: "自动从「定时发布」获取" },
@@ -397,10 +397,10 @@ export function generateDemoFlow(): {
       data: {
         label: "策略调整建议",
         icon: "RefreshCw",
-        description: "根据数据表现生成策略调整建议报告，供运营负责人决策",
+        description: "根据数据表现整理策略调整建议报告，供运营负责人决策",
         stepIndex: 7,
         totalSteps: 7,
-        executionMode: "human_confirm",
+        executionMode: "pending",
         estimatedTime: "约 3 分钟",
         inputs: [
           { id: "i1", name: "数据日报", icon: "📊", description: "来自数据监控", required: true, source: "previous_step", sourceDetail: "自动从「数据监控」获取" },
@@ -425,7 +425,7 @@ export function generateDemoFlow(): {
     { id: "e2-3", source: "node-2", target: "node-3", label: "内容排期表", animated: true, style: { stroke: "#94a3b8" } },
     { id: "e3-4", source: "node-3", target: "node-4", label: "图文内容", animated: true, style: { stroke: "#94a3b8" } },
     { id: "e4-5", source: "node-4", target: "node-5", label: "审查通过", animated: true, style: { stroke: "#22c55e" } },
-    { id: "e4-3", source: "node-4", target: "node-3", label: "不通过，重新生成", animated: true, style: { stroke: "#ef4444", strokeDasharray: "5,5" } },
+    { id: "e4-3", source: "node-4", target: "node-3", label: "不通过，重新修改", animated: true, style: { stroke: "#ef4444", strokeDasharray: "5,5" } },
     { id: "e5-6", source: "node-5", target: "node-6", label: "发布记录", animated: true, style: { stroke: "#94a3b8" } },
     { id: "e6-7", source: "node-6", target: "node-7", label: "数据日报", animated: true, style: { stroke: "#94a3b8" } },
     { id: "e7-2", source: "node-7", target: "node-2", label: "每周复盘后调整", animated: false, style: { stroke: "#f59e0b", strokeDasharray: "8,4" } },

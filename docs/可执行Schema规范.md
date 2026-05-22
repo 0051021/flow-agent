@@ -10,11 +10,11 @@
 >
 > 相关文档：
 >
-> - 产品 PRD → `[flowagent-product.md](./flowagent-product.md)`（含 **§1.1.4 业务一体化与技术多 Job 导出**：业务一条线、技术方可拆多 Job 的平台要求）
-> - 架构全景 → `[architecture-panorama.md](./architecture-panorama.md)`
-> - 上下文架构 → `[context-architecture.md](./context-architecture.md)`
-> - Skill 平台架构 → `[skill-architecture-thinking.md](./skill-architecture-thinking.md)`
-> - 产品矩阵（含执行层架构）→ `[product-matrix.md](./product-matrix.md)`
+> - 产品 PRD → `[FlowAgent产品说明.md](./FlowAgent产品说明.md)`（含 **§1.1.4 业务一体化与技术多 Job 导出**：业务一条线、技术方可拆多 Job 的平台要求）
+> - 架构全景 → `[架构全景.md](./架构全景.md)`
+> - 上下文架构 → `[上下文架构.md](./上下文架构.md)`
+> - Skill 平台架构 → `[Skill架构思考.md](./Skill架构思考.md)`
+> - 产品矩阵（含执行层架构）→ `[产品矩阵.md](./产品矩阵.md)`
 
 ---
 
@@ -602,7 +602,7 @@ interface AdaptiveConfig {
 | `adaptiveConfig.adjustmentPolicies` | →   | `adjustment_policies` |
 
 
-> 详细的 JobSpec v2 运行时调整协议见 `[jobspec-v2-runtime-adjustment.md](./jobspec-v2-runtime-adjustment.md)`
+> 详细的 JobSpec v2 运行时调整协议见 `[JobSpec-v2运行时调整.md](./JobSpec-v2运行时调整.md)`
 
 ### 2.7 nodes — 节点
 

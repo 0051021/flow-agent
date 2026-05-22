@@ -18,6 +18,9 @@ import type {
   FlowNodeData,
   FlowNodeInput,
   FlowNodeOutput,
+  ConditionBranch,
+  ConditionGroup,
+  ConditionRule,
   NodeBindingEntry,
   PlatformTaskType,
   SubField,
@@ -92,6 +95,142 @@ const DATA_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: "array", label: "array — 列表" },
   { value: "file", label: "file — 文件引用" },
 ];
+
+const CONDITION_OPERATOR_OPTIONS: Record<string, { value: NonNullable<ConditionRule["operator"]>; label: string }[]> = {
+  boolean: [
+    { value: "eq", label: "=" },
+    { value: "neq", label: "!=" },
+  ],
+  number: [
+    { value: "eq", label: "=" },
+    { value: "neq", label: "!=" },
+    { value: "gt", label: ">" },
+    { value: "gte", label: ">=" },
+    { value: "lt", label: "<" },
+    { value: "lte", label: "<=" },
+  ],
+  string: [
+    { value: "eq", label: "=" },
+    { value: "neq", label: "!=" },
+    { value: "contains", label: "包含" },
+    { value: "not_contains", label: "不包含" },
+  ],
+};
+
+const OPERATOR_LABEL: Record<NonNullable<ConditionRule["operator"]>, string> = {
+  eq: "=",
+  neq: "!=",
+  gt: ">",
+  gte: ">=",
+  lt: "<",
+  lte: "<=",
+  contains: "contains",
+  not_contains: "not contains",
+};
+
+const OTHERWISE_VALUE = "__otherwise__";
+
+function conditionOperatorOptions(dataType?: string) {
+  const normalized = (dataType || "string").toLowerCase();
+  if (normalized === "boolean") return CONDITION_OPERATOR_OPTIONS.boolean;
+  if (normalized === "number") return CONDITION_OPERATOR_OPTIONS.number;
+  return CONDITION_OPERATOR_OPTIONS.string;
+}
+
+function stringifyCompareValue(value: ConditionRule["compareValue"]) {
+  if (value === undefined || value === null) return "";
+  return String(value);
+}
+
+function formatConditionRuleLabel(rule: ConditionRule) {
+  if (!rule.sourceOutputPath) return "";
+  const operator = OPERATOR_LABEL[rule.operator || "eq"];
+  const value = stringifyCompareValue(rule.compareValue);
+  return `${rule.sourceOutputPath} ${operator} ${value}`.trim();
+}
+
+function conditionGroupFromBranch(branch: ConditionBranch): ConditionGroup {
+  if (branch.conditionGroup) return branch.conditionGroup;
+  if (branch.sourceOutputPath) {
+    return {
+      logic: "all",
+      conditions: [{
+        sourceNodeId: branch.sourceNodeId,
+        sourceOutputId: branch.sourceOutputId,
+        sourceOutputPath: branch.sourceOutputPath,
+        sourceOutputName: branch.sourceOutputName,
+        outputDataType: branch.outputDataType,
+        operator: branch.operator,
+        compareValue: branch.compareValue,
+      }],
+    };
+  }
+  return { logic: "all", conditions: [] };
+}
+
+function formatConditionGroupLabel(group: ConditionGroup) {
+  const labels = group.conditions.map(formatConditionRuleLabel).filter(Boolean);
+  if (labels.length === 0) return "otherwise";
+  if (labels.length === 1) return labels[0];
+  return `${group.logic === "all" ? "ALL" : "ANY"}(${labels.join(group.logic === "all" ? " && " : " || ")})`;
+}
+
+function formatConditionBranchLabel(branch: ConditionBranch) {
+  return formatConditionGroupLabel(conditionGroupFromBranch(branch));
+}
+
+interface RouteFieldOption {
+  value: string;
+  nodeId: string;
+  outputId: string;
+  path: string;
+  name: string;
+  dataType: string;
+  label: string;
+}
+
+function parseCompareValue(raw: string, dataType: string): ConditionRule["compareValue"] {
+  const trimmed = raw.trim().replace(/^["']|["']$/g, "");
+  if (dataType === "boolean") return trimmed === "true" || trimmed === "是" || trimmed === "通过";
+  if (dataType === "number") return Number(trimmed);
+  return trimmed;
+}
+
+function conditionGroupFromLegacyLabel(label: string, options: RouteFieldOption[]): ConditionGroup | null {
+  const matched = label.match(/^\s*([\w.\u4e00-\u9fff]+)\s*(==|=|!=|>=|<=|>|<|包含|不包含|contains|not contains)\s*(.+?)\s*$/i);
+  if (!matched) return null;
+
+  const [, rawPath, rawOperator, rawValue] = matched;
+  const option = options.find((candidate) => candidate.path === rawPath || candidate.name === rawPath);
+  if (!option) return null;
+
+  const operatorMap: Record<string, ConditionRule["operator"]> = {
+    "=": "eq",
+    "==": "eq",
+    "!=": "neq",
+    ">": "gt",
+    ">=": "gte",
+    "<": "lt",
+    "<=": "lte",
+    "包含": "contains",
+    contains: "contains",
+    "不包含": "not_contains",
+    "not contains": "not_contains",
+  };
+
+  return {
+    logic: "all",
+    conditions: [{
+      sourceNodeId: option.nodeId,
+      sourceOutputId: option.outputId,
+      sourceOutputPath: option.path,
+      sourceOutputName: option.name,
+      outputDataType: option.dataType,
+      operator: operatorMap[rawOperator.toLowerCase()] ?? "eq",
+      compareValue: parseCompareValue(rawValue, option.dataType),
+    }],
+  };
+}
 
 function SubFieldEditor({
   hint,
@@ -252,6 +391,21 @@ function DataFieldList<T extends AnyField>({
                     {(field as FlowNodeInput).source === "user" ? "入" : "↓"}
                   </span>
                 ) : null}
+                {showSource && "required" in field ? (
+                  <label className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md border border-zinc-200 bg-white px-2 text-[10px] text-zinc-500">
+                    <input
+                      type="checkbox"
+                      checked={(field as FlowNodeInput).required}
+                      onChange={(e) => {
+                        const next = [...fields];
+                        next[idx] = { ...field, required: e.target.checked };
+                        onUpdate(next);
+                      }}
+                      className="h-3 w-3 rounded border-zinc-300 text-blue-600"
+                    />
+                    必填
+                  </label>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => onUpdate(fields.filter((_, i) => i !== idx))}
@@ -353,12 +507,86 @@ function ContextPolicySummary({ policy }: { policy: RegisteredContextPolicyOptio
 export default function TechNodePanel() {
   const selectedNodeId = useFlowAgentStore((s) => s.selectedNodeId);
   const nodes = useFlowAgentStore((s) => s.nodes);
+  const edges = useFlowAgentStore((s) => s.edges);
   const techBindings = useFlowAgentStore((s) => s.techBindings);
   const setNodeBinding = useFlowAgentStore((s) => s.setNodeBinding);
   const setSelectedNodeId = useFlowAgentStore((s) => s.setSelectedNodeId);
   const updateNodeData = useFlowAgentStore((s) => s.updateNodeData);
   const node = useMemo(
     () => (selectedNodeId ? nodes.find((n) => n.id === selectedNodeId) : undefined),
+    [nodes, selectedNodeId]
+  );
+
+  const routeFieldOptions = useMemo<RouteFieldOption[]>(() => {
+    if (!node) return [];
+
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    const incoming = new Map<string, string[]>();
+    for (const edge of edges) {
+      const list = incoming.get(edge.target) ?? [];
+      list.push(edge.source);
+      incoming.set(edge.target, list);
+    }
+
+    const upstreamIds = new Set<string>();
+    const visit = (id: string) => {
+      for (const source of incoming.get(id) ?? []) {
+        if (upstreamIds.has(source)) continue;
+        upstreamIds.add(source);
+        visit(source);
+      }
+    };
+    visit(node.id);
+
+    const upstreamNodes = [...upstreamIds]
+      .map((id) => byId.get(id))
+      .filter((n): n is (typeof nodes)[number] => Boolean(n))
+      .filter((n) => !(n.data as FlowNodeData).isCondition);
+
+    const fallbackNodes = nodes
+      .filter((n) => n.id !== node.id && !(n.data as FlowNodeData).isCondition)
+      .filter((n) => upstreamNodes.length > 0 || n.position.y < node.position.y);
+
+    const sourceNodes = (upstreamNodes.length > 0 ? upstreamNodes : fallbackNodes)
+      .sort((a, b) => a.position.y - b.position.y);
+
+    return sourceNodes.flatMap((sourceNode) => {
+      const sourceData = sourceNode.data as FlowNodeData;
+      return sourceData.outputs.flatMap((output) => {
+        const outputType = output.dataType || "string";
+        const base: RouteFieldOption[] = [{
+          value: `${sourceNode.id}:${output.id}`,
+          nodeId: sourceNode.id,
+          outputId: output.id,
+          path: output.name,
+          name: output.name,
+          dataType: outputType,
+          label: `${sourceData.label} / ${output.name} (${outputType})`,
+        }];
+
+        const subFields = output.subFields ?? [];
+        return [
+          ...base,
+          ...subFields.map((field) => ({
+            value: `${sourceNode.id}:${output.id}:${field.key}`,
+            nodeId: sourceNode.id,
+            outputId: output.id,
+            path: `${output.name}.${field.key}`,
+            name: field.key,
+            dataType: field.type || "string",
+            label: `${sourceData.label} / ${output.name}.${field.key} (${field.type || "string"})`,
+          })),
+        ];
+      });
+    });
+  }, [edges, node, nodes]);
+
+  const routeTargetOptions = useMemo(
+    () =>
+      nodes
+        .filter((n) => n.id !== selectedNodeId && !(n.data as FlowNodeData).isCondition)
+        .sort((a, b) => a.position.y - b.position.y)
+        .map((n) => ({ id: n.id, label: (n.data as FlowNodeData).label || n.id })),
     [nodes, selectedNodeId]
   );
 
@@ -462,7 +690,7 @@ export default function TechNodePanel() {
             <section className="rounded-xl border border-amber-200 bg-amber-50/60 p-3">
               <p className="text-[12px] font-semibold text-amber-900">路由节点说明</p>
               <p className="mt-1 text-[11px] leading-5 text-amber-800">
-                路由节点只承载 if / else 分支。它应该读取前一个可执行 Task 的输出字段，
+                路由节点只承载 if / else 分支。它应该读取任意前序 Task 的输出字段，
                 然后把出边编译成 <span className="font-mono">flow.condition</span>。
               </p>
               <pre className="mt-3 overflow-x-auto rounded-lg bg-white/80 p-3 text-[10px] leading-relaxed text-zinc-700">
@@ -492,44 +720,262 @@ export default function TechNodePanel() {
               <div>
                 <p className="text-[11px] font-semibold text-zinc-800 mb-1">分支规则</p>
                 <p className="text-[10px] text-zinc-400 mb-2">
-                  每一行对应一条出边条件。目标节点名称用于辅助理解，实际导出时会根据画布连线解析为下游 Task code。
+                  每一行对应一个 if / else 路由。先选前序节点的输出字段，再按字段类型选择判断方式和值，最后选择要流向的工作节点。
                 </p>
                 <div className="space-y-2">
-                  {branches.map((branch, idx) => (
-                    <div key={idx} className="rounded-lg border border-zinc-200 bg-zinc-50/60 p-2 space-y-2">
-                      <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
-                        <Input
-                          value={branch.label}
-                          onChange={(e) => {
-                            const next = [...branches];
-                            next[idx] = { ...branch, label: e.target.value };
-                            updateNodeData(node.id, { conditionBranches: next });
-                          }}
-                          className="h-8 text-[11px]"
-                          placeholder='例如 destination_region = "taiwan"'
-                        />
-                        <Input
-                          value={branch.targetLabel}
-                          onChange={(e) => {
-                            const next = [...branches];
-                            next[idx] = { ...branch, targetLabel: e.target.value };
-                            updateNodeData(node.id, { conditionBranches: next });
-                          }}
-                          className="h-8 text-[11px]"
-                          placeholder="目标节点名称"
-                        />
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          onClick={() => updateNodeData(node.id, { conditionBranches: branches.filter((_, i) => i !== idx) })}
-                        >
-                          <Trash2 className="w-3 h-3 text-zinc-400" />
-                        </Button>
+                  {branches.map((branch, idx) => {
+                    const parsedLegacyGroup =
+                      !branch.conditionGroup && !branch.sourceOutputPath && branch.label !== "otherwise"
+                        ? conditionGroupFromLegacyLabel(branch.label, routeFieldOptions)
+                        : null;
+                    const group = parsedLegacyGroup ?? conditionGroupFromBranch(branch);
+                    const isOtherwise = branch.label === "otherwise" && group.conditions.length === 0;
+                    const selectedTarget = branch.targetNodeId || "";
+
+                    const commitBranch = (patch: Partial<ConditionBranch>) => {
+                      const next = [...branches];
+                      const merged = { ...branch, ...patch };
+                      const hasConditions = conditionGroupFromBranch(merged).conditions.length > 0;
+                      next[idx] = {
+                        ...merged,
+                        icon: hasConditions ? "✓" : "↯",
+                        label: formatConditionBranchLabel(merged),
+                      };
+                      updateNodeData(node.id, { conditionBranches: next });
+                    };
+
+                    const commitConditionGroup = (conditionGroup: ConditionGroup) => {
+                      commitBranch({
+                        conditionGroup,
+                        sourceNodeId: undefined,
+                        sourceOutputId: undefined,
+                        sourceOutputPath: undefined,
+                        sourceOutputName: undefined,
+                        outputDataType: undefined,
+                        operator: undefined,
+                        compareValue: undefined,
+                      });
+                    };
+
+                    const updateCondition = (conditionIdx: number, patch: Partial<ConditionRule>) => {
+                      const nextConditions = [...group.conditions];
+                      nextConditions[conditionIdx] = { ...nextConditions[conditionIdx], ...patch };
+                      commitConditionGroup({ ...group, conditions: nextConditions });
+                    };
+
+                    return (
+                      <div key={idx} className="rounded-lg border border-zinc-200 bg-zinc-50/60 p-2 space-y-2">
+                        <div className="grid grid-cols-[96px_1fr_auto] gap-2">
+                          <select
+                            value={isOtherwise ? OTHERWISE_VALUE : "condition"}
+                            onChange={(e) => {
+                              if (e.target.value === OTHERWISE_VALUE) {
+                                commitBranch({
+                                  conditionGroup: { logic: "all", conditions: [] },
+                                  sourceNodeId: undefined,
+                                  sourceOutputId: undefined,
+                                  sourceOutputPath: undefined,
+                                  sourceOutputName: undefined,
+                                  outputDataType: undefined,
+                                  operator: undefined,
+                                  compareValue: undefined,
+                                });
+                              } else {
+                                commitConditionGroup({
+                                  logic: "all",
+                                  conditions: group.conditions.length > 0 ? group.conditions : [{}],
+                                });
+                              }
+                            }}
+                            className="h-8 rounded-md border border-zinc-200 bg-white px-2 text-[11px] text-zinc-600"
+                          >
+                            <option value="condition">if</option>
+                            <option value={OTHERWISE_VALUE}>else</option>
+                          </select>
+
+                          {isOtherwise ? (
+                            <div className="flex h-8 items-center rounded-md border border-zinc-200 bg-white px-2 text-[11px] text-zinc-500">
+                              otherwise
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] text-zinc-400">满足</span>
+                              <select
+                                value={group.logic}
+                                onChange={(e) =>
+                                  commitConditionGroup({
+                                    ...group,
+                                    logic: e.target.value as ConditionGroup["logic"],
+                                  })
+                                }
+                                className="h-8 rounded-md border border-zinc-200 bg-white px-2 text-[11px] text-zinc-700"
+                              >
+                                <option value="all">全部条件</option>
+                                <option value="any">任一条件</option>
+                              </select>
+                              <span className="text-[10px] text-zinc-400">则进入该分支</span>
+                            </div>
+                          )}
+
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => updateNodeData(node.id, { conditionBranches: branches.filter((_, i) => i !== idx) })}
+                          >
+                            <Trash2 className="w-3 h-3 text-zinc-400" />
+                          </Button>
+                        </div>
+
+                        {!isOtherwise ? (
+                          <div className="space-y-1.5 pl-[104px]">
+                            {group.conditions.length === 0 ? (
+                              <p className="rounded-md border border-dashed border-zinc-200 bg-white/70 px-2 py-2 text-[10px] text-zinc-400">
+                                暂无条件，添加条件后该分支才会参与匹配。
+                              </p>
+                            ) : (
+                              group.conditions.map((condition, conditionIdx) => {
+                                const selectedFieldValue = routeFieldOptions.find(
+                                  (option) =>
+                                    option.nodeId === condition.sourceNodeId &&
+                                    option.outputId === condition.sourceOutputId &&
+                                    option.path === condition.sourceOutputPath
+                                )?.value ?? "";
+                                const operators = conditionOperatorOptions(condition.outputDataType);
+
+                                return (
+                                  <div key={conditionIdx} className="grid grid-cols-[1.4fr_72px_1fr_auto] gap-2">
+                                    <select
+                                      value={selectedFieldValue}
+                                      onChange={(e) => {
+                                        const picked = routeFieldOptions.find((option) => option.value === e.target.value);
+                                        if (!picked) return;
+                                        const operator = conditionOperatorOptions(picked.dataType)[0]?.value ?? "eq";
+                                        const defaultValue = picked.dataType === "boolean" ? true : picked.dataType === "number" ? 0 : "";
+                                        updateCondition(conditionIdx, {
+                                          sourceNodeId: picked.nodeId,
+                                          sourceOutputId: picked.outputId,
+                                          sourceOutputPath: picked.path,
+                                          sourceOutputName: picked.name,
+                                          outputDataType: picked.dataType,
+                                          operator,
+                                          compareValue: defaultValue,
+                                        });
+                                      }}
+                                      className="h-8 rounded-md border border-zinc-200 bg-white px-2 text-[11px] text-zinc-700"
+                                    >
+                                      <option value="">选择前序输出字段</option>
+                                      {routeFieldOptions.map((option) => (
+                                        <option key={option.value} value={option.value}>
+                                          {option.label}
+                                        </option>
+                                      ))}
+                                    </select>
+
+                                    <select
+                                      value={condition.operator || "eq"}
+                                      onChange={(e) => updateCondition(conditionIdx, { operator: e.target.value as ConditionRule["operator"] })}
+                                      className="h-8 rounded-md border border-zinc-200 bg-white px-2 text-[11px] text-zinc-700"
+                                    >
+                                      {operators.map((operator) => (
+                                        <option key={operator.value} value={operator.value}>
+                                          {operator.label}
+                                        </option>
+                                      ))}
+                                    </select>
+
+                                    {(condition.outputDataType || "").toLowerCase() === "boolean" ? (
+                                      <select
+                                        value={String(condition.compareValue ?? true)}
+                                        onChange={(e) => updateCondition(conditionIdx, { compareValue: e.target.value === "true" })}
+                                        className="h-8 rounded-md border border-zinc-200 bg-white px-2 text-[11px] text-zinc-700"
+                                      >
+                                        <option value="true">true</option>
+                                        <option value="false">false</option>
+                                      </select>
+                                    ) : (
+                                      <Input
+                                        type={(condition.outputDataType || "").toLowerCase() === "number" ? "number" : "text"}
+                                        value={stringifyCompareValue(condition.compareValue)}
+                                        onChange={(e) =>
+                                          updateCondition(conditionIdx, {
+                                            compareValue:
+                                              (condition.outputDataType || "").toLowerCase() === "number"
+                                                ? Number(e.target.value)
+                                                : e.target.value,
+                                          })
+                                        }
+                                        className="h-8 text-[11px]"
+                                        placeholder={(condition.outputDataType || "").toLowerCase() === "number" ? "0" : "值"}
+                                      />
+                                    )}
+
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-8 w-8"
+                                      onClick={() =>
+                                        commitConditionGroup({
+                                          ...group,
+                                          conditions: group.conditions.filter((_, i) => i !== conditionIdx),
+                                        })
+                                      }
+                                    >
+                                      <Trash2 className="w-3 h-3 text-zinc-400" />
+                                    </Button>
+                                  </div>
+                                );
+                              })
+                            )}
+
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-[10px]"
+                              onClick={() =>
+                                commitConditionGroup({
+                                  ...group,
+                                  conditions: [...group.conditions, {}],
+                                })
+                              }
+                            >
+                              <Plus className="w-3 h-3 mr-1" />
+                              添加条件
+                            </Button>
+                          </div>
+                        ) : null}
+
+                        <div className="grid grid-cols-[96px_1fr] gap-2">
+                          <span className="flex h-8 items-center px-2 text-[10px] text-zinc-400">路由到</span>
+                          <select
+                            value={selectedTarget}
+                            onChange={(e) => {
+                              const target = routeTargetOptions.find((option) => option.id === e.target.value);
+                              commitBranch({
+                                targetNodeId: target?.id,
+                                targetLabel: target?.label ?? "",
+                              });
+                            }}
+                            className="h-8 rounded-md border border-zinc-200 bg-white px-2 text-[11px] text-zinc-700"
+                          >
+                            <option value="">选择目标工作节点</option>
+                            {routeTargetOptions.map((option) => (
+                              <option key={option.id} value={option.id}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {!parsedLegacyGroup && !branch.conditionGroup && !branch.sourceOutputPath && branch.label && branch.label !== "otherwise" ? (
+                          <p className="text-[10px] text-amber-600">旧条件：{branch.label}。建议改为上面的结构化条件。</p>
+                        ) : null}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   <Button
                     type="button"
                     variant="secondary"
@@ -539,7 +985,7 @@ export default function TechNodePanel() {
                       updateNodeData(node.id, {
                         conditionBranches: [
                           ...branches,
-                          { label: "", icon: "•", targetLabel: "" },
+                          { label: "", icon: "✓", targetLabel: "", conditionGroup: { logic: "all", conditions: [{}] } },
                         ],
                       })
                     }

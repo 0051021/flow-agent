@@ -4,7 +4,7 @@
 > 
 > 本文档是 Skill 平台的完整架构设计，包含 Skill 的定义、切割原则、平台交互模型、标准化演进、以及与 FlowAgent / 执行层的职责边界。
 >
-> 产品矩阵全景见 [`product-matrix.md`](./product-matrix.md)，FlowAgent 功能设计见 [`flowagent-product.md`](./flowagent-product.md)。
+> 产品矩阵全景见 [`产品矩阵.md`](./产品矩阵.md)，FlowAgent 功能设计见 [`FlowAgent产品说明.md`](./FlowAgent产品说明.md)。
 
 ---
 
@@ -238,7 +238,7 @@ EvoMap 团队的实验（4590 次受控实验）表明：
 3. 执行失败 → 蒸馏为 AVOID 警告 → 追加到 Gene
 4. 多次成功执行 → Gene 中的 strategy 标记为 validated
 
-Gene 不是写一次就不动了，它随使用**持续进化**。详见 [`product-strategy.md`](./product-strategy.md) 第六章"数据飞轮（Gene 进化模型）"。
+Gene 不是写一次就不动了，它随使用**持续进化**。详见 [`产品策略.md`](./产品策略.md) 第六章"数据飞轮（Gene 进化模型）"。
 
 ---
 
@@ -584,7 +584,7 @@ FlowAgent 的定位是**"翻译 + 编排"**，与 Skill 平台深度集成，而
 | content-generate | v2.3 | — | v2.2 |
 | xhs-publish | v1.3 | — | v1.2 |
 
-规则表的修改权限在技术方，修改操作属于 Layer 3 调整（见 `flowagent-product.md` 3.2.7），需要技术方确认。
+规则表的修改权限在技术方，修改操作属于 Layer 3 调整（见 `FlowAgent产品说明.md` 3.2.7），需要技术方确认。
 
 ### 12.3 热替换的前提条件
 

@@ -2,7 +2,7 @@
 
 > 版本：v1.2 | 日期：2026-04-28
 >
-> 配套文档：[`executable-schema-spec.md`](./executable-schema-spec.md)（v2.3，完整接口定义 + IMI 示例；对齐 Agent Runtime Protocol）
+> 配套文档：[`可执行Schema规范.md`](./可执行Schema规范.md)（v2.3，完整接口定义 + IMI 示例；对齐 Agent Runtime Protocol）
 
 ---
 

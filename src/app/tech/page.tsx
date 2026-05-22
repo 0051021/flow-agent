@@ -341,7 +341,7 @@ export default function TechLandingPage() {
                             </div>
                             {item.initialJobGroup.relatedJobs.length > 0 ? (
                               <p className="mt-2 text-[10px] leading-4 text-slate-500">
-                                Job Group 说明：GSDS 入库 Job 维护 GSDS 主库，IMI 主 Job 消费该数据资产；IMI 查询缺失时暂停等待资料补齐。
+                                Job Group 说明：{item.initialJobGroup.relatedJobs.map((job) => job.description).join("；")}
                               </p>
                             ) : null}
                           </div>

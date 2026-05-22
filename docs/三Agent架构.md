@@ -5,9 +5,9 @@
 > 本文档聚焦 FlowAgent 中三类 Agent 的产品与架构边界：业务流程澄清 Agent、批注理解 Agent、技术评审 Agent。
 >
 > 相关文档：
-> - 上下文架构：[`context-architecture.md`](./context-architecture.md)
-> - Skill 平台架构：[`skill-architecture-thinking.md`](./skill-architecture-thinking.md)
-> - FlowAgent 产品说明：[`flowagent-product.md`](./flowagent-product.md)
+> - 上下文架构：[`上下文架构.md`](./上下文架构.md)
+> - Skill 平台架构：[`Skill架构思考.md`](./Skill架构思考.md)
+> - FlowAgent 产品说明：[`FlowAgent产品说明.md`](./FlowAgent产品说明.md)
 
 ---
 

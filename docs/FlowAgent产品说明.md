@@ -4,13 +4,13 @@
 >
 > 本文档是 FlowAgent 子产品的详细功能设计（PRD）。相关文档：
 >
-> - 产品矩阵全景（四件套定位、关系、数据流转）→ `[product-matrix.md](./product-matrix.md)`
-> - 产品战略（知识容器、自进化飞轮、竞争壁垒）→ `[product-strategy.md](./product-strategy.md)`
-> - AI Prompt 架构（分类、生成、精炼的多阶段设计）→ `[prompt-architecture.md](./prompt-architecture.md)`
-> - Skill 平台架构（切割原则、平台交互、职责边界）→ `[skill-architecture-thinking.md](./skill-architecture-thinking.md)`
-> - 架构全景（模块划分、数据流、用户动线）→ `[architecture-panorama.md](./architecture-panorama.md)`
+> - 产品矩阵全景（四件套定位、关系、数据流转）→ `[产品矩阵.md](./产品矩阵.md)`
+> - 产品战略（知识容器、自进化飞轮、竞争壁垒）→ `[产品策略.md](./产品策略.md)`
+> - AI Prompt 架构（分类、生成、精炼的多阶段设计）→ `[提示词架构.md](./提示词架构.md)`
+> - Skill 平台架构（切割原则、平台交互、职责边界）→ `[Skill架构思考.md](./Skill架构思考.md)`
+> - 架构全景（模块划分、数据流、用户动线）→ `[架构全景.md](./架构全景.md)`
 > - GSDS 入库 Job（阶段 1 IR 示例）→ `[gsds-ingest-job-schema.json](./gsds-ingest-job-schema.json)`（与 `[imi-schema-v3.json](./imi-schema-v3.json)` 拆分配套）
-> - 上下文架构（六层模型、流动方向、Context Bus）→ `[context-architecture.md](./context-architecture.md)`
+> - 上下文架构（六层模型、流动方向、Context Bus）→ `[上下文架构.md](./上下文架构.md)`
 
 ## 一、FlowAgent 是什么
 
@@ -181,7 +181,7 @@ AI 生成方案后坐在屏幕前的人（技术方）不一定能回答所有�
 5. **测试策略**
   简单 Job（如 GSDS 入库）与复杂 Job（如 IMI）**分测**，端到端验收仍可用 mock 或预灌数据跑「完整故事」。
 
-**与规范文档的关系**：可执行 IR 字段定义与 JobSpec 映射见 `[executable-schema-spec.md](./executable-schema-spec.md)`；多 Job 导出若在映射器层实现，应在该文档或导出说明中补充「一份 Schema / 多份 JobSpec」的边界规则，与本节产品要求一致。
+**与规范文档的关系**：可执行 IR 字段定义与 JobSpec 映射见 `[可执行Schema规范.md](./可执行Schema规范.md)`；多 Job 导出若在映射器层实现，应在该文档或导出说明中补充「一份 Schema / 多份 JobSpec」的边界规则，与本节产品要求一致。
 
 ### 1.2 三阶段演进路径
 
@@ -570,7 +570,7 @@ AI 转化为：
 
 > v13 新增。三层评估解决的是"做得好不好"，归因模型解决的是"为什么不好"——尤其是当失败原因不在失败点本身时。
 >
-> 完整的上下文架构设计见 `[context-architecture.md](./context-architecture.md)`。
+> 完整的上下文架构设计见 `[上下文架构.md](./上下文架构.md)`。
 
 Agent 执行中的失败分为三种类型，每种类型的根因位置、归因难度、修复路径不同：
 
@@ -622,7 +622,7 @@ Agent 执行中的失败分为三种类型，每种类型的根因位置、归�
 | 系统性失败 | 场景 Gene (strategy) | "创意型任务不要只用数据型 Agent 输出作为策略输入" |
 
 
-组合 Gene 是 v13 新增的 Gene 维度，记录的是"A 接 B 时要注意什么"的跨节点/跨 Task 经验。详见 `[context-architecture.md](./context-architecture.md)` 第五章。
+组合 Gene 是 v13 新增的 Gene 维度，记录的是"A 接 B 时要注意什么"的跨节点/跨 Task 经验。详见 `[上下文架构.md](./上下文架构.md)` 第五章。
 
 #### 3.2.6 Agentic 方案的复盘-调整循环
 
@@ -1135,7 +1135,7 @@ Task A 输出的上下文包（Context Package）：
 }
 ```
 
-`quality_signals` 和 `assumptions` 让下游 Task 能判断上游输入是否可靠。`trace` 在失败归因时提供因果链路。详细的上下文交接设计见 `[context-architecture.md](./context-architecture.md)` 第四章。
+`quality_signals` 和 `assumptions` 让下游 Task 能判断上游输入是否可靠。`trace` 在失败归因时提供因果链路。详细的上下文交接设计见 `[上下文架构.md](./上下文架构.md)` 第四章。
 
 ### 4.5 方案生命周期
 
@@ -1161,9 +1161,9 @@ Task A 输出的上下文包（Context Package）：
 
 ## 五、知识容器 — 产品的核心壁垒
 
-> 知识容器的完整战略思考（六种知识形态、沉淀机制、双层架构、自进化飞轮、数据飞轮）已拆分至独立文档：`[product-strategy.md](./product-strategy.md)`。
+> 知识容器的完整战略思考（六种知识形态、沉淀机制、双层架构、自进化飞轮、数据飞轮）已拆分至独立文档：`[产品策略.md](./产品策略.md)`。
 >
-> 知识容器在四件套中的定位和三层升级架构见：`[product-matrix.md](./product-matrix.md)` 第四章。
+> 知识容器在四件套中的定位和三层升级架构见：`[产品矩阵.md](./产品矩阵.md)` 第四章。
 >
 > 本节保留 FlowAgent 产品层面与知识容器直接相关的功能设计。
 
@@ -1180,7 +1180,7 @@ FlowAgent 作为知识容器的主要写入者和读取者：
 | 知识工作台   | 验证记录（业务规则分析结果）     | —                    |
 
 
-> v12 新增：知识容器采用"双形态存储"——每种知识同时保存 Human Doc（给人看的完整文档）和 Model Gene（给模型用的蒸馏控制片段）。Gene 理念的详细设计见 `[product-strategy.md](./product-strategy.md)` 第二章和第六章。
+> v12 新增：知识容器采用"双形态存储"——每种知识同时保存 Human Doc（给人看的完整文档）和 Model Gene（给模型用的蒸馏控制片段）。Gene 理念的详细设计见 `[产品策略.md](./产品策略.md)` 第二章和第六章。
 
 ### 5.2 SOP 文档自动提取（规划中）
 
@@ -1190,9 +1190,9 @@ FlowAgent 作为知识容器的主要写入者和读取者：
 
 ## 六、Skill 平台
 
-> Skill 平台的完整架构设计（切割原则、平台交互模型、to B vs to P、Workflow/Agentic 中的不同角色、职责边界）已拆分至独立文档：`[skill-architecture-thinking.md](./skill-architecture-thinking.md)`。
+> Skill 平台的完整架构设计（切割原则、平台交互模型、to B vs to P、Workflow/Agentic 中的不同角色、职责边界）已拆分至独立文档：`[Skill架构思考.md](./Skill架构思考.md)`。
 >
-> Skill 平台在四件套中的定位见：`[product-matrix.md](./product-matrix.md)`。
+> Skill 平台在四件套中的定位见：`[产品矩阵.md](./产品矩阵.md)`。
 >
 > 本节保留 FlowAgent 与 Skill 平台的集成接口摘要。
 

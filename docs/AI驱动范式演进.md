@@ -5,9 +5,9 @@
 > 本文档整理自一次关于 AI 驱动方式演进的深度讨论，探讨了 Prompt → Skill → Task 的范式转变、每次转变的本质差异、Task 能力的形成机制，以及对 FlowAgent 产品战略的影响。
 >
 > 相关文档：
-> - FlowAgent 产品设计 → [`flowagent-product.md`](./flowagent-product.md)
-> - Skill 平台架构 → [`skill-architecture-thinking.md`](./skill-architecture-thinking.md)
-> - 产品战略 → [`product-strategy.md`](./product-strategy.md)
+> - FlowAgent 产品设计 → [`FlowAgent产品说明.md`](./FlowAgent产品说明.md)
+> - Skill 平台架构 → [`Skill架构思考.md`](./Skill架构思考.md)
+> - 产品战略 → [`产品策略.md`](./产品策略.md)
 
 ---
 

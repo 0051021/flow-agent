@@ -7,8 +7,8 @@
 > 相关文档：
 >
 > - 注册协议基础 → 原《注册协议具体实现》文档
-> - 上下文架构 → `[context-architecture.md](./context-architecture.md)`
-> - 架构全景 → `[architecture-panorama.md](./architecture-panorama.md)`
+> - 上下文架构 → `[上下文架构.md](./上下文架构.md)`
+> - 架构全景 → `[架构全景.md](./架构全景.md)`
 
 ---
 
@@ -695,14 +695,14 @@ GET /api/job-instances/:id/adjustment-history
 ## 十、文档索引
 
 ```
-jobspec-v2-runtime-adjustment.md   ← 你在这里（v2 运行时调整协议）
+JobSpec-v2运行时调整.md   ← 你在这里（v2 运行时调整协议）
     │
     │  依赖：
     ├── 注册协议具体实现             基础协议定义
     │
     │  被引用于：
-    ├── context-architecture.md     上下文架构（四层热更新、业务事件）
-    ├── architecture-panorama.md    架构全景（执行引擎）
+    ├── 上下文架构.md     上下文架构（四层热更新、业务事件）
+    ├── 架构全景.md    架构全景（执行引擎）
     │
     │  相关 API：
     ├── POST /api/job-instances/:id/events

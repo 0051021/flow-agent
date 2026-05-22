@@ -207,6 +207,15 @@ export default function NodeEditDialog() {
                       className="text-xs h-7"
                       placeholder="简短说明"
                     />
+                    <label className="inline-flex items-center gap-1.5 text-[10px] text-zinc-500">
+                      <input
+                        type="checkbox"
+                        checked={inp.required}
+                        onChange={(e) => updateInput(inp.id, "required", e.target.checked)}
+                        className="h-3 w-3 rounded border-zinc-300 text-blue-600"
+                      />
+                      必填
+                    </label>
                   </div>
                   <button onClick={() => removeInput(inp.id)} className="p-1 text-zinc-400 hover:text-red-500 mt-0.5">
                     <Trash2 className="w-3.5 h-3.5" />

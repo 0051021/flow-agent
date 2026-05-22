@@ -17,7 +17,7 @@ const FLOW_BIZ_SCHEMA = `{
       "label": "节点名称（2-6个字）",
       "icon": "图标名（从以下选择：BarChart3, Target, PenTool, ShieldCheck, Clock, Activity, RefreshCw, Search, FileText, Mail, Database, Zap, Eye, Settings, Upload, Download, Users, Globe, Lock, Bell）",
       "description": "用一句话描述这个节点做什么（20-40字）",
-      "workUnitKind": "manual_operation 或 business_judgment 或 document_check 或 handoff_wait 或 rework_update",
+      "workUnitKind": "sop_step 或 strategy_step",
       "executionMode": "pending 或 ai_auto 或 human_confirm 或 human_manual",
       "estimatedTime": "预计耗时（如：约2分钟、约30秒、持续运行）",
       "inputs": [
@@ -37,18 +37,15 @@ const FLOW_BIZ_SCHEMA = `{
           "description": "简短说明"
         }
       ],
-      "operationSteps": ["人工业务动作1", "人工业务动作2"],
-      "judgmentSpec": {
-        "decisionSubject": "如果是业务判断/文件检查节点，这里写原人工流程要判断什么",
-        "informationUsed": ["业务人员会看的信息、材料或上下文"],
-        "judgmentRules": ["原人工流程遵循的判断口径或规则"],
-        "judgmentOutputs": ["判断完成后形成的业务结果"],
-        "escalationConditions": ["原人工流程里升级、交接或找主管/专岗处理的条件"],
-        "riskBoundaries": ["业务人员不能越过的边界"]
+      "sopSpec": {
+        "operationSteps": ["SOP 节点的人工业务动作1", "SOP 节点的人工业务动作2"],
+        "businessRules": ["SOP 节点遵守的业务规则、例外处理或注意事项"]
       },
-      "doneCriteria": "这一步做到什么程度算完成",
-      "isCondition": false,
-      "conditionBranches": null
+      "strategySpec": {
+        "basis": ["策略节点的判断依据：业务人员会看的信息、材料或上下文"],
+        "judgmentProcess": ["策略节点的判断流程：按什么顺序判断，什么条件对应什么结论或分支"],
+        "escalationConditions": ["策略节点的异常/升级条件：资料不足、规则冲突、高风险、超权限、无法判断时怎么办"]
+      }
     }
   ],
   "edges": [
@@ -601,39 +598,29 @@ const WORKFLOW_DRAFT_SYSTEM = `你是业务翻译平台的业务流程生成 Age
 - 如果文件里是流程图，优先还原流程图中的节点、顺序、分支、角色和产物，不要只按用户一句话猜。
 
 **工作单元性质 workUnitKind**：
-- 不要按整个 Job 判断 workflow/agentic；必须逐个节点判断 workUnitKind。一个固定流程里也可能包含业务判断节点，一个目标导向工作里也可能包含固定操作节点。
-- 业务侧不暴露 workflow / agentic 术语；业务侧只看到“固定操作、业务判断、文件检查、人工确认、交接等待、返修回填”等业务语义。
-- manual_operation：人工操作型节点。业务人员实际做某个动作，例如查找文件、填写表格、上传资料、发送邮件。
-- business_judgment：业务判断型节点。业务人员根据材料、规则或经验作判断，例如判断问题类型、判断是否升级。
-- document_check：文件检查型节点。业务人员对照文件/表格/证书检查字段或一致性。
-- handoff_wait：交接等待型节点。业务人员把材料交给他人/外部机构/系统后等待结果。
-- rework_update：返修回填型节点。业务人员发现错误后返修，或收到结果后回填、归档。
+- 只允许输出 sop_step 或 strategy_step。
+- sop_step：固定业务步骤、SOP、填表、查资料、发邮件、打印盖章、等待回传、回填归档等。第三个 tab 填“操作步骤 + 业务规则”。
+- strategy_step：需要根据多项依据形成判断、分类、建议或处理策略的节点。第三个 tab 填“策略/判断依据 + 判断流程 + 异常/升级条件”。
+- 不要输出 workflow_step、manual_operation、document_check、handoff_wait、rework_update、business_judgment、agentic_* 等旧 kind。
 
 **节点字段规则**：
 - 所有节点 executionMode 统一填 "pending"。执行方式由后续技术评审阶段判断。
-- manual_operation / rework_update 节点必须填写 operationSteps。
-- business_judgment / document_check 节点必须填写 judgmentSpec，表达“原本业务人员怎么判断/检查”，不要写成 AI 推荐。
-- 判断型节点中：
-  - decisionSubject 写“这一步要决定什么”，例如“判断桶/袋泄漏最可能的根因类别”。
-  - informationUsed 写“用于判断的关键依据”，例如偏差记录、泄漏照片、批次、包装完整性、处理/仓储条件、历史相似案例；它不是规则本身。
-  - judgmentRules 写“如何根据依据做判断”，例如“若同批次多点渗漏且封口异常，优先怀疑包装完整性；若搬运后集中发生，优先检查 handling”。
-  - judgmentOutputs 写“判断完成后的结论字段”，例如 Top 3 probable RCA、推荐 CAPA、置信度、需补充数据。
-  - escalationConditions / humanConfirmation 写“原人工流程里需要人工处理的情况”，例如资料缺失要补材料、根因无法判断要找 RCA owner、CAPA 涉及供应商争议要质量负责人确认。
-  - doneCriteria 写“这一步何时可以停止并进入下一步”，例如已给出带证据链的 Top 3 根因和 CAPA，且需人审项已标记。
-- handoff_wait 节点要写清楚交给谁、等待什么结果、多久后跟进。
+- sop_step 节点必须填写 sopSpec.operationSteps 和 sopSpec.businessRules。
+- strategy_step 节点必须填写 strategySpec.basis、strategySpec.judgmentProcess、strategySpec.escalationConditions。
+- strategy_step 的判断结果必须放在 outputs 中，例如“风险等级判断结果”“根因判断结果”“处理策略建议”。
+- 节点完成状态优先写在 outputs.description 中；业务侧第三个 tab 不生成 doneCriteria 字段。
 - 不适用的字段可以为空数组或 null。
 
 **条件分支拆解规则（非常重要）**：
 - 当用户描述或文件中出现条件表达时，不要把条件压进单个节点 description。
 - 条件表达包括但不限于：“如果/若/如需/缺失则/没有则/否则/有错则/无错则/不一致则/不满足则/超过则/通过则/失败则/退回则/补齐后/收到后”。
-- 这类内容优先拆成：判断/检查节点 → 条件分支 edge → 对应处理节点 → 必要时回到主线。
-- 判断/检查节点的 workUnitKind 通常是 business_judgment 或 document_check。
+- 这类内容优先拆成：业务步骤节点 → 条件分支 edge → 对应处理节点 → 必要时回到主线。
+- 业务侧不生成单独的“路由节点”或“不运行节点”；分支条件写在 edges[].label / edges[].condition 中。
 - 分支 edge 必须有业务标签，例如“已有 MSDS”“缺失 MSDS”“证书无误”“证书有错”“材料齐全”“材料缺失”。
 - 分支处理节点必须写成真实人工动作，例如“邮件联系品控补 MSDS”“重新发送错误字段给海关”“补齐订单号后再查询”。
 - 如果分支处理后会回到原主线，使用 loop 或 normal edge 连回后续节点，不要省略回流关系。
-- 判断/检查节点只能产出判断结果或差异清单；不要同时产出成功分支才会产生的归档、回填、提交结果。
 - 例如“校对 IMI 证书，有错就反馈，没错才回填归档”必须拆成“证书校对”→ 证书有错：“反馈错误并等待重出证”→ 回到接收/校对；证书无误：“回填证书字段并归档”。
-- 只有当条件只是节点内部很小的操作备注、不会影响流程走向时，才可以留在 operationSteps 中。
+- 只有当条件只是节点内部很小的操作备注、不会影响流程走向时，才可以留在 sopSpec.operationSteps 或 sopSpec.businessRules 中。
 - 示例：“从公盘取 MSDS 并打印盖章备用，缺失则邮件品控并取得”应拆为“查找 MSDS”→“判断 MSDS 是否存在”→ 已存在：“打印盖章 MSDS”；缺失：“邮件联系品控补 MSDS”→“打印盖章 MSDS”。
 
 **材料锚定规则（非常重要）**：
@@ -758,9 +745,8 @@ const REFINE_BATCH_DELTA_SYSTEM = `你是一个业务流程优化专家。你会
       "estimatedTime": "可选",
       "inputs": [{ "name": "...", "icon": "📄", "description": "...", "required": true, "source": "user 或 previous_step 或 default", "sourceDetail": "可选" }],
       "outputs": [{ "name": "...", "icon": "✅", "description": "..." }],
-      "operationSteps": ["步骤1", "步骤2"],
-      "requiredCheckFields": ["字段A", "字段B"],
-      "doneCriteria": "一句话完成标准"
+      "sopSpec": { "operationSteps": ["步骤1", "步骤2"], "businessRules": ["规则A", "规则B"] },
+      "strategySpec": { "basis": ["依据A"], "judgmentProcess": ["判断流程A"], "escalationConditions": ["升级条件A"] }
     }
   ]
 }
@@ -841,7 +827,7 @@ const REFINE_BUSINESS_SYSTEM = `你是一个业务流程优化专家。你会收
 ${FLOW_BIZ_SCHEMA}`;
 
 // ============================================================
-// Prompt: Enrich Node Details（业务侧节点内补全：短说明 + SOP + 必对字段 + 完成标准）
+// Prompt: Enrich Node Details（业务侧节点内补全：短说明 + SOP + 业务规则）
 // ============================================================
 
 const ENRICH_NODE_DETAILS_SYSTEM = `你是业务流程分析助手。你会收到：
@@ -849,7 +835,7 @@ const ENRICH_NODE_DETAILS_SYSTEM = `你是业务流程分析助手。你会收�
 2) 完整流程图（仅供上下文）
 3) 需要补全的节点列表
 
-你的任务：仅为每个节点补全 4 个业务字段，不修改流程结构。
+你的任务：仅为每个节点补全 3 个业务字段，不修改流程结构。
 
 输出格式（严格 JSON）：
 {
@@ -858,8 +844,7 @@ const ENRICH_NODE_DETAILS_SYSTEM = `你是业务流程分析助手。你会收�
       "nodeId": "node-1",
       "briefDescription": "20-40字，一句话写清本步目标结果，不写具体步骤",
       "operationSteps": ["步骤1", "步骤2", "步骤3"],
-      "requiredCheckFields": ["字段A", "字段B", "字段C"],
-      "doneCriteria": "一句话，明确什么情况下算完成"
+      "businessRules": ["业务规则或校对项A", "业务规则或校对项B", "业务规则或校对项C"]
     }
   ]
 }
@@ -867,7 +852,7 @@ const ENRICH_NODE_DETAILS_SYSTEM = `你是业务流程分析助手。你会收�
 规则：
 - 只输出上述 JSON，不要其他文字。
 - operationSteps 3-6 条，动词开头，具备可执行性。
-- requiredCheckFields 3-8 项，只写字段名/校对项，短语即可。
+- businessRules 2-6 条，只写本步业务规则、例外处理或校对注意事项。
 - 不得臆造流程外的系统名或文件；若不确定，使用通用业务表述。`;
 
 // ============================================================

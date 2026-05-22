@@ -72,17 +72,19 @@ function FlowCardNode({ data, id }: NodeProps) {
   const isSplitMode = viewMode === "tech" && jobSplitDraft.active;
   const isPickedForSplit = jobSplitDraft.selectedNodeIds.includes(id);
   const kindMeta = {
-    workflow_step: { label: "固定流程", className: "border-zinc-200 bg-zinc-50 text-zinc-600" },
-    agentic_judgment: { label: "业务判断", className: "border-blue-200 bg-blue-50 text-blue-700" },
-    agentic_strategy: { label: "处理策略", className: "border-violet-200 bg-violet-50 text-violet-700" },
-    agentic_generation: { label: "内容生成", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
-    agentic_feedback: { label: "复盘沉淀", className: "border-amber-200 bg-amber-50 text-amber-700" },
-    human_gate: { label: "确认关口", className: "border-rose-200 bg-rose-50 text-rose-700" },
-    manual_operation: { label: "人工操作", className: "border-zinc-200 bg-zinc-50 text-zinc-600" },
-    business_judgment: { label: "业务判断", className: "border-blue-200 bg-blue-50 text-blue-700" },
-    document_check: { label: "文件检查", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
-    handoff_wait: { label: "交接等待", className: "border-amber-200 bg-amber-50 text-amber-700" },
-    rework_update: { label: "返修回填", className: "border-rose-200 bg-rose-50 text-rose-700" },
+    sop_step: { label: "SOP 步骤", className: "border-zinc-200 bg-zinc-50 text-zinc-600" },
+    strategy_step: { label: "策略判断", className: "border-violet-200 bg-violet-50 text-violet-700" },
+    workflow_step: { label: "SOP 步骤", className: "border-zinc-200 bg-zinc-50 text-zinc-600" },
+    agentic_judgment: { label: "策略判断", className: "border-violet-200 bg-violet-50 text-violet-700" },
+    agentic_strategy: { label: "策略判断", className: "border-violet-200 bg-violet-50 text-violet-700" },
+    agentic_generation: { label: "SOP 步骤", className: "border-zinc-200 bg-zinc-50 text-zinc-600" },
+    agentic_feedback: { label: "SOP 步骤", className: "border-zinc-200 bg-zinc-50 text-zinc-600" },
+    human_gate: { label: "SOP 步骤", className: "border-zinc-200 bg-zinc-50 text-zinc-600" },
+    manual_operation: { label: "SOP 步骤", className: "border-zinc-200 bg-zinc-50 text-zinc-600" },
+    business_judgment: { label: "策略判断", className: "border-violet-200 bg-violet-50 text-violet-700" },
+    document_check: { label: "策略判断", className: "border-violet-200 bg-violet-50 text-violet-700" },
+    handoff_wait: { label: "SOP 步骤", className: "border-zinc-200 bg-zinc-50 text-zinc-600" },
+    rework_update: { label: "SOP 步骤", className: "border-zinc-200 bg-zinc-50 text-zinc-600" },
   }[nodeData.workUnitKind || "workflow_step"];
 
 
@@ -334,13 +336,16 @@ function FlowCardNode({ data, id }: NodeProps) {
         <div>
           <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider mb-1">需要提供</p>
           <div className="flex flex-wrap gap-1">
-            {nodeData.inputs.map((input) => (
+            {nodeData.inputs.map((input, index) => (
               <span
-                key={input.id}
+                key={input.id || input.inputId || `${input.name}-${index}`}
                 className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs
                   ${input.source === "user" ? "bg-blue-50 text-blue-700" : "bg-zinc-50 text-zinc-500"}`}
               >
                 {input.icon} {input.name}
+                {!input.required && (
+                  <span className="rounded bg-white/70 px-1 text-[10px] text-zinc-400">可选</span>
+                )}
                 {viewMode === "tech" && input.dataType && (
                   <span className="text-[10px] text-zinc-400 ml-0.5">({input.dataType})</span>
                 )}
@@ -351,9 +356,9 @@ function FlowCardNode({ data, id }: NodeProps) {
         <div>
           <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider mb-1">会产出</p>
           <div className="flex flex-wrap gap-1">
-            {nodeData.outputs.map((output) => (
+            {nodeData.outputs.map((output, index) => (
               <span
-                key={output.id}
+                key={output.id || output.outputId || `${output.name}-${index}`}
                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-green-50 text-green-700 text-xs"
               >
                 {output.icon} {output.name}

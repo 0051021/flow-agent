@@ -8,12 +8,12 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import type { AgenticNodeSpec, FlowNodeData, FlowNodeInput, FlowNodeOutput, NodeExecutionMode, ConfirmStrategy, ConfirmStrategyConfig, ExecutionRule, FileAttachment } from "@/lib/types";
+import type { FlowNodeData, FlowNodeInput, FlowNodeOutput, NodeExecutionMode, ConfirmStrategy, ConfirmStrategyConfig, ExecutionRule, FileAttachment, StrategySpec } from "@/lib/types";
 import {
   RotateCcw, UserCheck, SkipForward,
   OctagonX, Settings, X, Bot, User as UserIcon,
   Plus, Trash2, Pencil, Search, Puzzle,
-  Paperclip, FileText, Loader2,
+  Paperclip, FileText, Loader2, ListChecks, BrainCircuit,
 } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
 import { MOCK_MARKET_SKILLS } from "@/lib/mock-console";
@@ -39,6 +39,34 @@ function ExampleFileChips({ files, onRemove }: { files: FileAttachment[]; onRemo
 
 function getWorkUnitCopy(kind: FlowNodeData["workUnitKind"]) {
   const copies = {
+    sop_step: {
+      nature: "SOP 步骤",
+      tabLabel: "🧾 操作与规则",
+      stepTitle: "操作步骤",
+      addLabel: "添加步骤",
+      emptyHint: "例如：查看邮件 → 查找资料 → 填写表格 → 发送材料。",
+      stepPlaceholder: "填写业务人员实际会做的动作",
+      rulesTitle: "业务规则",
+      rulesHint: "写清楚这一步要遵守的规则、例外情况或注意事项。",
+      rulesPlaceholder: "例如：找不到 MSDS/SDS 时，需要邮件联系品控提供；颜色、状态等信息应来自 MSDS/SDS。",
+      doneTitle: "完成标准",
+      donePlaceholder: "可选；也可以由产出说明承接。",
+      specTitle: "这一步怎么做",
+    },
+    strategy_step: {
+      nature: "策略判断",
+      tabLabel: "🧭 策略判断",
+      stepTitle: "判断流程",
+      addLabel: "添加判断步骤",
+      emptyHint: "例如：先看资料完整性，再看风险等级，最后决定是否升级。",
+      stepPlaceholder: "填写判断流程",
+      rulesTitle: "策略/判断依据",
+      rulesHint: "写清楚判断时看哪些材料、字段、信号或上下文。",
+      rulesPlaceholder: "例如：订单金额、客户等级、物流状态、售后政策、历史投诉记录。",
+      doneTitle: "完成标准",
+      donePlaceholder: "例如：已形成带依据的判断结论，并标记是否需要升级。",
+      specTitle: "这一步怎么判断",
+    },
     workflow_step: {
       nature: "固定操作",
       tabLabel: "🧾 操作步骤",
@@ -208,7 +236,10 @@ function getWorkUnitCopy(kind: FlowNodeData["workUnitKind"]) {
     specTitle: string;
   }>;
 
-  return copies[kind || "workflow_step"];
+  if (kind === "strategy_step" || kind === "agentic_judgment" || kind === "agentic_strategy" || kind === "business_judgment" || kind === "document_check") {
+    return copies.strategy_step;
+  }
+  return copies.sop_step;
 }
 
 function useFileUpload(onUploaded: (file: FileAttachment) => void) {
@@ -268,6 +299,15 @@ function InputItemWithFiles({ inp, canEdit, onUpdate, onRemove, onAddFile, onRem
               <option value="previous_step">上一步</option>
               <option value="default">默认值</option>
             </select>
+            <label className="inline-flex h-6 shrink-0 items-center gap-1 rounded border border-zinc-200 bg-white px-1.5 text-[10px] text-zinc-500">
+              <input
+                type="checkbox"
+                checked={inp.required}
+                onChange={(e) => onUpdate(inp.id, "required", e.target.checked)}
+                className="h-3 w-3 rounded border-zinc-300 text-blue-600"
+              />
+              必填
+            </label>
             <button onClick={() => onRemove(inp.id)} className="p-0.5 text-zinc-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
               <Trash2 className="w-3 h-3" />
             </button>
@@ -276,6 +316,9 @@ function InputItemWithFiles({ inp, canEdit, onUpdate, onRemove, onAddFile, onRem
           <>
             <span className="text-xs flex-1">{inp.icon} {inp.name}</span>
             <span className="text-xs text-zinc-400 flex-1">{inp.description}</span>
+            {!inp.required && (
+              <span className="rounded bg-white px-1.5 py-0.5 text-[10px] text-zinc-400">可选</span>
+            )}
             <span className="text-[10px] text-zinc-400">{inp.source === "user" ? "👤 用户" : inp.sourceDetail || "上一步"}</span>
           </>
         )}
@@ -321,30 +364,6 @@ function OutputItemWithFiles({ out, canEdit, onUpdate, onRemove, onAddFile, onRe
           {uploading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Paperclip className="w-3 h-3" />}
         </button>
       </div>
-      <ExampleFileChips files={files} onRemove={onRemoveFile} />
-    </div>
-  );
-}
-
-function RuleFileUploader({ files, onAddFile, onRemoveFile }: {
-  files: FileAttachment[];
-  onAddFile: (file: FileAttachment) => void;
-  onRemoveFile: (storedName: string) => void;
-}) {
-  const { trigger, uploading, FileInput } = useFileUpload(onAddFile);
-
-  return (
-    <div>
-      {FileInput}
-      <button
-        type="button"
-        onClick={trigger}
-        disabled={uploading}
-        className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-2.5 text-[11px] font-medium text-zinc-600 hover:border-blue-200 hover:text-blue-600 disabled:opacity-50"
-      >
-        {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Paperclip className="w-3.5 h-3.5" />}
-        上传规则文件
-      </button>
       <ExampleFileChips files={files} onRemove={onRemoveFile} />
     </div>
   );
@@ -743,100 +762,51 @@ function StrategyListField({
   );
 }
 
-function StrategyBusinessFields({
+function StrategyStepFields({
   data,
-  checkRuleFiles,
-  updateAgenticSpec,
-  updateField,
-  addCheckRuleFile,
-  removeCheckRuleFile,
+  updateStrategySpec,
 }: {
   data: FlowNodeData;
-  checkRuleFiles: FileAttachment[];
-  updateAgenticSpec: (patch: Partial<AgenticNodeSpec>) => void;
-  updateField: (field: string, value: unknown) => void;
-  addCheckRuleFile: (file: FileAttachment) => void;
-  removeCheckRuleFile: (storedName: string) => void;
+  updateStrategySpec: (patch: Partial<StrategySpec>) => void;
 }) {
-  const spec = data.agenticSpec || {
-    strategyActionType: data.workUnitKind || "agentic_strategy",
-    decisionSubject: "",
-    focusSignals: [],
-    aiActions: [],
-    recommendationOutputs: [],
-    humanConfirmation: [],
-    riskBoundaries: [],
+  const spec = data.strategySpec || {
+    basis: data.judgmentSpec?.informationUsed || [],
+    judgmentProcess: data.judgmentSpec?.judgmentRules || [],
+    escalationConditions: data.judgmentSpec?.escalationConditions || [],
   };
-  const boundaryValues = [...(spec.humanConfirmation || []), ...(spec.riskBoundaries || [])];
 
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-violet-100 bg-violet-50/40 px-3 py-3">
-        <p className="text-[11px] font-semibold text-violet-800">这一步的判断口径</p>
+        <p className="text-[11px] font-semibold text-violet-800">策略节点字段</p>
         <p className="mt-0.5 text-[10px] leading-4 text-violet-500">
-          按你平时做业务判断的方式填写：要决定什么、看哪些关键依据、按什么规则判断、输出什么结论、哪些情况需要人工处理。
+          策略节点只填写判断依据、判断流程和异常/升级条件；判断结果放在“资料与产出”的输出里。
         </p>
       </div>
 
-      <div>
-        <p className="mb-1.5 text-[11px] font-medium text-zinc-600">要决定什么</p>
-        <Textarea
-          value={spec.decisionSubject || ""}
-          onChange={(e) => updateAgenticSpec({ decisionSubject: e.target.value })}
-          className="min-h-[56px] text-xs"
-          placeholder="例如：判断客户应该退款、退货、补发、给优惠券、拒绝说明，还是转主管处理。"
-        />
-      </div>
-
       <StrategyListField
-        title="关键判断依据"
-        hint="写业务人员做判断时必须看的信息、资料、指标或上下文；依据是“看什么”，规则是“怎么看”。"
-        values={spec.focusSignals || []}
-        placeholder="例如：泄漏照片、偏差记录、批次、包装完整性、处理/仓储条件、历史相似案例"
-        onChange={(values) => updateAgenticSpec({ focusSignals: values })}
-      />
-
-      <div>
-        <div className="mb-1.5">
-          <p className="text-[11px] font-medium text-zinc-600">判断规则</p>
-          <p className="mt-0.5 text-[10px] leading-4 text-zinc-400">
-            用“如果……就……”写清楚如何根据依据做判断，什么情况输出哪个结论或进入哪个处理分支。
-          </p>
-        </div>
-        <Textarea
-          value={typeof data.checkRulesText === "string" ? data.checkRulesText : ""}
-          onChange={(e) => updateField("checkRulesText", e.target.value)}
-          className="mb-2 min-h-[84px] text-xs"
-          placeholder="例如：如果金额≤50美元且符合政策，可普通处理；如果超过50美元、疑似欺诈或政策外补偿，必须转主管确认。"
-        />
-        <RuleFileUploader files={checkRuleFiles} onAddFile={addCheckRuleFile} onRemoveFile={removeCheckRuleFile} />
-      </div>
-
-      <StrategyListField
-        title="输出结果"
-        hint="写判断后产出的结论字段、分支或建议；这是给下一步使用的业务结果。"
-        values={spec.recommendationOutputs || []}
-        placeholder="例如：Top 3 可能根因、推荐 CAPA、置信度、需补充数据、是否进入质量负责人确认"
-        onChange={(values) => updateAgenticSpec({ recommendationOutputs: values })}
+        title="策略/判断依据"
+        hint="写判断时看哪些材料、字段、信号或上下文；依据是“看什么”。"
+        values={spec.basis || []}
+        placeholder="例如：MSDS/SDS 是否存在、运输方式、目的港、品名、BBN、Part、证书有效期"
+        onChange={(values) => updateStrategySpec({ basis: values })}
       />
 
       <StrategyListField
-        title="需要人工处理的情况"
-        hint="写原人工工作里哪些情况要停下来、补材料、找主管/负责人确认、转给其他人，或暂时不能下结论。"
-        values={boundaryValues}
-        placeholder="例如：资料缺失时请质量调查员补充；无法判断根因时找 RCA owner；CAPA 涉及供应商争议时由质量负责人确认"
-        onChange={(values) => updateAgenticSpec({ humanConfirmation: values, riskBoundaries: [] })}
+        title="判断流程"
+        hint="写按什么顺序判断，以及什么条件对应什么结论或分支；流程是“怎么看”。"
+        values={spec.judgmentProcess || []}
+        placeholder="例如：先确认资料是否齐全；若 MSDS/SDS 缺失则补资料；若证书字段不一致则反馈重出证"
+        onChange={(values) => updateStrategySpec({ judgmentProcess: values })}
       />
 
-      <div>
-        <p className="mb-1.5 text-[11px] font-medium text-zinc-600">完成标准</p>
-        <Textarea
-          value={typeof data.doneCriteria === "string" ? data.doneCriteria : ""}
-          onChange={(e) => updateField("doneCriteria", e.target.value)}
-          className="min-h-[64px] text-xs"
-          placeholder="例如：已输出带证据链的 Top 3 可能根因、推荐 CAPA、置信度和人审标记，可进入质量负责人确认。"
-        />
-      </div>
+      <StrategyListField
+        title="异常/升级条件"
+        hint="写资料不足、规则冲突、高风险、超权限、无法判断时怎么办。"
+        values={spec.escalationConditions || []}
+        placeholder="例如：资料缺失时联系品控；规则冲突时找关务负责人确认；超时未回传时邮件跟进"
+        onChange={(values) => updateStrategySpec({ escalationConditions: values })}
+      />
     </div>
   );
 }
@@ -928,14 +898,6 @@ export default function NodeDetailPanel() {
     updateField("outputs", newOutputs);
   };
 
-  const addCheckRuleFile = (file: FileAttachment) => {
-    updateField("checkRuleFiles", [...(data.checkRuleFiles || []), file]);
-  };
-
-  const removeCheckRuleFile = (storedName: string) => {
-    updateField("checkRuleFiles", (data.checkRuleFiles || []).filter((f) => f.storedName !== storedName));
-  };
-
   const toggleErrorStrategy = (strategy: string) => {
     if (!canEditErrorHandling) return;
     const newHandling = data.errorHandling.map((eh) =>
@@ -944,27 +906,88 @@ export default function NodeDetailPanel() {
     updateField("errorHandling", newHandling);
   };
 
-  const operationSteps = Array.isArray(data.operationSteps) ? data.operationSteps : [];
-  const checkRuleFiles = Array.isArray(data.checkRuleFiles) ? data.checkRuleFiles : [];
+  const operationSteps = Array.isArray(data.sopSpec?.operationSteps)
+    ? data.sopSpec.operationSteps
+    : Array.isArray(data.operationSteps)
+      ? data.operationSteps
+      : [];
+  const businessRulesText = Array.isArray(data.sopSpec?.businessRules)
+    ? data.sopSpec.businessRules.join("\n")
+    : typeof data.checkRulesText === "string"
+      ? data.checkRulesText
+      : "";
   const workUnitCopy = getWorkUnitCopy(data.workUnitKind);
-  const isStrategyLikeNode = Boolean(data.agenticSpec) && data.workUnitKind !== "workflow_step";
+  const isStrategyLikeNode = data.workUnitKind === "strategy_step";
+  const showDoneCriteria = false;
 
-  const addOperationStep = () => updateField("operationSteps", [...operationSteps, ""]);
-  const updateOperationStep = (idx: number, value: string) =>
-    updateField("operationSteps", operationSteps.map((s, i) => (i === idx ? value : s)));
-  const removeOperationStep = (idx: number) =>
-    updateField("operationSteps", operationSteps.filter((_, i) => i !== idx));
-  const updateAgenticSpec = (patch: Partial<AgenticNodeSpec>) => {
-    const currentSpec = data.agenticSpec || {
-      strategyActionType: data.workUnitKind || "agentic_strategy",
-      decisionSubject: "",
-      focusSignals: [],
-      aiActions: [],
-      recommendationOutputs: [],
-      humanConfirmation: [],
-      riskBoundaries: [],
+  const updateSopSpec = (patch: Partial<NonNullable<FlowNodeData["sopSpec"]>>) => {
+    const next = {
+      operationSteps,
+      businessRules: businessRulesText.split(/\n+/).map((item) => item.trim()).filter(Boolean),
+      ...(data.sopSpec || {}),
+      ...patch,
     };
-    updateField("agenticSpec", { ...currentSpec, ...patch });
+    updateNodeData(selectedNodeId, {
+      sopSpec: next,
+      operationSteps: next.operationSteps,
+      checkRulesText: next.businessRules.join("\n"),
+    });
+  };
+  const addOperationStep = () => updateSopSpec({ operationSteps: [...operationSteps, ""] });
+  const updateOperationStep = (idx: number, value: string) =>
+    updateSopSpec({ operationSteps: operationSteps.map((s, i) => (i === idx ? value : s)) });
+  const removeOperationStep = (idx: number) =>
+    updateSopSpec({ operationSteps: operationSteps.filter((_, i) => i !== idx) });
+  const updateBusinessRules = (value: string) => {
+    updateSopSpec({ businessRules: value.split(/\n+/).map((item) => item.trim()).filter(Boolean) });
+  };
+  const updateStrategySpec = (patch: Partial<StrategySpec>) => {
+    const current = data.strategySpec || {
+      basis: data.judgmentSpec?.informationUsed || [],
+      judgmentProcess: data.judgmentSpec?.judgmentRules || [],
+      escalationConditions: data.judgmentSpec?.escalationConditions || [],
+    };
+    const next = { ...current, ...patch };
+    updateNodeData(selectedNodeId, {
+      strategySpec: next,
+      judgmentSpec: {
+        ...(data.judgmentSpec || {}),
+        informationUsed: next.basis,
+        judgmentRules: next.judgmentProcess,
+        escalationConditions: next.escalationConditions,
+      },
+    });
+  };
+  const switchBusinessKind = (kind: "sop_step" | "strategy_step") => {
+    if (kind === data.workUnitKind) return;
+    updateNodeData(selectedNodeId, {
+      workUnitKind: kind,
+      isCondition: false,
+      operationSteps: kind === "sop_step" ? (operationSteps.length ? operationSteps : [""]) : [],
+      checkRulesText: kind === "sop_step" ? (typeof data.checkRulesText === "string" ? data.checkRulesText : "") : "",
+      sopSpec: kind === "sop_step"
+        ? {
+            operationSteps: operationSteps.length ? operationSteps : [""],
+            businessRules: businessRulesText.split(/\n+/).map((item) => item.trim()).filter(Boolean),
+          }
+        : undefined,
+      strategySpec: kind === "strategy_step"
+        ? {
+            basis: data.strategySpec?.basis || data.judgmentSpec?.informationUsed || [],
+            judgmentProcess: data.strategySpec?.judgmentProcess || data.judgmentSpec?.judgmentRules || [],
+            escalationConditions: data.strategySpec?.escalationConditions || data.judgmentSpec?.escalationConditions || [],
+          }
+        : undefined,
+      doneCriteria: undefined,
+      judgmentSpec: kind === "strategy_step"
+        ? {
+            informationUsed: data.strategySpec?.basis || data.judgmentSpec?.informationUsed || [],
+            judgmentRules: data.strategySpec?.judgmentProcess || data.judgmentSpec?.judgmentRules || [],
+            escalationConditions: data.strategySpec?.escalationConditions || data.judgmentSpec?.escalationConditions || [],
+          }
+        : undefined,
+      agenticSpec: undefined,
+    });
   };
 
   return (
@@ -1010,6 +1033,49 @@ export default function NodeDetailPanel() {
         <ScrollArea className="flex-1 min-h-0">
           {/* === 基本信息 === */}
           <TabsContent value="basic" className="px-4 py-3 mt-0 space-y-3">
+            {!isTech ? (
+              <div>
+                <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider mb-1.5">节点类型</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    {
+                      value: "sop_step" as const,
+                      title: "SOP 型",
+                      desc: "固定操作步骤",
+                      icon: ListChecks,
+                    },
+                    {
+                      value: "strategy_step" as const,
+                      title: "策略型",
+                      desc: "判断与分支依据",
+                      icon: BrainCircuit,
+                    },
+                  ].map((item) => {
+                    const Icon = item.icon;
+                    const active = data.workUnitKind === item.value;
+                    return (
+                      <button
+                        key={item.value}
+                        type="button"
+                        onClick={() => switchBusinessKind(item.value)}
+                        className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors ${
+                          active
+                            ? "border-blue-300 bg-blue-50 text-blue-700"
+                            : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 hover:bg-zinc-50"
+                        }`}
+                      >
+                        <Icon className="h-4 w-4 shrink-0" />
+                        <span className="min-w-0">
+                          <span className="block text-xs font-semibold">{item.title}</span>
+                          <span className="block truncate text-[10px] opacity-75">{item.desc}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
             <div>
               <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider mb-1">节点描述</p>
               <Textarea
@@ -1181,13 +1247,9 @@ export default function NodeDetailPanel() {
             ) : (
               <>
                 {isStrategyLikeNode ? (
-                  <StrategyBusinessFields
+                  <StrategyStepFields
                     data={data}
-                    checkRuleFiles={checkRuleFiles}
-                    updateAgenticSpec={updateAgenticSpec}
-                    updateField={updateField}
-                    addCheckRuleFile={addCheckRuleFile}
-                    removeCheckRuleFile={removeCheckRuleFile}
+                    updateStrategySpec={updateStrategySpec}
                   />
                 ) : (
                 <div className="space-y-4">
@@ -1230,23 +1292,24 @@ export default function NodeDetailPanel() {
                       </div>
                     </div>
                     <Textarea
-                      value={typeof data.checkRulesText === "string" ? data.checkRulesText : ""}
-                      onChange={(e) => updateField("checkRulesText", e.target.value)}
+                      value={businessRulesText}
+                      onChange={(e) => updateBusinessRules(e.target.value)}
                       className="mb-2 min-h-[72px] text-xs"
                       placeholder={workUnitCopy.rulesPlaceholder}
                     />
-                    <RuleFileUploader files={checkRuleFiles} onAddFile={addCheckRuleFile} onRemoveFile={removeCheckRuleFile} />
                   </div>
 
-                  <div>
-                    <p className="text-[11px] font-medium text-zinc-600 mb-2">{workUnitCopy.doneTitle}</p>
-                    <Textarea
-                      value={typeof data.doneCriteria === "string" ? data.doneCriteria : ""}
-                      onChange={(e) => updateField("doneCriteria", e.target.value)}
-                      className="text-xs min-h-[64px]"
-                      placeholder={workUnitCopy.donePlaceholder}
-                    />
-                  </div>
+                  {showDoneCriteria ? (
+                    <div>
+                      <p className="text-[11px] font-medium text-zinc-600 mb-2">{workUnitCopy.doneTitle}</p>
+                      <Textarea
+                        value={typeof data.doneCriteria === "string" ? data.doneCriteria : ""}
+                        onChange={(e) => updateField("doneCriteria", e.target.value)}
+                        className="text-xs min-h-[64px]"
+                        placeholder={workUnitCopy.donePlaceholder}
+                      />
+                    </div>
+                  ) : null}
                 </div>
                 )}
               </>

@@ -16,7 +16,7 @@ import {
 import { serializeFlowForLLM } from "@/lib/flow-parser";
 import { addDynamicReview } from "@/lib/mock-reviews";
 import { AGENTIC_NOT_RELEVANT_ANSWER, type ProjectStatus, type UserRole, type FlowNodeData, type TechTabId, type Notification as AppNotification, type AgenticTaskConfig } from "@/lib/types";
-import type { Node } from "@xyflow/react";
+import type { Edge, Node } from "@xyflow/react";
 import { NotificationBell } from "@/components/layout/NotificationBell";
 import { TechGenerationProgress } from "@/components/layout/TechGenerationProgress";
 
@@ -58,6 +58,7 @@ type SchemeReviewItem = {
 type SchemeReviewSuggestion = {
   title: string;
   detail: string;
+  level?: Exclude<SchemeReviewStatus, "pass">;
 };
 
 type SchemeReviewResult = {
@@ -125,23 +126,60 @@ function hasMeaningfulList(value: unknown): boolean {
   });
 }
 
-function nodeHasRuleOrOperation(data: FlowNodeData): boolean {
-  return hasMeaningfulList(data.operationSteps)
-    || hasMeaningfulList(data.executionRules)
-    || hasMeaningfulText(data.checkRulesText)
-    || hasMeaningfulText(data.doneCriteria)
-    || hasMeaningfulList(data.agenticSpec?.aiActions)
-    || hasMeaningfulText(data.agenticSpec?.riskBoundaries);
+function getNodeKind(data: FlowNodeData): FlowNodeData["workUnitKind"] {
+  if (data.workUnitKind === "sop_step" || data.workUnitKind === "strategy_step") return data.workUnitKind;
+  return data.workUnitKind;
+}
+
+function hasSopSpec(data: FlowNodeData): boolean {
+  return hasMeaningfulList(data.sopSpec?.operationSteps) && hasMeaningfulList(data.sopSpec?.businessRules);
+}
+
+function hasStrategySpec(data: FlowNodeData): boolean {
+  return hasMeaningfulList(data.strategySpec?.basis)
+    && hasMeaningfulList(data.strategySpec?.judgmentProcess)
+    && hasMeaningfulList(data.strategySpec?.escalationConditions);
+}
+
+function formatNameList(names: string[], limit = 8): string {
+  const uniqueNames = [...new Set(names.filter((name) => name && name.trim().length > 0))];
+  if (uniqueNames.length === 0) return "无";
+  const visibleNames = uniqueNames.slice(0, limit);
+  const suffix = uniqueNames.length > limit ? `，另有 ${uniqueNames.length - limit} 个` : "";
+  return `${visibleNames.join("、")}${suffix}`;
+}
+
+function formatFieldProblemList(problems: Map<string, Set<string>>, limit = 8): string {
+  const entries = [...problems.entries()].filter(([, fields]) => fields.size > 0);
+  if (entries.length === 0) return "无";
+  const visibleEntries = entries.slice(0, limit);
+  const suffix = entries.length > limit ? `，另有 ${entries.length - limit} 个节点` : "";
+  return `${visibleEntries.map(([label, fields]) => `${label}（缺 ${[...fields].join("、")}）`).join("；")}${suffix}`;
+}
+
+function hasBranchSignal(data: FlowNodeData): boolean {
+  const text = [
+    data.description,
+    data.checkRulesText,
+    ...(Array.isArray(data.operationSteps) ? data.operationSteps : []),
+    ...(Array.isArray(data.sopSpec?.operationSteps) ? data.sopSpec.operationSteps : []),
+    ...(Array.isArray(data.sopSpec?.businessRules) ? data.sopSpec.businessRules : []),
+    ...(Array.isArray(data.strategySpec?.judgmentProcess) ? data.strategySpec.judgmentProcess : []),
+    ...(Array.isArray(data.strategySpec?.escalationConditions) ? data.strategySpec.escalationConditions : []),
+  ].filter(Boolean).join(" ");
+  return /如果|若|缺失|没有|否则|有错|无错|不一致|不满足|超过|通过|失败|退回|补齐后|收到后|高风险|升级/.test(text);
 }
 
 function buildSchemeReview(params: {
   taskType: "workflow" | "agentic";
   nodes: Node<FlowNodeData>[];
+  edges?: Edge[];
   agenticConfig: AgenticTaskConfig | null;
   unansweredCount: number;
   deferredCount: number;
 }): SchemeReviewResult {
-  const { taskType, nodes, agenticConfig, unansweredCount, deferredCount } = params;
+  const { taskType, nodes, edges, agenticConfig, unansweredCount, deferredCount } = params;
+  const safeEdges = Array.isArray(edges) ? edges : [];
   const items: SchemeReviewItem[] = [];
   const suggestions: SchemeReviewSuggestion[] = [];
 
@@ -185,65 +223,130 @@ function buildSchemeReview(params: {
     }
   } else {
     const flowNodes = nodes.map((node) => node.data as unknown as FlowNodeData);
+    const nodeIds = new Set(nodes.map((node) => node.id));
+    const allowedKinds = new Set(["sop_step", "strategy_step"]);
+    const invalidKindNodes = flowNodes.filter((node) => !allowedKinds.has(String(getNodeKind(node) || "")));
+    const routeNodes = flowNodes.filter((node) => node.isCondition);
     const nodesMissingDescription = flowNodes.filter((node) => !hasMeaningfulText(node.description));
     const nodesMissingInputs = flowNodes.filter((node) => !hasMeaningfulList(node.inputs));
     const nodesMissingOutputs = flowNodes.filter((node) => !hasMeaningfulList(node.outputs));
-    const nodesMissingRules = flowNodes.filter((node) => !nodeHasRuleOrOperation(node));
-    const confirmationNodes = flowNodes.filter((node) => node.executionMode !== "ai_auto" || node.workUnitKind === "human_gate");
+    const sopNodesMissingSpec = flowNodes.filter((node) => getNodeKind(node) === "sop_step" && !hasSopSpec(node));
+    const strategyNodesMissingSpec = flowNodes.filter((node) => getNodeKind(node) === "strategy_step" && !hasStrategySpec(node));
+    const requiredFieldProblems = new Map<string, Set<string>>();
+    const addRequiredFieldProblem = (node: FlowNodeData, field: string) => {
+      const label = node.label || "未命名节点";
+      const fields = requiredFieldProblems.get(label) ?? new Set<string>();
+      fields.add(field);
+      requiredFieldProblems.set(label, fields);
+    };
+    nodesMissingDescription.forEach((node) => addRequiredFieldProblem(node, "节点说明"));
+    nodesMissingInputs.forEach((node) => addRequiredFieldProblem(node, "输入"));
+    nodesMissingOutputs.forEach((node) => addRequiredFieldProblem(node, "输出"));
+    sopNodesMissingSpec.forEach((node) => {
+      if (!hasMeaningfulList(node.sopSpec?.operationSteps)) addRequiredFieldProblem(node, "操作步骤");
+      if (!hasMeaningfulList(node.sopSpec?.businessRules)) addRequiredFieldProblem(node, "业务规则");
+    });
+    strategyNodesMissingSpec.forEach((node) => {
+      if (!hasMeaningfulList(node.strategySpec?.basis)) addRequiredFieldProblem(node, "判断依据");
+      if (!hasMeaningfulList(node.strategySpec?.judgmentProcess)) addRequiredFieldProblem(node, "判断流程");
+      if (!hasMeaningfulList(node.strategySpec?.escalationConditions)) addRequiredFieldProblem(node, "异常/升级条件");
+    });
+    const invalidEdges = safeEdges.filter((edge) => !nodeIds.has(edge.source) || !nodeIds.has(edge.target));
+    const edgesMissingLabel = safeEdges.filter((edge) => !hasMeaningfulText(edge.label));
+    const outputFlowRefErrors = flowNodes.flatMap((node) =>
+      (Array.isArray(node.outputs) ? node.outputs : []).flatMap((output) =>
+        (Array.isArray(output.flowsTo) ? output.flowsTo : [])
+          .filter((targetId) => !nodeIds.has(targetId))
+          .map((targetId) => ({ nodeLabel: node.label, outputName: output.name, targetId }))
+      )
+    );
+    const branchSignalNodes = nodes.filter((node) => hasBranchSignal(node.data as unknown as FlowNodeData));
+    const nodesWithBranchSignalButNoLabeledEdge = branchSignalNodes.filter((node) => {
+      const outgoing = safeEdges.filter((edge) => edge.source === node.id);
+      return outgoing.length === 0 || outgoing.every((edge) => !hasMeaningfulText(edge.label));
+    });
+    const longDescriptionNodes = flowNodes.filter((node) => (node.description || "").length > 80);
 
     items.push({
-      label: "流程骨架",
-      status: flowNodes.length >= 3 ? "pass" : flowNodes.length > 0 ? "warning" : "block",
-      note: flowNodes.length > 0 ? `当前共有 ${flowNodes.length} 个节点。` : "还没有形成流程节点。",
+      label: "技术方会不会拿到混乱的节点类型",
+      status: invalidKindNodes.length === 0 && routeNodes.length === 0 ? "pass" : "block",
+      note: invalidKindNodes.length === 0 && routeNodes.length === 0
+        ? "业务图只保留 SOP 步骤和策略判断，技术方不会把路由节点误认为业务动作。"
+        : `这些节点需要调整：${formatNameList([...invalidKindNodes, ...routeNodes].map((node) => node.label))}。业务侧只保留 SOP 步骤和策略判断。`,
     });
     items.push({
-      label: "节点说明",
-      status: nodesMissingDescription.length === 0 ? "pass" : "warning",
-      note: nodesMissingDescription.length === 0 ? "每个节点都有说明。" : `${nodesMissingDescription.length} 个节点还缺少说明。`,
+      label: "每一步是否知道要什么、交付什么",
+      status: nodesMissingDescription.length === 0 && nodesMissingInputs.length === 0 && nodesMissingOutputs.length === 0 && sopNodesMissingSpec.length === 0 && strategyNodesMissingSpec.length === 0 ? "pass" : "block",
+      note: nodesMissingDescription.length === 0 && nodesMissingInputs.length === 0 && nodesMissingOutputs.length === 0 && sopNodesMissingSpec.length === 0 && strategyNodesMissingSpec.length === 0
+        ? "节点说明、输入、输出，以及 SOP/策略字段都已填写，技术方能看懂本步职责。"
+        : `共 ${requiredFieldProblems.size} 个节点需要补字段：${formatFieldProblemList(requiredFieldProblems)}。`,
     });
     items.push({
-      label: "资料与产出",
-      status: nodesMissingInputs.length === 0 && nodesMissingOutputs.length === 0 ? "pass" : "warning",
-      note: nodesMissingInputs.length === 0 && nodesMissingOutputs.length === 0
-        ? "输入资料和输出结果基本清楚。"
-        : `${nodesMissingInputs.length} 个节点缺输入，${nodesMissingOutputs.length} 个节点缺输出。`,
+      label: "先后顺序和交接条件是否清楚",
+      status: invalidEdges.length === 0 ? edgesMissingLabel.length === 0 ? "pass" : "warning" : "block",
+      note: invalidEdges.length > 0
+        ? `${invalidEdges.length} 条连线引用了不存在的节点。`
+        : edgesMissingLabel.length > 0
+          ? `${edgesMissingLabel.length} 条连线缺少业务标签，建议补充线上条件或流转含义。涉及连线：${formatNameList(edgesMissingLabel.map((edge) => `${edge.source} → ${edge.target}`))}。`
+          : "每条连线都有明确的起点、终点和业务含义，技术方能沿着流程拆实现。",
     });
     items.push({
-      label: "判断规则/操作说明",
-      status: nodesMissingRules.length === 0 ? "pass" : "warning",
-      note: nodesMissingRules.length === 0 ? "关键操作或判断口径已有记录。" : `${nodesMissingRules.length} 个节点还缺少操作清单或判断规则。`,
+      label: "异常、补资料、升级场景会不会漏掉",
+      status: nodesWithBranchSignalButNoLabeledEdge.length === 0 ? "pass" : "warning",
+      note: nodesWithBranchSignalButNoLabeledEdge.length === 0
+        ? "涉及条件判断的地方，已经能从连线、输出或策略字段看出不同处理结果。"
+        : `这些节点提到了条件或升级，但没有明确的出边说明：${formatNameList(nodesWithBranchSignalButNoLabeledEdge.map((node) => (node.data as unknown as FlowNodeData).label))}。`,
     });
     items.push({
-      label: "人工确认边界",
-      status: confirmationNodes.length > 0 ? "pass" : "warning",
-      note: confirmationNodes.length > 0 ? `已有 ${confirmationNodes.length} 个节点保留人工确认。` : "还没有标出哪些地方必须由人确认。",
+      label: "本步产出能否支撑后续步骤",
+      status: outputFlowRefErrors.length === 0 ? "pass" : "warning",
+      note: outputFlowRefErrors.length === 0
+        ? "没有发现产出指向不存在的后续步骤；真正的流程顺序仍以画布连线为准。"
+        : `这些输出备注指向了不存在的节点：${formatNameList(outputFlowRefErrors.map((error) => `${error.nodeLabel} / ${error.outputName} → ${error.targetId}`), 6)}。`,
+    });
+    items.push({
+      label: "有没有把太多动作塞进一个节点",
+      status: longDescriptionNodes.length === 0 ? "pass" : "warning",
+      note: longDescriptionNodes.length === 0
+        ? "节点描述粒度比较稳定，没有明显的一步里混入多段流程。"
+        : `这些节点描述较长，建议检查是否需要拆分：${formatNameList(longDescriptionNodes.map((node) => node.label))}。`,
     });
 
-    if (nodesMissingInputs.length > 0 || nodesMissingOutputs.length > 0) {
+    if (invalidKindNodes.length > 0 || routeNodes.length > 0) {
       suggestions.push({
-        title: "先补齐资料与产出",
-        detail: `重点看：${[...new Set([...nodesMissingInputs, ...nodesMissingOutputs].map((node) => node.label))].slice(0, 4).join("、")}。`,
+        level: "warning",
+        title: "收敛业务节点类型",
+        detail: `请把 ${[...new Set([...invalidKindNodes, ...routeNodes].map((node) => node.label))].slice(0, 4).join("、")} 调整为 SOP 步骤或策略判断；业务侧不要保留路由节点。`,
       });
     }
-    if (nodesMissingRules.length > 0) {
+    if (sopNodesMissingSpec.length > 0 || strategyNodesMissingSpec.length > 0) {
       suggestions.push({
-        title: "补充操作或判断口径",
-        detail: `建议补充：${nodesMissingRules.slice(0, 4).map((node) => node.label).join("、")}。固定操作写 SOP，策略判断写看什么信息、怎么判断、什么情况升级。`,
+        level: "warning",
+        title: "补齐第三个 tab 字段",
+        detail: `SOP 节点补操作步骤和业务规则；策略节点补判断依据、判断流程和异常/升级条件。具体缺口：${formatFieldProblemList(requiredFieldProblems)}。`,
       });
     }
-    if (confirmationNodes.length === 0) {
+    if (nodesWithBranchSignalButNoLabeledEdge.length > 0) {
       suggestions.push({
-        title: "标出人工确认点",
-        detail: "至少说明哪些节点需要业务人员确认、审批或兜底处理，避免技术方案误判为全自动。",
+        level: "warning",
+        title: "把条件分支放到线上",
+        detail: `这些节点有条件或升级语义：${nodesWithBranchSignalButNoLabeledEdge.slice(0, 4).map((node) => (node.data as unknown as FlowNodeData).label).join("、")}。建议补充带业务标签的出边。`,
+      });
+    }
+    if (invalidEdges.length > 0 || outputFlowRefErrors.length > 0) {
+      suggestions.push({
+        level: "warning",
+        title: "修正节点引用",
+        detail: "请检查 edges 的 source/target 和 outputs[].flowsTo，确保引用的节点都存在。",
       });
     }
   }
 
   items.push({
-    label: "待确认问题",
+    label: "还有没有业务追问没处理",
     status: unansweredCount === 0 && deferredCount === 0 ? "pass" : "warning",
     note: unansweredCount === 0 && deferredCount === 0
-      ? "当前没有未答追问。"
+      ? "当前没有未答追问，也没有依赖默认建议的节点。"
       : `${unansweredCount} 个追问未答，${deferredCount} 个节点使用了默认建议。`,
   });
 
@@ -258,16 +361,24 @@ function buildSchemeReview(params: {
   const warningCount = items.filter((item) => item.status === "warning").length;
   if (suggestions.length === 0) {
     suggestions.push({
-      title: "可以进入下一步",
-      detail: "当前方案已经具备提交讨论的基础，可以继续确认方案或导出给相关同事看。",
+      title: "让技术侧判断自动化边界",
+      detail: "下一步重点不是再证明业务图正确，而是确认哪些步骤系统能做、哪些必须保留人工确认。",
+    });
+    suggestions.push({
+      title: "确认数据和文件来源",
+      detail: "技术侧需要继续看每个输入来自系统、文件、邮件还是人工上传，以及是否需要权限或接口支持。",
+    });
+    suggestions.push({
+      title: "把业务条件翻译成实现规则",
+      detail: "例如缺资料、高风险、超权限、续申请等条件，后续要落到系统判断、人工审核或任务编排里。",
     });
   }
 
   if (blockCount > 0) {
     return {
       level: "not_ready",
-      title: "暂不建议提交",
-      summary: "当前还缺少生成方案的基础信息，建议先补齐关键描述。",
+      title: "先别交给技术",
+      summary: "当前缺的是技术方理解业务所需的关键信息，直接提交容易返工。",
       items,
       suggestions,
     };
@@ -276,8 +387,8 @@ function buildSchemeReview(params: {
   if (warningCount > 0) {
     return {
       level: "needs_attention",
-      title: "可继续，但建议补充",
-      summary: "方案已经有骨架，但部分节点还缺资料、规则或确认边界。",
+      title: "可以讨论，但建议先补几处",
+      summary: "业务主线已经能看懂，但有些条件、字段或追问还可能让技术侧产生歧义。",
       items,
       suggestions,
     };
@@ -285,8 +396,8 @@ function buildSchemeReview(params: {
 
   return {
     level: "ready",
-    title: "基本可提交",
-    summary: "方案结构、输入输出和规则信息较完整，可以进入确认或技术评审。",
+    title: "可以交给技术评审",
+    summary: "这只说明业务表达足够清楚，技术侧仍需评估系统对接、自动化边界、数据权限和人工兜底。",
     items,
     suggestions,
   };
@@ -771,6 +882,7 @@ export default function TopBar({ backHrefOverride }: { backHrefOverride?: string
   const schemeReview = buildSchemeReview({
     taskType: taskType as "workflow" | "agentic",
     nodes: nodes as Node<FlowNodeData>[],
+    edges: edges as Edge[],
     agenticConfig,
     unansweredCount,
     deferredCount: deferredNodeIds.length,
@@ -930,6 +1042,30 @@ export default function TopBar({ backHrefOverride }: { backHrefOverride?: string
     warning: "建议补充",
     block: "缺关键项",
   };
+  const schemeReviewIssues = schemeReview.items.filter((item) => item.status !== "pass");
+  const schemeReviewPassedCount = schemeReview.items.length - schemeReviewIssues.length;
+  const schemeReviewHasIssues = schemeReviewIssues.length > 0;
+  const schemeReviewPrimaryItems: SchemeReviewItem[] = schemeReviewHasIssues ? schemeReviewIssues : [
+    {
+      label: "技术方能看懂每一步的业务职责",
+      status: "pass",
+      note: "当前每个节点都能看出需要什么、业务人员怎么处理、最后交付什么结果。",
+    },
+    {
+      label: "分支和例外没有只停留在口头说明里",
+      status: "pass",
+      note: "涉及缺资料、升级、续申请等情况时，流程线、输出或策略字段里已有可追踪表达。",
+    },
+    {
+      label: "这不代表技术方案已经通过",
+      status: "warning",
+      note: "Review 只判断业务表达是否适合交给技术，不判断接口、权限、自动化成本和上线风险。",
+    },
+  ];
+  const schemeReviewStatusText = (item: SchemeReviewItem) => {
+    if (!schemeReviewHasIssues && item.label === "这不代表技术方案已经通过") return "后续评估";
+    return schemeReviewStatusLabel[item.status];
+  };
 
   return (
     <header className={`h-14 border-b ${headerBorder} ${headerBg} flex items-center justify-between px-4 shrink-0 transition-colors duration-300`}>
@@ -1069,7 +1205,7 @@ export default function TopBar({ backHrefOverride }: { backHrefOverride?: string
             <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4">
               <div>
                 <h3 className="text-sm font-semibold text-zinc-900">方案 Review</h3>
-                <p className="mt-1 text-xs text-zinc-500">提交前检查这份业务方案是否说清楚了。</p>
+                <p className="mt-1 text-xs text-zinc-500">看这版业务图交给技术方会不会误解、漏分支或返工。</p>
               </div>
               <button onClick={() => setShowSchemeReview(false)} className="text-zinc-400 hover:text-zinc-600">
                 <X className="w-4 h-4" />
@@ -1083,16 +1219,23 @@ export default function TopBar({ backHrefOverride }: { backHrefOverride?: string
               </div>
 
               <div>
-                <p className="mb-2 text-xs font-semibold text-zinc-800">检查项</p>
+                <p className="mb-1 text-xs font-semibold text-zinc-800">
+                  {schemeReviewHasIssues ? "需要你先处理的内容" : "这次 Review 真正确认了什么"}
+                </p>
+                <p className="mb-2 text-xs leading-5 text-zinc-500">
+                  {schemeReviewHasIssues
+                    ? `已通过 ${schemeReviewPassedCount} 项结构检查，下面只列会影响交付判断的问题。`
+                    : `已通过 ${schemeReviewPassedCount} 项硬规则检查；这里不把它包装成技术通过结论。`}
+                </p>
                 <div className="space-y-2">
-                  {schemeReview.items.map((item) => (
+                  {schemeReviewPrimaryItems.map((item) => (
                     <div key={item.label} className="rounded-lg border border-zinc-100 bg-zinc-50 px-3 py-2.5">
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-2">
                           <span className={`h-2 w-2 rounded-full ${schemeReviewDotClass[item.status]}`} />
                           <span className="text-xs font-medium text-zinc-900">{item.label}</span>
                         </div>
-                        <span className="shrink-0 text-[11px] text-zinc-500">{schemeReviewStatusLabel[item.status]}</span>
+                        <span className="shrink-0 text-[11px] text-zinc-500">{schemeReviewStatusText(item)}</span>
                       </div>
                       <p className="mt-1.5 text-xs leading-5 text-zinc-600">{item.note}</p>
                     </div>
@@ -1101,7 +1244,9 @@ export default function TopBar({ backHrefOverride }: { backHrefOverride?: string
               </div>
 
               <div>
-                <p className="mb-2 text-xs font-semibold text-zinc-800">建议下一步</p>
+                <p className="mb-2 text-xs font-semibold text-zinc-800">
+                  {schemeReviewHasIssues ? "建议下一步" : "技术侧下一步会继续看"}
+                </p>
                 <div className="space-y-2">
                   {schemeReview.suggestions.map((suggestion) => (
                     <div key={suggestion.title} className="rounded-lg border border-blue-100 bg-blue-50/70 px-3 py-2.5">
@@ -1119,13 +1264,14 @@ export default function TopBar({ backHrefOverride }: { backHrefOverride?: string
               </Button>
               <Button
                 size="sm"
-                className="flex-1 h-9 text-xs bg-green-600 hover:bg-green-700"
+                disabled={schemeReview.level === "not_ready"}
+                className="flex-1 h-9 text-xs bg-green-600 hover:bg-green-700 disabled:bg-zinc-200 disabled:text-zinc-500"
                 onClick={() => {
                   setShowSchemeReview(false);
                   openConfirmFlow();
                 }}
               >
-                <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> 去确认方案
+                <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> {schemeReview.level === "not_ready" ? "先修复阻塞项" : "去确认方案"}
               </Button>
             </div>
           </div>
