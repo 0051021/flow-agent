@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: flow-agent-retail-ad-review-adapters
+    runtime: docker
+    plan: free
+    region: singapore
+    healthCheckPath: /api/healthz
+    autoDeploy: false
+    envVars:
+      - key: NODE_ENV
+        value: production
