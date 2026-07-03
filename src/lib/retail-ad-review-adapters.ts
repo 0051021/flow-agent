@@ -1164,6 +1164,10 @@ export async function runReportRenderer(payload: JsonRecord) {
     run_id: randomUUID(),
   };
   const reportModelRef = buildFileRef("report-model.json", "report_model", reportModel);
+  const htmlReportFile = files.find((item) => item.format === "html") || null;
+  const excelReportFile = files.find((item) => item.format === "excel") || null;
+  const htmlReportUrl = typeof htmlReportFile?.public_url === "string" ? htmlReportFile.public_url : null;
+  const excelReportUrl = typeof excelReportFile?.public_url === "string" ? excelReportFile.public_url : null;
   return {
     "fld-report-package": reportPackage,
     report_package: reportPackage,
@@ -1171,10 +1175,14 @@ export async function runReportRenderer(payload: JsonRecord) {
     report_model_ref: reportModelRef,
     "fld-business-summary": reportModel.businessSummary,
     business_summary: reportModel.businessSummary,
-    html_report_file: files.find((item) => item.format === "html") || null,
-    excel_report_file: files.find((item) => item.format === "excel") || null,
-    "fld-html-report-file": files.find((item) => item.format === "html") || null,
-    "fld-excel-report-file": files.find((item) => item.format === "excel") || null,
+    html_report_file: htmlReportFile,
+    html_report_url: htmlReportUrl,
+    excel_report_file: excelReportFile,
+    excel_report_url: excelReportUrl,
+    "fld-html-report-file": htmlReportFile,
+    "fld-html-report-url": htmlReportUrl,
+    "fld-excel-report-file": excelReportFile,
+    "fld-excel-report-url": excelReportUrl,
   };
 }
 
