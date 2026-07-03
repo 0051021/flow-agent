@@ -695,6 +695,33 @@ export async function runStandardizer(payload: JsonRecord) {
       : "all_supported";
 
   return {
+    jobFields: {
+      granularity_status: granularityStatus,
+      supported_modules: supportedModules,
+      unsupported_modules: unsupportedModules,
+      supplement_request: supplementRequest,
+      review_scope_summary: review.reviewScopeSummary,
+      review_data_summary: review.reviewDataSummary,
+      review_module_gap_summary: review.reviewModuleGapSummary,
+      review_supplement_guidance: review.reviewSupplementGuidance,
+      review_materials: review.reviewMaterials,
+    },
+    techFields: {
+      raw_data_archive: rawDataArchive,
+      standardized_dataset: standardizedDataset,
+      field_mapping: fieldMapping,
+      metric_dictionary_snapshot: metricDictionary,
+      data_quality_report: dataQualityReport,
+      available_dimensions: detectAvailableDimensions(allSheets),
+      module_data_availability: moduleSupportMatrix,
+      standardization_summary: standardizationSummary,
+      module_support_matrix: moduleSupportMatrix,
+      missing_field_requirements: missingFieldRequirements,
+      raw_data_archive_ref: rawRef,
+      standardized_dataset_ref: datasetRef,
+      field_mapping_ref: mappingRef,
+      metric_dictionary_snapshot_ref: dictionaryRef,
+    },
     raw_data_archive: rawDataArchive,
     standardized_dataset: standardizedDataset,
     field_mapping: fieldMapping,
@@ -999,6 +1026,19 @@ export async function runDiagnosis(payload: JsonRecord) {
   };
   const diagnosisModelRef = buildFileRef("diagnosis-model.json", "diagnosis_model", diagnosisModel);
   return {
+    jobFields: {
+      diagnosis_summary: diagnosisSummary,
+      trend_diagnosis: trendDiagnosis,
+      module_findings: moduleFindings,
+      problem_hypotheses: problemHypotheses,
+      evidence_refs: evidenceRefs,
+    },
+    techFields: {
+      analysis_constraints: analysisConstraints,
+      missing_evidence_requests: [],
+      diagnosis_model_ref: diagnosisModelRef,
+      diagnosis_model: diagnosisModel,
+    },
     trend_diagnosis: trendDiagnosis,
     module_findings: moduleFindings,
     problem_hypotheses: problemHypotheses,
@@ -1169,6 +1209,18 @@ export async function runReportRenderer(payload: JsonRecord) {
   const htmlReportUrl = typeof htmlReportFile?.public_url === "string" ? htmlReportFile.public_url : null;
   const excelReportUrl = typeof excelReportFile?.public_url === "string" ? excelReportFile.public_url : null;
   return {
+    jobFields: {
+      business_summary: reportModel.businessSummary,
+      html_report_url: htmlReportUrl,
+      excel_report_url: excelReportUrl,
+      html_report_file: htmlReportFile,
+      excel_report_file: excelReportFile,
+    },
+    techFields: {
+      report_package: reportPackage,
+      report_model_ref: reportModelRef,
+      report_model: reportModel,
+    },
     "fld-report-package": reportPackage,
     report_package: reportPackage,
     "fld-report-model-ref": reportModelRef,
