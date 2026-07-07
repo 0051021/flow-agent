@@ -7,11 +7,17 @@ type JsonRecord = Record<string, unknown>;
 type FileValue = {
   url?: string;
   file_ref?: string;
+  download_url?: string;
+  inline_download_url?: string;
+  attachment_download_url?: string;
+  public_url?: string;
+  path?: string;
+  uri?: string;
+  artifact_id?: string;
   file_name?: string;
   mime_type?: string;
   role?: string;
   content_base64?: string;
-  public_url?: string;
 };
 
 type SheetSummary = {
@@ -217,7 +223,59 @@ function fileUrl(value: unknown) {
   if (!value) return "";
   if (typeof value === "string") return value;
   if (!isRecord(value)) return "";
-  return String(value.url || value.file_ref || value.path || "");
+  return String(
+    value.url ||
+      value.file_ref ||
+      value.download_url ||
+      value.inline_download_url ||
+      value.attachment_download_url ||
+      value.public_url ||
+      value.path ||
+      "",
+  );
+}
+
+function hasFileReference(value: unknown) {
+  if (!value) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (!isRecord(value)) return false;
+  return Boolean(fileUrl(value) || value.content_base64 || value.artifact_id || value.uri);
+}
+
+function taskPlatformApiBaseUrl() {
+  return (process.env.TASK_PLATFORM_API_BASE_URL || "https://task-platform-staging.nodesk.tech/api/platform").replace(/\/$/, "");
+}
+
+async function resolveArtifactAccessUrl(artifactId: string, label: string) {
+  const token = process.env.TASK_PLATFORM_TOKEN || process.env.TASK_PLATFORM_API_TOKEN;
+  if (!token) {
+    throw createError(
+      "ARTIFACT_DOWNLOAD_AUTH_MISSING",
+      `${label} uses artifact_id but TASK_PLATFORM_TOKEN is not configured for the adapter service.`,
+      false,
+      { artifact_id: artifactId },
+    );
+  }
+  const response = await fetch(
+    `${taskPlatformApiBaseUrl()}/artifacts/${encodeURIComponent(artifactId)}/access?disposition=inline`,
+    {
+      headers: { authorization: `Bearer ${token}` },
+      cache: "no-store",
+    },
+  );
+  if (!response.ok) {
+    throw createError("ARTIFACT_ACCESS_FAILED", `${label} artifact access failed with HTTP ${response.status}.`, false, {
+      artifact_id: artifactId,
+    });
+  }
+  const payload = (await response.json()) as JsonRecord;
+  const url = toText(payload.url);
+  if (!url) {
+    throw createError("ARTIFACT_ACCESS_URL_MISSING", `${label} artifact access response did not include a download URL.`, false, {
+      artifact_id: artifactId,
+    });
+  }
+  return url;
 }
 
 function fileName(value: unknown, fallback: string) {
@@ -228,7 +286,13 @@ function fileName(value: unknown, fallback: string) {
 }
 
 async function downloadFile(value: unknown, label: string) {
-  const url = fileUrl(value);
+  if (isRecord(value) && typeof value.content_base64 === "string" && value.content_base64) {
+    return Buffer.from(value.content_base64, "base64");
+  }
+  let url = fileUrl(value);
+  if (!url && isRecord(value) && typeof value.artifact_id === "string" && value.artifact_id) {
+    url = await resolveArtifactAccessUrl(value.artifact_id, label);
+  }
   if (!url) throw createError("INVALID_FILE_REF", `${label} must include url or file_ref.`);
   if (url.startsWith("data:")) {
     const base64 = url.split(",")[1] || "";
@@ -495,13 +559,20 @@ function normalizeStandardizerRequest(payload: JsonRecord): StandardizerRequest 
   const outputFormats = asArray<string>(pick(payload, "fld-output-formats", "output_formats", "outputFormats"));
   const analysisPeriod = (pick(payload, "fld-analysis-period", "analysis_period", "analysisPeriod") || {}) as JsonRecord;
   const mode = toText(pick(payload, "fld-standardization-mode", "standardization_mode", "standardizationMode"), "initial");
+  const supplementDataFile = pick(payload, "fld-supplement-data-file", "supplement_data_file", "supplementDataFile") as
+    | FileValue
+    | undefined;
+  const needsSupplementData = pick(payload, "need_supplement_data", "fld-need-supplement-data");
+  const hasSupplementDataFile = hasFileReference(supplementDataFile);
+  const shouldMergeSupplement =
+    mode === "supplement_merge" || (hasSupplementDataFile && (needsSupplementData === undefined || Boolean(needsSupplementData)));
   return {
     selectedModules: selectedModules.length ? selectedModules : ["商品"],
     outputFormats: outputFormats.length ? outputFormats : ["html"],
     analysisPeriod,
-    standardizationMode: mode === "supplement_merge" ? "supplement_merge" : "initial",
+    standardizationMode: shouldMergeSupplement ? "supplement_merge" : "initial",
     initialDataFile: pick(payload, "fld-initial-data-file", "initial_data_file", "initialDataFile") as FileValue | undefined,
-    supplementDataFile: pick(payload, "fld-supplement-data-file", "supplement_data_file", "supplementDataFile") as FileValue | undefined,
+    supplementDataFile,
     metricDictionaryFile: pick(payload, "fld-metric-dictionary-file", "metric_dictionary_file", "metricDictionaryFile") as FileValue | undefined,
   };
 }
@@ -591,7 +662,7 @@ export async function runStandardizer(payload: JsonRecord) {
   if (!request.initialDataFile) throw createError("SCHEMA_VALIDATION_FAILED", "Missing initial_data_file.");
   if (!request.metricDictionaryFile) throw createError("SCHEMA_VALIDATION_FAILED", "Missing metric_dictionary_file.");
 
-  const files = [
+  const files: { value: unknown; role: string; file: string; buffer: Buffer }[] = [
     {
       value: request.initialDataFile,
       role: "initial",
@@ -599,12 +670,13 @@ export async function runStandardizer(payload: JsonRecord) {
       buffer: await downloadFile(request.initialDataFile, "initial_data_file"),
     },
   ];
-  if (request.standardizationMode === "supplement_merge" && request.supplementDataFile && fileUrl(request.supplementDataFile)) {
+  const supplementDataFile = request.supplementDataFile;
+  if (request.standardizationMode === "supplement_merge" && hasFileReference(supplementDataFile)) {
     files.push({
-      value: request.supplementDataFile,
+      value: supplementDataFile,
       role: "supplement",
-      file: fileUrl(request.supplementDataFile),
-      buffer: await downloadFile(request.supplementDataFile, "supplement_data_file"),
+      file: fileUrl(supplementDataFile) || `artifact:${supplementDataFile?.artifact_id || supplementDataFile?.uri || "supplement"}`,
+      buffer: await downloadFile(supplementDataFile, "supplement_data_file"),
     });
   }
   const dictionaryBuffer = await downloadFile(request.metricDictionaryFile, "metric_dictionary_file");
