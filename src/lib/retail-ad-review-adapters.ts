@@ -290,7 +290,12 @@ async function downloadFile(value: unknown, label: string) {
     return Buffer.from(value.content_base64, "base64");
   }
   let url = fileUrl(value);
-  if (!url && isRecord(value) && typeof value.artifact_id === "string" && value.artifact_id) {
+  if (
+    isRecord(value) &&
+    typeof value.artifact_id === "string" &&
+    value.artifact_id &&
+    (!url || url.startsWith("/"))
+  ) {
     url = await resolveArtifactAccessUrl(value.artifact_id, label);
   }
   if (!url) throw createError("INVALID_FILE_REF", `${label} must include url or file_ref.`);
@@ -564,8 +569,14 @@ function normalizeStandardizerRequest(payload: JsonRecord): StandardizerRequest 
     | undefined;
   const needsSupplementData = pick(payload, "need_supplement_data", "fld-need-supplement-data");
   const hasSupplementDataFile = hasFileReference(supplementDataFile);
+  const supplementRequested =
+    needsSupplementData === undefined ||
+    needsSupplementData === true ||
+    needsSupplementData === "true" ||
+    needsSupplementData === "1" ||
+    needsSupplementData === 1;
   const shouldMergeSupplement =
-    mode === "supplement_merge" || (hasSupplementDataFile && (needsSupplementData === undefined || Boolean(needsSupplementData)));
+    mode === "supplement_merge" || (hasSupplementDataFile && supplementRequested);
   return {
     selectedModules: selectedModules.length ? selectedModules : ["商品"],
     outputFormats: outputFormats.length ? outputFormats : ["html"],
