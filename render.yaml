@@ -9,3 +9,7 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: TASK_PLATFORM_API_BASE_URL
+        value: https://task-platform-staging.nodesk.tech/api/platform
+      - key: TASK_PLATFORM_TOKEN
+        sync: false
